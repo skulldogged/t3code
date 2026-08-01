@@ -10,6 +10,7 @@ import type {
 } from "@t3tools/contracts/relay";
 import * as Option from "effect/Option";
 import { useCallback, useMemo } from "react";
+import { Platform } from "react-native";
 
 import { environmentCatalog } from "../../connection/catalog";
 import {
@@ -21,6 +22,10 @@ import { relayEnvironmentDiscovery } from "../../state/relay";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { projectWorkspaceEnvironment, type WorkspaceEnvironment } from "../../state/workspaceModel";
 import { relayManagedEnvironmentIds } from "./environmentSections";
+import {
+  clearBackgroundConnectionRetainedThread,
+  getBackgroundConnectionRetainedThreadSnapshot,
+} from "../background-connection/retained-thread";
 
 export interface RelayEnvironmentView {
   readonly environment: RelayClientEnvironmentRecord;
@@ -86,7 +91,17 @@ export function useConnectionController() {
     [registerEnvironment],
   );
   const removeEnvironment = useCallback(
-    (environmentId: EnvironmentId) => removeEnvironmentMutation(environmentId),
+    async (environmentId: EnvironmentId) => {
+      const result = await removeEnvironmentMutation(environmentId);
+      if (
+        Platform.OS === "android" &&
+        result._tag === "Success" &&
+        getBackgroundConnectionRetainedThreadSnapshot().thread?.environmentId === environmentId
+      ) {
+        void clearBackgroundConnectionRetainedThread();
+      }
+      return result;
+    },
     [removeEnvironmentMutation],
   );
   const retryEnvironment = useCallback(
