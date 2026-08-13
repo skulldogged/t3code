@@ -1027,6 +1027,137 @@ describe("PiAdapter", () => {
     );
   });
 
+  it.effect("keeps async pi-subagents runs active through completion notifications", () => {
+    const h = makeHarness();
+    return withAdapter(h, (adapter) =>
+      Effect.gen(function* () {
+        yield* start(adapter);
+        let completedTurns = 0;
+        const collected = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => {
+            if (event.type !== "turn.completed") return false;
+            completedTurns += 1;
+            return completedTurns === 2;
+          }),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* adapter.sendTurn({
+          threadId: ThreadId.make("thread"),
+          input: "delegate in the background",
+          modelSelection,
+        });
+        yield* Queue.offerAll(h.client.input, [
+          {
+            type: "tool_execution_start",
+            toolCallId: "async-single",
+            toolName: "subagent",
+            args: { agent: "scout", task: "Find the auth flow", model: "openai/gpt-5" },
+          },
+          {
+            type: "tool_execution_end",
+            toolCallId: "async-single",
+            toolName: "subagent",
+            result: {
+              content: [{ type: "text", text: "Async: scout [run-single]" }],
+              details: {
+                mode: "single",
+                runId: "run-single",
+                asyncId: "run-single",
+                results: [],
+              },
+            },
+            isError: false,
+          },
+          {
+            type: "tool_execution_start",
+            toolCallId: "async-parallel",
+            toolName: "subagent",
+            args: {
+              tasks: [
+                { agent: "reviewer", task: "Review the change" },
+                { agent: "tester", task: "Test the change" },
+              ],
+            },
+          },
+          {
+            type: "tool_execution_end",
+            toolCallId: "async-parallel",
+            toolName: "subagent",
+            result: {
+              content: [{ type: "text", text: "Async parallel: reviewer+tester [run-parallel]" }],
+              details: {
+                mode: "parallel",
+                runId: "run-parallel",
+                asyncId: "run-parallel",
+                results: [],
+              },
+            },
+            isError: false,
+          },
+          { type: "agent_settled" },
+          { type: "agent_start" },
+          {
+            type: "message_end",
+            message: {
+              role: "custom",
+              customType: "subagent-notify",
+              content:
+                "Background tasks completed (2): **scout**, **parallel:reviewer+tester**\n\n" +
+                "1. scout\nFound the auth flow\n\n" +
+                "2. parallel:reviewer+tester\nReview and tests passed",
+            },
+          },
+          {
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta: "Delegation complete" },
+          },
+          { type: "agent_settled" },
+        ]);
+
+        const events = Array.from(yield* Fiber.join(collected));
+        const tasks = events.filter(
+          (
+            event,
+          ): event is Extract<
+            ProviderRuntimeEvent,
+            { type: "task.started" | "task.progress" | "task.completed" }
+          > =>
+            event.type === "task.started" ||
+            event.type === "task.progress" ||
+            event.type === "task.completed",
+        );
+        assert.deepEqual(
+          tasks.map((event) => event.type),
+          [
+            "task.started",
+            "task.progress",
+            "task.started",
+            "task.progress",
+            "task.started",
+            "task.progress",
+            "task.completed",
+            "task.completed",
+            "task.completed",
+          ],
+        );
+        assert.deepEqual(
+          tasks
+            .filter((event) => event.type === "task.started")
+            .map((event) => event.payload.title),
+          ["scout", "reviewer", "tester"],
+        );
+        assert.equal(new Set(tasks.map((event) => event.payload.taskId)).size, 3);
+        assert.deepEqual(
+          tasks
+            .filter((event) => event.type === "task.completed")
+            .map((event) => event.payload.status),
+          ["completed", "completed", "completed"],
+        );
+      }),
+    );
+  });
+
   it.effect("classifies pi-mcp-adapter proxy and direct calls as MCP tools", () => {
     const h = makeHarness();
     return withAdapter(h, (adapter) =>

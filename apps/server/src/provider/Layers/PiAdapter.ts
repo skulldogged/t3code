@@ -127,7 +127,23 @@ interface PiExtensionSubagentTask {
   readonly role: string;
   readonly model: string | undefined;
   readonly toolUseId: string;
+  readonly runId: string | undefined;
+  readonly notificationAgent: string | undefined;
   state: "running" | "completed" | "failed" | "stopped";
+}
+
+interface PiExtensionSubagentCandidate {
+  readonly title: string;
+  readonly description: string;
+  readonly model: string | undefined;
+}
+
+interface PiExtensionSubagentNotice {
+  readonly runId: string | undefined;
+  readonly agent: string;
+  readonly status: "completed" | "failed" | "stopped";
+  readonly summary: string | undefined;
+  readonly durationMs: number | undefined;
 }
 
 type PiThreadTokenUsage = Extract<
@@ -170,6 +186,163 @@ const string = (value: unknown): string | undefined =>
   typeof value === "string" && value.length > 0 ? value : undefined;
 const trimmedString = (value: unknown): string | undefined =>
   typeof value === "string" ? value.trim() || undefined : undefined;
+
+const piExtensionSubagentCandidate = (
+  value: Record<string, unknown>,
+  fallbackTask: string | undefined,
+  fallbackModel: string | undefined,
+): PiExtensionSubagentCandidate | undefined => {
+  const title = trimmedString(value.agent);
+  if (!title) return undefined;
+  return {
+    title,
+    description: trimmedString(value.task) ?? fallbackTask ?? title,
+    model: trimmedString(value.model) ?? trimmedString(value.modelOverride) ?? fallbackModel,
+  };
+};
+
+const piExtensionSubagentCandidates = (
+  args: Record<string, unknown>,
+): ReadonlyArray<PiExtensionSubagentCandidate> => {
+  const fallbackTask = trimmedString(args.task) ?? trimmedString(args.goal);
+  const fallbackModel = trimmedString(args.model) ?? trimmedString(args.modelOverride);
+  const direct = piExtensionSubagentCandidate(args, fallbackTask, fallbackModel);
+  if (direct) return [direct];
+
+  if (Array.isArray(args.tasks)) {
+    const tasks = args.tasks.flatMap((value) => {
+      if (!isRecord(value)) return [];
+      const candidate = piExtensionSubagentCandidate(value, fallbackTask, fallbackModel);
+      return candidate ? [candidate] : [];
+    });
+    if (tasks.length > 0) return tasks;
+  }
+
+  if (Array.isArray(args.chain)) {
+    const chain = args.chain.flatMap((value) => {
+      if (!isRecord(value)) return [];
+      if (Array.isArray(value.parallel)) {
+        return value.parallel.flatMap((parallelValue) => {
+          if (!isRecord(parallelValue)) return [];
+          const candidate = piExtensionSubagentCandidate(
+            parallelValue,
+            fallbackTask,
+            fallbackModel,
+          );
+          return candidate ? [candidate] : [];
+        });
+      }
+      if (isRecord(value.parallel)) {
+        const candidate = piExtensionSubagentCandidate(value.parallel, fallbackTask, fallbackModel);
+        return candidate ? [candidate] : [];
+      }
+      const candidate = piExtensionSubagentCandidate(value, fallbackTask, fallbackModel);
+      return candidate ? [candidate] : [];
+    });
+    if (chain.length > 0) return chain;
+  }
+
+  return [
+    {
+      title: "Subagent",
+      description: fallbackTask ?? trimmedString(args.scriptPath) ?? "Background subagent",
+      model: fallbackModel,
+    },
+  ];
+};
+
+const piExtensionNotificationAgent = (
+  mode: string | undefined,
+  candidates: ReadonlyArray<PiExtensionSubagentCandidate>,
+) => {
+  const agents = candidates.map((candidate) => candidate.title);
+  if (agents.length === 1) return agents[0];
+  if (mode === "parallel") return `parallel:${agents.join("+")}`;
+  if (mode === "chain" || mode === "workflow") return `chain:${agents.join("->")}`;
+  return undefined;
+};
+
+const piExtensionNoticeStatus = (
+  value: unknown,
+): PiExtensionSubagentNotice["status"] | undefined => {
+  if (value === "completed" || value === "complete" || value === "done") return "completed";
+  if (value === "failed" || value === "error") return "failed";
+  if (value === "stopped" || value === "paused" || value === "aborted") return "stopped";
+  return undefined;
+};
+
+const piExtensionSubagentNotices = (
+  message: Record<string, unknown>,
+): ReadonlyArray<PiExtensionSubagentNotice> => {
+  const content =
+    trimmedString(message.content) ??
+    (Array.isArray(message.content)
+      ? message.content
+          .flatMap((part) => (isRecord(part) && typeof part.text === "string" ? [part.text] : []))
+          .join("\n")
+          .trim() || undefined
+      : undefined);
+  const details = isRecord(message.details) ? message.details : undefined;
+  const detailRecords = details
+    ? [details, ...(Array.isArray(details.others) ? details.others.filter(isRecord) : [])]
+    : [];
+  const structured = detailRecords.flatMap((detail) => {
+    const agent = trimmedString(detail.agent) ?? trimmedString(detail.title);
+    const status = piExtensionNoticeStatus(detail.status);
+    if (!agent || !status) return [];
+    const durationMs =
+      typeof detail.durationMs === "number" &&
+      Number.isFinite(detail.durationMs) &&
+      detail.durationMs >= 0
+        ? Math.floor(detail.durationMs)
+        : undefined;
+    return [
+      {
+        runId:
+          trimmedString(detail.runId) ?? trimmedString(detail.asyncId) ?? trimmedString(detail.id),
+        agent,
+        status,
+        summary: trimmedString(detail.resultPreview) ?? trimmedString(detail.error) ?? content,
+        durationMs,
+      },
+    ];
+  });
+  if (structured.length > 0) return structured;
+  if (!content) return [];
+
+  const firstLine = content.split(/\r?\n/u, 1)[0] ?? "";
+  const single = firstLine.match(
+    /^(?:Background task|Detached foreground task) (completed|failed|paused|stopped): \*\*(.+?)\*\*(?:\s+\([^)]*\))?$/u,
+  );
+  if (single) {
+    const status = piExtensionNoticeStatus(single[1]);
+    const agent = trimmedString(single[2]);
+    if (!status || !agent) return [];
+    const summary =
+      content
+        .split(/\r?\n\r?\n/u)
+        .slice(1)
+        .join("\n\n")
+        .trim() || undefined;
+    return [{ runId: undefined, agent, status, summary, durationMs: undefined }];
+  }
+
+  if (!firstLine.startsWith("Background tasks completed")) return [];
+  return Array.from(firstLine.matchAll(/\*\*(.+?)\*\*(?:\s+\([^)]*\))?/gu)).flatMap((match) => {
+    const agent = trimmedString(match[1]);
+    return agent
+      ? [
+          {
+            runId: undefined,
+            agent,
+            status: "completed" as const,
+            summary: content,
+            durationMs: undefined,
+          },
+        ]
+      : [];
+  });
+};
 
 const piToolText = (value: unknown): string | undefined => {
   const record = isRecord(value) ? value : undefined;
@@ -1083,6 +1256,79 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (options: PiAd
     if (event) yield* offer(event);
   });
 
+  const extensionSubagentLinkage = (task: PiExtensionSubagentTask) => ({
+    taskType: "subagent" as const,
+    title: task.title,
+    role: task.role,
+    ...(task.model ? { model: task.model } : {}),
+    toolUseId: task.toolUseId,
+  });
+
+  const completeExtensionSubagentTask = Effect.fn("PiAdapter.completeExtensionSubagentTask")(
+    function* (
+      ctx: SessionContext,
+      turn: ActiveTurn,
+      task: PiExtensionSubagentTask,
+      status: "completed" | "failed" | "stopped",
+      summary: string | undefined,
+      native: PiRpcEvent,
+      durationMs?: number,
+    ) {
+      if (task.state !== "running") return;
+      task.state = status;
+      yield* offer({
+        type: "task.completed",
+        ...(yield* base(ctx, turn)),
+        payload: {
+          taskId: task.taskId,
+          status,
+          ...(summary ? { summary: summary.slice(0, 2_000) } : {}),
+          ...(durationMs !== undefined ? { typedUsage: { totalTokens: 0, durationMs } } : {}),
+          ...extensionSubagentLinkage(task),
+        },
+        raw: raw(native),
+      });
+    },
+  );
+
+  const completeExtensionSubagentRun = Effect.fn("PiAdapter.completeExtensionSubagentRun")(
+    function* (
+      ctx: SessionContext,
+      turn: ActiveTurn,
+      notice: PiExtensionSubagentNotice,
+      native: PiRpcEvent,
+    ) {
+      const groups = new Map<string, Array<PiExtensionSubagentTask>>();
+      for (const task of ctx.extensionSubagentTasks.values()) {
+        if (task.state !== "running") continue;
+        const key = task.runId ?? `tool:${task.toolUseId}`;
+        const group = groups.get(key) ?? [];
+        group.push(task);
+        groups.set(key, group);
+      }
+      const exactRun = notice.runId ? groups.get(notice.runId) : undefined;
+      const matchingRun =
+        exactRun ??
+        Array.from(groups.values()).find(
+          (tasks) =>
+            tasks[0]?.notificationAgent === notice.agent ||
+            (tasks.length === 1 && tasks[0]?.title === notice.agent),
+        );
+      if (!matchingRun) return;
+      for (const task of matchingRun) {
+        yield* completeExtensionSubagentTask(
+          ctx,
+          turn,
+          task,
+          notice.status,
+          notice.summary,
+          native,
+          notice.durationMs,
+        );
+      }
+    },
+  );
+
   const handleExtensionSubagentToolEvent = Effect.fn("PiAdapter.handleExtensionSubagentToolEvent")(
     function* (
       ctx: SessionContext,
@@ -1095,25 +1341,90 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (options: PiAd
       if (type !== "tool_execution_update" && type !== "tool_execution_end") return;
       const toolUseId = string(event.toolCallId) ?? string(event.toolCallID);
       const details = workflowDetails(event);
+      const args = isRecord(event.args) ? event.args : {};
       if (!toolUseId) return;
+      if (details && Array.isArray(details.completions)) {
+        const summary = piToolText(event.result ?? event.partialResult)?.slice(0, 2_000);
+        for (const completion of details.completions) {
+          if (!isRecord(completion)) continue;
+          const runId = trimmedString(completion.runId);
+          if (!runId) continue;
+          const state = trimmedString(completion.state);
+          const status =
+            completion.success === true || state === "complete" || state === "completed"
+              ? "completed"
+              : state === "stopped" || state === "paused" || state === "aborted"
+                ? "stopped"
+                : "failed";
+          yield* completeExtensionSubagentRun(
+            ctx,
+            turn,
+            {
+              runId,
+              agent: trimmedString(completion.agent) ?? runId,
+              status,
+              summary,
+              durationMs: undefined,
+            },
+            native,
+          );
+        }
+      }
       if (!details || !Array.isArray(details.results)) {
         if (type !== "tool_execution_end") return;
         const summary = piToolText(event.result ?? event.partialResult) ?? "Subagent stopped";
         for (const [key, task] of ctx.extensionSubagentTasks) {
           if (!key.startsWith(`${toolUseId}:`) || task.state !== "running") continue;
-          task.state = "stopped";
+          yield* completeExtensionSubagentTask(ctx, turn, task, "stopped", summary, native);
+        }
+        return;
+      }
+
+      const runId = trimmedString(details.runId) ?? trimmedString(details.asyncId);
+      if (
+        type === "tool_execution_end" &&
+        details.results.length === 0 &&
+        runId &&
+        !trimmedString(args.action)
+      ) {
+        const candidates = piExtensionSubagentCandidates(args);
+        const mode = trimmedString(details.mode);
+        const notificationAgent = piExtensionNotificationAgent(mode, candidates);
+        const agentScope = trimmedString(details.agentScope);
+        const role = agentScope === "user" ? "user" : "unknown";
+        for (const [index, candidate] of candidates.entries()) {
+          const key = `${toolUseId}:async:${index}`;
+          if (ctx.extensionSubagentTasks.has(key)) continue;
+          const task: PiExtensionSubagentTask = {
+            taskId: RuntimeTaskId.make(`pi-subagent:${key}`),
+            description: candidate.description,
+            title: candidate.title,
+            role,
+            model: candidate.model,
+            toolUseId,
+            runId,
+            notificationAgent,
+            state: "running",
+          };
+          ctx.extensionSubagentTasks.set(key, task);
           yield* offer({
-            type: "task.completed",
+            type: "task.started",
             ...(yield* base(ctx, turn)),
             payload: {
               taskId: task.taskId,
-              status: "stopped",
-              summary,
-              taskType: "subagent",
-              title: task.title,
-              role: task.role,
-              ...(task.model ? { model: task.model } : {}),
-              toolUseId: task.toolUseId,
+              description: task.description,
+              ...extensionSubagentLinkage(task),
+            },
+            raw: raw(native),
+          });
+          yield* offer({
+            type: "task.progress",
+            ...(yield* base(ctx, turn)),
+            payload: {
+              taskId: task.taskId,
+              description: task.description,
+              status: "running",
+              ...extensionSubagentLinkage(task),
             },
             raw: raw(native),
           });
@@ -1145,7 +1456,17 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (options: PiAd
           toolUseId,
         } as const;
         if (!task) {
-          task = { taskId, description, title: agent, role, model, toolUseId, state: "running" };
+          task = {
+            taskId,
+            description,
+            title: agent,
+            role,
+            model,
+            toolUseId,
+            runId: undefined,
+            notificationAgent: undefined,
+            state: "running",
+          };
           ctx.extensionSubagentTasks.set(key, task);
           yield* offer({
             type: "task.started",
@@ -1365,6 +1686,12 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (options: PiAd
     native: PiRpcEvent,
   ) {
     const message = isRecord(event.message) ? event.message : undefined;
+    if (message?.role === "custom" && message.customType === "subagent-notify") {
+      for (const notice of piExtensionSubagentNotices(message)) {
+        yield* completeExtensionSubagentRun(ctx, turn, notice, native);
+      }
+      return true;
+    }
     if (
       message?.role !== "custom" ||
       (message.customType !== "subagent-result" && message.customType !== "subagent-notification")
