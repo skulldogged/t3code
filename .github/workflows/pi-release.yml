@@ -186,6 +186,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
       - name: Stamp release versions
         run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
       - name: Build web and server
@@ -197,7 +198,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-publish
-          npm pack ./apps/server --pack-destination release-publish
+          node scripts/pack-server-artifact.ts "${{ needs.metadata.outputs.version }}" release-publish
       - name: Build preview APK
         shell: bash
         env:
