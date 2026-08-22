@@ -10,6 +10,7 @@ Object.assign(process.env, repoEnv);
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
 const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
+const androidVersionCode = resolveAndroidVersionCode(repoEnv.T3CODE_ANDROID_VERSION_CODE);
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
@@ -95,6 +96,16 @@ function resolveAppVariant(value: string | undefined): AppVariant {
     default:
       return "production";
   }
+}
+
+function resolveAndroidVersionCode(value: string | undefined): number {
+  if (value === undefined || value.trim() === "") return 1;
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 2_100_000_000) {
+    throw new Error("T3CODE_ANDROID_VERSION_CODE must be an integer between 1 and 2100000000.");
+  }
+  return parsed;
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
@@ -220,6 +231,7 @@ const config: ExpoConfig = {
   android: {
     icon: variant.assets.appIcon,
     package: variant.androidPackage,
+    versionCode: androidVersionCode,
     adaptiveIcon: {
       backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
       foregroundImage: variant.assets.androidAdaptiveForeground,
