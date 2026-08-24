@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import * as Notifications from "expo-notifications";
 import { Alert, AppState, Platform, Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
+import { ensureAgentNotificationChannels } from "../agent-awareness/notificationChannels";
 import {
   addBackgroundConnectionStatusListener,
   getBackgroundConnectionStatus,
@@ -27,6 +29,15 @@ function promptForBatteryExemption(
       { text: "Allow", onPress: () => void requestExemption() },
     ],
   );
+}
+
+async function requestAgentNotificationsIfNeeded(): Promise<void> {
+  await ensureAgentNotificationChannels();
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.granted || !existing.canAskAgain) {
+    return;
+  }
+  await Notifications.requestPermissionsAsync();
 }
 
 export function BackgroundConnectionSettingsSection() {
@@ -63,6 +74,13 @@ export function BackgroundConnectionSettingsSection() {
       }
       setChanging(true);
       setStatus((current) => ({ ...current, enabled }));
+      if (enabled) {
+        try {
+          await requestAgentNotificationsIfNeeded();
+        } catch (error) {
+          console.warn("[background-connection] could not request agent notifications", error);
+        }
+      }
       const next = await setBackgroundConnectionEnabled(enabled);
       setStatus(next);
       setChanging(false);
@@ -110,7 +128,8 @@ export function BackgroundConnectionSettingsSection() {
       <Text className="px-2 text-sm leading-normal text-foreground-muted">
         Keeps environments and active work synchronized while your phone is locked or another app is
         open. This can noticeably increase battery use, and Android will show a silent ongoing
-        service status.
+        service status. Background connection, live status, and agent alerts use separate Android
+        notification channels.
       </Text>
     </View>
   );

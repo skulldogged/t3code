@@ -1,56 +1,84 @@
 import * as Notifications from "expo-notifications";
+import * as Linking from "expo-linking";
 import { Platform } from "react-native";
 
+import {
+  endAgentLiveUpdate,
+  hideAgentLiveUpdate,
+  publishAgentLiveUpdate,
+} from "../../native/backgroundConnection";
 import { ensureAgentNotificationChannels } from "./notificationChannels";
 import {
-  buildOngoingAgentNotificationContent,
-  ongoingAgentNotificationTrigger,
-  ONGOING_AGENT_NOTIFICATION_TAG,
+  AGENT_ALERT_NOTIFICATION_TAG,
+  agentAlertNotificationIdentifier,
+  agentAlertNotificationTrigger,
+  buildAgentAlertNotificationContent,
+} from "./agentAlertModel";
+import {
+  buildAgentLiveUpdateContent,
   shouldShowOngoingAgentNotification,
 } from "./ongoingNotificationModel";
 import type { RelayAgentActivityAggregateState } from "@t3tools/contracts/relay";
 
 let handlerInstalled = false;
 let lastPublishedFingerprint: string | null = null;
-let ongoingNotificationVisible = false;
+let liveUpdateEnded = false;
 
 function installOngoingNotificationHandler(): void {
   if (handlerInstalled || Platform.OS !== "android") {
     return;
   }
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: false,
-      shouldShowList: true,
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-    }),
+    handleNotification: async (notification) => {
+      const notificationTag = notification.request.content.data?.notificationTag;
+      const isAgentAlert = notificationTag === AGENT_ALERT_NOTIFICATION_TAG;
+      return {
+        shouldShowBanner: isAgentAlert,
+        shouldShowList: isAgentAlert,
+        shouldPlaySound: isAgentAlert,
+        shouldSetBadge: false,
+      };
+    },
   });
   handlerInstalled = true;
+}
+
+export async function publishAgentTransitionNotification(
+  state: import("@t3tools/shared/agentAwareness").AgentAwarenessState,
+): Promise<void> {
+  if (Platform.OS !== "android") {
+    return;
+  }
+  installOngoingNotificationHandler();
+  await ensureAgentNotificationChannels();
+  await Notifications.scheduleNotificationAsync({
+    identifier: agentAlertNotificationIdentifier(state),
+    content: buildAgentAlertNotificationContent(state),
+    trigger: agentAlertNotificationTrigger(),
+  });
 }
 
 function fingerprintAggregate(aggregate: RelayAgentActivityAggregateState): string {
   return JSON.stringify({
     activeCount: aggregate.activeCount,
-    updatedAt: aggregate.updatedAt,
     activities: aggregate.activities.map((row) => ({
       environmentId: row.environmentId,
       threadId: row.threadId,
+      projectTitle: row.projectTitle,
+      threadTitle: row.threadTitle,
+      modelTitle: row.modelTitle,
       phase: row.phase,
-      status: row.status,
-      updatedAt: row.updatedAt,
+      deepLink: row.deepLink,
     })),
   });
 }
 
 export async function clearOngoingAgentNotification(): Promise<void> {
-  if (Platform.OS !== "android" || !ongoingNotificationVisible) {
-    lastPublishedFingerprint = null;
-    return;
+  if (Platform.OS !== "android") return;
+  if (!liveUpdateEnded) {
+    endAgentLiveUpdate();
   }
-
-  await Notifications.dismissNotificationAsync(ONGOING_AGENT_NOTIFICATION_TAG);
-  ongoingNotificationVisible = false;
+  liveUpdateEnded = true;
   lastPublishedFingerprint = null;
 }
 
@@ -59,16 +87,20 @@ export async function syncOngoingAgentNotification(input: {
   readonly notificationsEnabled: boolean;
   readonly colorScheme?: "light" | "dark";
 }): Promise<void> {
-  if (Platform.OS !== "android" || !input.notificationsEnabled) {
+  if (Platform.OS !== "android") {
+    return;
+  }
+
+  if (!shouldShowOngoingAgentNotification(input.aggregate)) {
     await clearOngoingAgentNotification();
     return;
   }
 
-  installOngoingNotificationHandler();
-  await ensureAgentNotificationChannels();
+  liveUpdateEnded = false;
 
-  if (!shouldShowOngoingAgentNotification(input.aggregate)) {
-    await clearOngoingAgentNotification();
+  if (!input.notificationsEnabled) {
+    hideAgentLiveUpdate();
+    lastPublishedFingerprint = null;
     return;
   }
 
@@ -77,17 +109,21 @@ export async function syncOngoingAgentNotification(input: {
     return;
   }
 
-  await Notifications.scheduleNotificationAsync({
-    identifier: ONGOING_AGENT_NOTIFICATION_TAG,
-    content: buildOngoingAgentNotificationContent(input.aggregate, input.colorScheme ?? "dark"),
-    trigger: ongoingAgentNotificationTrigger(),
-  });
-  ongoingNotificationVisible = true;
-  lastPublishedFingerprint = fingerprint;
+  const primary = input.aggregate.activities[0]!;
+  const published = publishAgentLiveUpdate(
+    buildAgentLiveUpdateContent(
+      input.aggregate,
+      Linking.createURL(primary.deepLink),
+      input.colorScheme ?? "dark",
+    ),
+  );
+  if (published) {
+    lastPublishedFingerprint = fingerprint;
+  }
 }
 
 export function resetOngoingAgentNotificationSyncForTests(): void {
   handlerInstalled = false;
   lastPublishedFingerprint = null;
-  ongoingNotificationVisible = false;
+  liveUpdateEnded = false;
 }

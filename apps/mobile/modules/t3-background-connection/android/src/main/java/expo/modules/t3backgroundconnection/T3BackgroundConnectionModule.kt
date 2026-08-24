@@ -98,6 +98,40 @@ class T3BackgroundConnectionModule : Module() {
       T3BackgroundConnectionState.acknowledgeStop(context)
       T3BackgroundConnectionState.status(context)
     }
+
+    Function("getAgentLiveUpdateStatus") {
+      T3AgentLiveUpdate.status(applicationContext())
+    }
+
+    Function("publishAgentLiveUpdate") {
+        title: String,
+        text: String,
+        shortCriticalText: String,
+        deepLinkUrl: String,
+        color: String,
+      ->
+      T3AgentLiveUpdate.publish(
+        applicationContext(),
+        title,
+        text,
+        shortCriticalText,
+        deepLinkUrl,
+        color,
+      )
+    }
+
+    Function("endAgentLiveUpdate") {
+      T3AgentLiveUpdate.end(applicationContext())
+    }
+
+    Function("hideAgentLiveUpdate") {
+      T3AgentLiveUpdate.hide(applicationContext())
+    }
+
+    AsyncFunction("openAgentLiveUpdateSettings") {
+      T3AgentLiveUpdate.openPromotionSettings(applicationContext())
+      T3AgentLiveUpdate.status(applicationContext())
+    }.runOnQueue(Queues.MAIN)
   }
 
   private fun applicationContext(): Context =

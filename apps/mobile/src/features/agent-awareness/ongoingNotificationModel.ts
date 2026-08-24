@@ -1,13 +1,8 @@
 import type { RelayAgentActivityAggregateState } from "@t3tools/contracts/relay";
-import * as Notifications from "expo-notifications";
+import type { AgentLiveUpdateContent } from "../../native/backgroundConnection";
 
-import { agentPhaseAccentColor, agentPhaseStatusLabel } from "../threads/agentPhaseIndicatorModel";
-import { AGENT_NOTIFICATION_CHANNEL_IDS } from "./notificationChannels";
-
-export const ONGOING_AGENT_NOTIFICATION_TAG = "t3-agent-aggregate" as const;
-
-const MAX_SUMMARY_TEXT_LENGTH = 120;
-const MAX_STATUS_TEXT_LENGTH = 40;
+const MAX_TITLE_TEXT_LENGTH = 72;
+const MAX_CONTEXT_TEXT_LENGTH = 56;
 
 const FORBIDDEN_BODY_PATTERNS = [
   /\bstdout\b/i,
@@ -17,7 +12,63 @@ const FORBIDDEN_BODY_PATTERNS = [
   /(?:^|\s)[A-Za-z]:\\[\w\\.-]+\.[A-Za-z0-9]{1,8}(?:\s|$)/,
 ] as const;
 
-export type OngoingAgentNotificationPhase = "running" | "waiting_for_approval";
+function agentPhaseAccentColor(
+  phase: RelayAgentActivityAggregateState["activities"][number]["phase"],
+  colorScheme: "light" | "dark",
+): string {
+  const isLight = colorScheme === "light";
+  switch (phase) {
+    case "waiting_for_approval":
+      return isLight ? "#d97706" : "#fcd34d";
+    case "waiting_for_input":
+      return isLight ? "#4f46e5" : "#a5b4fc";
+    case "failed":
+      return isLight ? "#dc2626" : "#fca5a5";
+    case "completed":
+      return isLight ? "#059669" : "#6ee7b7";
+    case "starting":
+    case "running":
+    case "stale":
+      return isLight ? "#0284c7" : "#7dd3fc";
+  }
+}
+
+function agentPhaseStatusLabel(phase: OngoingAgentNotificationPhase): string {
+  switch (phase) {
+    case "starting":
+      return "Starting";
+    case "running":
+      return "Working";
+    case "waiting_for_approval":
+      return "Approval needed";
+    case "waiting_for_input":
+      return "Input needed";
+    case "stale":
+      return "Waiting";
+  }
+}
+
+function agentPhaseCriticalLabel(phase: OngoingAgentNotificationPhase): string {
+  switch (phase) {
+    case "starting":
+      return "Start";
+    case "running":
+      return "Working";
+    case "waiting_for_approval":
+      return "Review";
+    case "waiting_for_input":
+      return "Input";
+    case "stale":
+      return "Waiting";
+  }
+}
+
+export type OngoingAgentNotificationPhase =
+  | "starting"
+  | "running"
+  | "waiting_for_approval"
+  | "waiting_for_input"
+  | "stale";
 
 export function shouldShowOngoingAgentNotification(
   aggregate: RelayAgentActivityAggregateState | null,
@@ -29,7 +80,13 @@ export function shouldShowOngoingAgentNotification(
   if (!primary) {
     return false;
   }
-  return primary.phase === "running" || primary.phase === "waiting_for_approval";
+  return (
+    primary.phase === "starting" ||
+    primary.phase === "running" ||
+    primary.phase === "waiting_for_approval" ||
+    primary.phase === "waiting_for_input" ||
+    primary.phase === "stale"
+  );
 }
 
 function truncateText(value: string, maxLength: number): string {
@@ -40,26 +97,17 @@ function truncateText(value: string, maxLength: number): string {
   return `${trimmed.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
-function formatUpdatedAtLabel(updatedAt: string): string {
-  const parsed = Date.parse(updatedAt);
-  if (!Number.isFinite(parsed)) {
-    return "now";
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(parsed));
-}
-
 function formatExpandedBody(aggregate: RelayAgentActivityAggregateState): string {
-  const lines: string[] = [`${aggregate.activeCount} active`];
-  for (const row of aggregate.activities) {
+  const primary = aggregate.activities[0]!;
+  const lines = [
+    `${truncateText(primary.projectTitle, MAX_CONTEXT_TEXT_LENGTH)} · ${truncateText(primary.modelTitle, MAX_CONTEXT_TEXT_LENGTH)}`,
+  ];
+  const additionalCount = Math.max(0, aggregate.activeCount - 1);
+  if (additionalCount > 0) {
     lines.push(
-      truncateText(row.threadTitle, MAX_SUMMARY_TEXT_LENGTH),
-      `${truncateText(row.projectTitle, MAX_SUMMARY_TEXT_LENGTH)} · ${truncateText(row.modelTitle, MAX_SUMMARY_TEXT_LENGTH)} — ${truncateText(row.status, MAX_STATUS_TEXT_LENGTH)}`,
+      `+${additionalCount} other active ${additionalCount === 1 ? "session" : "sessions"}`,
     );
   }
-  lines.push(`Updated ${formatUpdatedAtLabel(aggregate.updatedAt)}`);
   return lines.join("\n");
 }
 
@@ -67,33 +115,21 @@ export function ongoingNotificationBodyPassesSec032(body: string): boolean {
   return !FORBIDDEN_BODY_PATTERNS.some((pattern) => pattern.test(body));
 }
 
-export function buildOngoingAgentNotificationContent(
+export function buildAgentLiveUpdateContent(
   aggregate: RelayAgentActivityAggregateState,
+  deepLinkUrl: string,
   colorScheme: "light" | "dark" = "dark",
-): Notifications.NotificationContentInput {
+): AgentLiveUpdateContent {
   const primary = aggregate.activities[0]!;
-  const collapsedSubtitle =
-    aggregate.activeCount === 1
-      ? truncateText(primary.status, MAX_STATUS_TEXT_LENGTH)
-      : `${aggregate.activeCount} active`;
-  const body = formatExpandedBody(aggregate);
+  const status = agentPhaseStatusLabel(primary.phase as OngoingAgentNotificationPhase);
+  const text = formatExpandedBody(aggregate);
 
   return {
-    title: truncateText(aggregate.title, MAX_SUMMARY_TEXT_LENGTH),
-    subtitle: collapsedSubtitle,
-    body,
-    sticky: true,
-    autoDismiss: false,
-    sound: false,
-    priority: Notifications.AndroidNotificationPriority.LOW,
+    title: `${status}: ${truncateText(primary.threadTitle, MAX_TITLE_TEXT_LENGTH)}`,
+    text,
+    shortCriticalText: agentPhaseCriticalLabel(primary.phase as OngoingAgentNotificationPhase),
+    deepLinkUrl,
     color: agentPhaseAccentColor(primary.phase, colorScheme),
-    data: {
-      deepLink: primary.deepLink,
-      environmentId: primary.environmentId,
-      threadId: primary.threadId,
-      notificationTag: ONGOING_AGENT_NOTIFICATION_TAG,
-      phase: primary.phase,
-    },
   };
 }
 
@@ -109,8 +145,4 @@ export function ongoingAgentNotificationSummary(aggregate: RelayAgentActivityAgg
     status: agentPhaseStatusLabel(phase),
     color: agentPhaseAccentColor(phase, "dark"),
   };
-}
-
-export function ongoingAgentNotificationTrigger(): Notifications.NotificationTriggerInput {
-  return { channelId: AGENT_NOTIFICATION_CHANNEL_IDS.running };
 }

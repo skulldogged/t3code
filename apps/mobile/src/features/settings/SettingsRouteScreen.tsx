@@ -21,6 +21,7 @@ import {
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { AppText as Text } from "../../components/AppText";
 import { supportsAgentAwarenessPush } from "../agent-awareness/capabilities";
+import { AndroidAgentNotificationSettingsRows } from "../agent-awareness/AndroidAgentNotificationSettingsRows";
 import { setLiveActivityUpdatesEnabled } from "../agent-awareness/liveActivityPreferences";
 import { requestAgentNotificationPermission } from "../agent-awareness/notificationPermissions";
 import {
@@ -124,6 +125,7 @@ function LocalSettingsRouteScreen() {
             value={`${environmentCount}`}
             target="SettingsEnvironments"
           />
+          <AndroidAgentNotificationSettingsRows />
         </SettingsSection>
 
         <GeneralSettingsSection />
@@ -474,44 +476,52 @@ function ConfiguredSettingsRouteScreen() {
             value={`${environmentCount}`}
             target="SettingsEnvironments"
           />
-          <SettingsSwitchRow
-            icon="bell.badge"
-            label="Device Notifications"
-            disabled={
-              !agentAwarenessPlatform.supported ||
-              !agentAwarenessPushAvailable ||
-              notificationStatus === "checking" ||
-              notificationStatus === "unsupported"
-            }
-            subtitle={agentAwarenessPlatform.subtitle}
-            // Only reads as on when this device is actually registered with the
-            // relay; otherwise notifications cannot be delivered regardless of
-            // the local iOS permission.
-            value={
-              agentAwarenessPushAvailable && notificationStatus === "enabled" && deviceRegistered
-            }
-            onValueChange={handleDeviceNotificationsChange}
-          />
-          <SettingsSwitchRow
-            disabled={
-              !agentAwarenessPlatform.supported ||
-              !agentAwarenessPushAvailable ||
-              !isLoaded ||
-              liveActivityStatus === "checking" ||
-              liveActivityStatus === "linking"
-            }
-            icon="bolt.circle"
-            label="Live Activity Updates"
-            subtitle={agentAwarenessPlatform.subtitle}
-            // Same gate: a saved preference is meaningless until the device
-            // registration the relay needs to push updates has succeeded.
-            value={
-              agentAwarenessPushAvailable &&
-              (liveActivityStatus === "enabled" || liveActivityStatus === "linking") &&
-              deviceRegistered
-            }
-            onValueChange={handleLiveActivitiesChange}
-          />
+          {Platform.OS === "android" ? (
+            <AndroidAgentNotificationSettingsRows />
+          ) : (
+            <>
+              <SettingsSwitchRow
+                icon="bell.badge"
+                label="Device Notifications"
+                disabled={
+                  !agentAwarenessPlatform.supported ||
+                  !agentAwarenessPushAvailable ||
+                  notificationStatus === "checking" ||
+                  notificationStatus === "unsupported"
+                }
+                subtitle={agentAwarenessPlatform.subtitle}
+                // Only reads as on when this device is actually registered with the
+                // relay; otherwise notifications cannot be delivered regardless of
+                // the local iOS permission.
+                value={
+                  agentAwarenessPushAvailable &&
+                  notificationStatus === "enabled" &&
+                  deviceRegistered
+                }
+                onValueChange={handleDeviceNotificationsChange}
+              />
+              <SettingsSwitchRow
+                disabled={
+                  !agentAwarenessPlatform.supported ||
+                  !agentAwarenessPushAvailable ||
+                  !isLoaded ||
+                  liveActivityStatus === "checking" ||
+                  liveActivityStatus === "linking"
+                }
+                icon="bolt.circle"
+                label="Live Activity Updates"
+                subtitle={agentAwarenessPlatform.subtitle}
+                // Same gate: a saved preference is meaningless until the device
+                // registration the relay needs to push updates has succeeded.
+                value={
+                  agentAwarenessPushAvailable &&
+                  (liveActivityStatus === "enabled" || liveActivityStatus === "linking") &&
+                  deviceRegistered
+                }
+                onValueChange={handleLiveActivitiesChange}
+              />
+            </>
+          )}
         </SettingsSection>
 
         <GeneralSettingsSection />

@@ -40,6 +40,8 @@ function makeThread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    settledOverride: null,
+    settledAt: null,
     ...input,
   };
 }

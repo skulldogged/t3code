@@ -14,6 +14,19 @@ const reactNative = vi.hoisted(() => ({
   removeAppStateListener: vi.fn(),
 }));
 
+const preferences = vi.hoisted(() => ({
+  save: vi.fn(),
+}));
+
+vi.mock("@effect/atom-react", () => ({
+  useAtomValue: vi.fn(() => ({ value: {} })),
+  useAtomSet: vi.fn(() => preferences.save),
+}));
+
+vi.mock("effect/unstable/reactivity", () => ({
+  AsyncResult: { isSuccess: vi.fn(() => true) },
+}));
+
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useEffect: (setup: () => void | (() => void)) => {
@@ -36,6 +49,20 @@ vi.mock("react-native", () => ({
 }));
 
 vi.mock("../../components/AppText", () => ({ AppText: "Text" }));
+vi.mock("expo-notifications", () => ({
+  getPermissionsAsync: vi.fn(() => Promise.resolve({ granted: true, canAskAgain: true })),
+  requestPermissionsAsync: vi.fn(() => Promise.resolve({ granted: true, canAskAgain: true })),
+}));
+vi.mock("../agent-awareness/notificationChannels", () => ({
+  ensureAgentNotificationChannels: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("../agent-awareness/ongoingNotificationSync", () => ({
+  clearOngoingAgentNotification: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("../../state/preferences", () => ({
+  mobilePreferencesAtom: {},
+  updateMobilePreferencesAtom: {},
+}));
 vi.mock("../settings/components/SettingsSection", () => ({
   SettingsSection: "SettingsSection",
 }));

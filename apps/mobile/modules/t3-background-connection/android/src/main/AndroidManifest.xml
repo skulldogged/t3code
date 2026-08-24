@@ -4,6 +4,7 @@
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+  <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
   <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
@@ -23,5 +24,10 @@
         <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
       </intent-filter>
     </receiver>
+
+    <receiver
+      android:name="expo.modules.t3backgroundconnection.T3AgentLiveUpdateDismissedReceiver"
+      android:enabled="true"
+      android:exported="false" />
   </application>
 </manifest>

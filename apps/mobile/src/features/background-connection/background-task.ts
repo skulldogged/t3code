@@ -6,7 +6,7 @@ import {
   setBackgroundConnectionRuntimeReady,
 } from "../../native/backgroundConnection";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { acquireThreadOutboxDrain } from "../../state/use-thread-outbox-drain";
+import { acquireAndroidAgentNotifications } from "../agent-awareness/useOngoingAgentNotification";
 import { acquireBackgroundConnectionRoot } from "./background-root";
 
 let activeTask: Promise<void> | null = null;
@@ -42,7 +42,7 @@ async function runTask(): Promise<void> {
   }
   let relayAuth: ReturnType<typeof startBackgroundManagedRelayAuth> | null = null;
   let releaseRoot: (() => void) | null = null;
-  let releaseOutbox: (() => void) | null = null;
+  let releaseNotifications: (() => void) | null = null;
 
   try {
     if (hasStopBeenRequested) {
@@ -50,10 +50,11 @@ async function runTask(): Promise<void> {
     }
     relayAuth = startBackgroundManagedRelayAuth();
     releaseRoot = acquireBackgroundConnectionRoot(appAtomRegistry);
-    releaseOutbox = acquireThreadOutboxDrain(appAtomRegistry);
+    releaseNotifications = acquireAndroidAgentNotifications(appAtomRegistry);
     // Relay authentication owns its own retry loop. Direct/Tailscale
-    // connections and the shared outbox are fully operational once these
+    // connections and agent notifications are fully operational once these
     // leases are mounted, even if Clerk is slow or temporarily unavailable.
+    // Queued-message dispatch remains owned by the foreground React tree.
     setBackgroundConnectionRuntimeReady(true);
     await stopRequested;
   } catch (error) {
@@ -61,7 +62,7 @@ async function runTask(): Promise<void> {
     // Normal completion lets native release React Native's wake lock and use
     // its bounded exponential restart ladder for bootstrap defects.
   } finally {
-    bestEffortCleanup("outbox", releaseOutbox);
+    bestEffortCleanup("agent notifications", releaseNotifications);
     bestEffortCleanup("root", releaseRoot);
     bestEffortCleanup("relay authentication", () => relayAuth?.stop());
     bestEffortCleanup("stop listener", () => stopSubscription.remove());

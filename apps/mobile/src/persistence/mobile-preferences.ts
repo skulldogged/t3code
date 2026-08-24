@@ -17,6 +17,10 @@ const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
 
 export interface Preferences {
   readonly liveActivitiesEnabled?: boolean;
+  /** Android-only local notification shown while one or more agents are active. */
+  readonly androidLiveStatusNotificationsEnabled?: boolean;
+  /** Android-only alerts for input, approval, completion, and failure transitions. */
+  readonly androidAgentAlertsEnabled?: boolean;
   readonly themeId?: MobileThemeId;
   readonly lightThemeId?: MobileThemeId;
   readonly darkThemeId?: MobileThemeId;
@@ -88,6 +92,8 @@ export class MobilePreferencesStore extends Context.Service<
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
     liveActivitiesEnabled?: boolean;
+    androidLiveStatusNotificationsEnabled?: boolean;
+    androidAgentAlertsEnabled?: boolean;
     themeId?: MobileThemeId;
     lightThemeId?: MobileThemeId;
     darkThemeId?: MobileThemeId;
@@ -110,6 +116,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;
+  }
+  if (typeof parsed.androidLiveStatusNotificationsEnabled === "boolean") {
+    preferences.androidLiveStatusNotificationsEnabled =
+      parsed.androidLiveStatusNotificationsEnabled;
+  }
+  if (typeof parsed.androidAgentAlertsEnabled === "boolean") {
+    preferences.androidAgentAlertsEnabled = parsed.androidAgentAlertsEnabled;
   }
   if (
     typeof parsed.themeId === "string" &&

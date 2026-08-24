@@ -8,6 +8,20 @@ export interface BackgroundConnectionStatus {
   readonly batteryOptimizationIgnored: boolean;
 }
 
+export interface AgentLiveUpdateStatus {
+  readonly supported: boolean;
+  readonly notificationsEnabled: boolean;
+  readonly promotionAllowed: boolean;
+}
+
+export interface AgentLiveUpdateContent {
+  readonly title: string;
+  readonly text: string;
+  readonly shortCriticalText: string;
+  readonly deepLinkUrl: string;
+  readonly color: string;
+}
+
 type BackgroundConnectionNativeEvents = {
   readonly onStatusChange: (status: BackgroundConnectionStatus) => void;
   readonly onStopRequested: () => void;
@@ -20,6 +34,17 @@ declare class BackgroundConnectionNativeModule extends NativeModule<BackgroundCo
   readonly requestBatteryOptimizationExemption?: () => Promise<BackgroundConnectionStatus>;
   readonly setRuntimeReady?: (ready: boolean) => BackgroundConnectionStatus;
   readonly acknowledgeStop?: () => BackgroundConnectionStatus;
+  readonly getAgentLiveUpdateStatus?: () => AgentLiveUpdateStatus;
+  readonly publishAgentLiveUpdate?: (
+    title: string,
+    text: string,
+    shortCriticalText: string,
+    deepLinkUrl: string,
+    color: string,
+  ) => boolean;
+  readonly endAgentLiveUpdate?: () => void;
+  readonly hideAgentLiveUpdate?: () => void;
+  readonly openAgentLiveUpdateSettings?: () => Promise<AgentLiveUpdateStatus>;
 }
 
 export interface BackgroundConnectionSubscription {
@@ -32,6 +57,12 @@ const UNSUPPORTED_STATUS: BackgroundConnectionStatus = {
   serviceRunning: false,
   runtimeReady: false,
   batteryOptimizationIgnored: false,
+};
+
+const UNSUPPORTED_LIVE_UPDATE_STATUS: AgentLiveUpdateStatus = {
+  supported: false,
+  notificationsEnabled: false,
+  promotionAllowed: false,
 };
 
 let cachedNativeModule: BackgroundConnectionNativeModule | null | undefined;
@@ -109,6 +140,68 @@ export function acknowledgeBackgroundConnectionStop(): BackgroundConnectionStatu
     return normalizeStatus(getNativeModule()?.acknowledgeStop?.());
   } catch {
     return getBackgroundConnectionStatus();
+  }
+}
+
+function normalizeLiveUpdateStatus(
+  status: AgentLiveUpdateStatus | null | undefined,
+): AgentLiveUpdateStatus {
+  return {
+    supported: status?.supported === true,
+    notificationsEnabled: status?.notificationsEnabled === true,
+    promotionAllowed: status?.promotionAllowed === true,
+  };
+}
+
+export function getAgentLiveUpdateStatus(): AgentLiveUpdateStatus {
+  try {
+    const nativeModule = getNativeModule();
+    if (!nativeModule?.getAgentLiveUpdateStatus) return UNSUPPORTED_LIVE_UPDATE_STATUS;
+    return normalizeLiveUpdateStatus(nativeModule.getAgentLiveUpdateStatus());
+  } catch {
+    return UNSUPPORTED_LIVE_UPDATE_STATUS;
+  }
+}
+
+export function publishAgentLiveUpdate(content: AgentLiveUpdateContent): boolean {
+  try {
+    return (
+      getNativeModule()?.publishAgentLiveUpdate?.(
+        content.title,
+        content.text,
+        content.shortCriticalText,
+        content.deepLinkUrl,
+        content.color,
+      ) === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function endAgentLiveUpdate(): void {
+  try {
+    getNativeModule()?.endAgentLiveUpdate?.();
+  } catch {
+    // Notification cleanup is best-effort during process and service teardown.
+  }
+}
+
+export function hideAgentLiveUpdate(): void {
+  try {
+    getNativeModule()?.hideAgentLiveUpdate?.();
+  } catch {
+    // Notification cleanup is best-effort while the app is foregrounded.
+  }
+}
+
+export async function openAgentLiveUpdateSettings(): Promise<AgentLiveUpdateStatus> {
+  try {
+    const nativeModule = getNativeModule();
+    if (!nativeModule?.openAgentLiveUpdateSettings) return UNSUPPORTED_LIVE_UPDATE_STATUS;
+    return normalizeLiveUpdateStatus(await nativeModule.openAgentLiveUpdateSettings());
+  } catch {
+    return getAgentLiveUpdateStatus();
   }
 }
 

@@ -7,7 +7,6 @@ import type {
   RelayAgentActivityAggregateState,
 } from "@t3tools/contracts/relay";
 import {
-  isTerminalAgentAwarenessPhase,
   projectThreadAwareness,
   type AgentAwarenessPhase,
   type AgentAwarenessState,
@@ -48,14 +47,14 @@ function aggregateRowForState(state: AgentAwarenessState): RelayAgentActivityAgg
   };
 }
 
-export function buildLocalAgentActivityAggregate(input: {
+export function buildLocalAgentAwarenessStates(input: {
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
-}): RelayAgentActivityAggregateState | null {
+}): ReadonlyArray<AgentAwarenessState> {
   const projectsByKey = new Map(
     input.projects.map((project) => [`${project.environmentId}:${project.id}`, project] as const),
   );
-  const activeStates: AgentAwarenessState[] = [];
+  const states: AgentAwarenessState[] = [];
 
   for (const thread of input.threads) {
     const project = projectsByKey.get(`${thread.environmentId}:${thread.projectId}`);
@@ -67,10 +66,21 @@ export function buildLocalAgentActivityAggregate(input: {
       project,
       thread,
     });
-    if (awareness && !isTerminalAgentAwarenessPhase(awareness.phase)) {
-      activeStates.push(awareness);
+    if (awareness) {
+      states.push(awareness);
     }
   }
+
+  return states;
+}
+
+export function buildLocalAgentActivityAggregate(input: {
+  readonly projects: ReadonlyArray<EnvironmentProject>;
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+}): RelayAgentActivityAggregateState | null {
+  const activeStates = buildLocalAgentAwarenessStates(input).filter(
+    (state) => state.phase !== "completed" && state.phase !== "failed",
+  );
 
   if (activeStates.length === 0) {
     return null;
