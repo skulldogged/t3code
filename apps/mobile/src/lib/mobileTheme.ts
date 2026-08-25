@@ -6,12 +6,14 @@ import {
   type MobileThemeId as SharedMobileThemeId,
   type ThemeAppearance,
   type ThemeColors,
+  type ThemeDefinition,
 } from "@t3tools/shared/themePalettes";
 import {
   STANDARD_THEME_PREVIEW_COLORS,
   type ThemePreviewColors,
 } from "@t3tools/shared/themePreview";
 import { DEFAULT_MOBILE_THEME_VARIABLES } from "./mobileDefaultTheme";
+import catppuccinMochaJson from "../themes/catppuccin-mocha.json";
 
 export const DEFAULT_MOBILE_THEME_ID = MOBILE_DEFAULT_THEME_ID;
 export const MOBILE_THEME_IDS = SHARED_MOBILE_THEME_IDS;
@@ -20,12 +22,37 @@ export type MobileThemeAppearance = ThemeAppearance;
 export type MobileThemeMode = MobileThemeAppearance | "system";
 export type MobileThemeIds = Readonly<Record<MobileThemeAppearance, MobileThemeId>>;
 
+const CATPPUCCIN_MOCHA_THEME: ThemeDefinition = {
+  id: catppuccinMochaJson.id,
+  label: catppuccinMochaJson.name,
+  appearance: "dark",
+  colors: catppuccinMochaJson.colors,
+};
+
+export const MOBILE_BUNDLED_THEMES: ReadonlyArray<ThemeDefinition> = [CATPPUCCIN_MOCHA_THEME];
+
+const MOBILE_PALETTE_THEMES: ReadonlyArray<ThemeDefinition> = [
+  ...BUILT_IN_THEMES,
+  ...MOBILE_BUNDLED_THEMES,
+];
+
+function getThemeAppearances(theme: ThemeDefinition): ReadonlyArray<MobileThemeAppearance> {
+  return (["light", "dark"] as const).filter(
+    (appearance) => theme.appearance === appearance || theme.variants?.[appearance] !== undefined,
+  );
+}
+
 export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
   readonly id: MobileThemeId;
   readonly label: string;
+  readonly appearances: ReadonlyArray<MobileThemeAppearance>;
 }> = [
-  { id: DEFAULT_MOBILE_THEME_ID, label: "T3 Code" },
-  ...BUILT_IN_THEMES.map((theme) => ({ id: theme.id as MobileThemeId, label: theme.label })),
+  { id: DEFAULT_MOBILE_THEME_ID, label: "T3 Code", appearances: ["light", "dark"] },
+  ...MOBILE_PALETTE_THEMES.map((theme) => ({
+    id: theme.id as MobileThemeId,
+    label: theme.label,
+    appearances: getThemeAppearances(theme),
+  })),
 ];
 
 type MobileThemeVariable = `--color-${string}`;
@@ -35,6 +62,11 @@ export function normalizeMobileThemeId(value: unknown): MobileThemeId {
   return typeof value === "string" && (MOBILE_THEME_IDS as readonly string[]).includes(value)
     ? (value as MobileThemeId)
     : DEFAULT_MOBILE_THEME_ID;
+}
+
+export function getMobileThemeDefinition(themeId: MobileThemeId): ThemeDefinition | null {
+  if (themeId === DEFAULT_MOBILE_THEME_ID) return null;
+  return MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId) ?? null;
 }
 
 export function normalizeMobileThemeMode(value: unknown): MobileThemeMode {
@@ -289,8 +321,7 @@ export function getMobileThemeVariables(
 ): MobileThemeVariables {
   const baseVariables = (() => {
     if (themeId === DEFAULT_MOBILE_THEME_ID) return DEFAULT_MOBILE_THEME_VARIABLES[appearance];
-    const theme =
-      BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? BUILT_IN_THEMES[0];
+    const theme = getMobileThemeDefinition(themeId) ?? BUILT_IN_THEMES[0];
     const colors = getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
     return createMobileThemeVariables(colors, appearance);
   })();
@@ -304,7 +335,7 @@ export function getMobileThemePreviewColors(
   appearance: MobileThemeAppearance,
 ): ThemePreviewColors {
   if (themeId === DEFAULT_MOBILE_THEME_ID) return STANDARD_THEME_PREVIEW_COLORS[appearance];
-  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? BUILT_IN_THEMES[0];
+  const theme = getMobileThemeDefinition(themeId) ?? BUILT_IN_THEMES[0];
   const colors = getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
   return {
     canvas: themeColorToNativeColor(colors.canvas),

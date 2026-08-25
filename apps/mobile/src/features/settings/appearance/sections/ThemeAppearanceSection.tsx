@@ -110,11 +110,12 @@ const PreviewOrb = memo(function PreviewOrb(props: {
 });
 
 function ThemeCard(props: {
+  readonly appearances: ReadonlyArray<MobileThemeAppearance>;
   readonly disabled: boolean;
   readonly darkSelected: boolean;
   readonly label: string;
   readonly lightSelected: boolean;
-  readonly onSelectBoth: () => void;
+  readonly onSelectDefault: () => void;
   readonly onSelect: (appearance: MobileThemeAppearance) => void;
   readonly themeId: MobileThemeId;
 }) {
@@ -155,17 +156,22 @@ function ThemeCard(props: {
   return (
     <View className="min-w-36 flex-1 basis-[47%] gap-3 rounded-[24px] border border-border bg-card px-2 py-4">
       <Pressable
-        accessibilityHint="Sets both light and dark appearances"
+        accessibilityHint={
+          props.appearances.length === 1
+            ? `Sets the ${props.appearances[0]} appearance`
+            : "Sets both light and dark appearances"
+        }
         accessibilityLabel={`${props.label} theme`}
         accessibilityRole="button"
         accessibilityState={{ disabled: props.disabled }}
         className="absolute inset-0 rounded-[24px] active:bg-subtle"
         disabled={props.disabled}
-        onPress={props.onSelectBoth}
+        onPress={props.onSelectDefault}
       />
       <View className="flex-row items-center justify-center gap-2 py-1" pointerEvents="box-none">
-        {choice("light", props.lightSelected)}
-        {choice("dark", props.darkSelected)}
+        {props.appearances.map((appearance) =>
+          choice(appearance, appearance === "light" ? props.lightSelected : props.darkSelected),
+        )}
       </View>
       <View className="min-h-8 flex-row items-center" pointerEvents="none">
         <Text className="min-w-0 flex-1 text-lg font-t3-medium" numberOfLines={1}>
@@ -348,13 +354,18 @@ export function ThemeAppearanceSection() {
         <View className="flex-row flex-wrap gap-3">
           {MOBILE_THEME_OPTIONS.map((theme) => (
             <ThemeCard
+              appearances={theme.appearances}
               disabled={!isReady}
               key={theme.id}
               label={theme.label}
               darkSelected={theme.id === themeIds.dark}
               lightSelected={theme.id === themeIds.light}
               onSelect={(appearance) => setThemeIdForAppearance(appearance, theme.id)}
-              onSelectBoth={() => setThemeIdForBothAppearances(theme.id)}
+              onSelectDefault={() => {
+                const onlyAppearance = theme.appearances.length === 1 ? theme.appearances[0] : null;
+                if (onlyAppearance) setThemeIdForAppearance(onlyAppearance, theme.id);
+                else setThemeIdForBothAppearances(theme.id);
+              }}
               themeId={theme.id}
             />
           ))}

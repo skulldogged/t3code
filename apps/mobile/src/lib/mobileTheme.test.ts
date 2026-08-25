@@ -12,6 +12,7 @@ import {
   getMobileThemePreviewColors,
   getMobileThemeVariables,
   MOBILE_THEME_IDS,
+  MOBILE_THEME_OPTIONS,
   normalizeMobileThemeId,
   normalizeMobileThemeMode,
   resolveMobileThemeIds,
@@ -82,6 +83,20 @@ describe("mobile themes", () => {
         "--color-user-bubble-skill-foreground"
       ],
     ).toBe("#f0abfc");
+  });
+
+  it("bundles Catppuccin Mocha as a dark-only mobile theme", () => {
+    expect(normalizeMobileThemeId("catppuccin-mocha")).toBe("catppuccin-mocha");
+    expect(MOBILE_THEME_OPTIONS.find((theme) => theme.id === "catppuccin-mocha")).toMatchObject({
+      label: "Catppuccin Mocha",
+      appearances: ["dark"],
+    });
+    expect(getMobileThemeVariables("catppuccin-mocha", "dark")).toMatchObject({
+      "--color-screen": "#181825",
+      "--color-card": "#11111b",
+      "--color-primary": "#a6e3a1",
+      "--color-user-bubble": "#1e1e2e",
+    });
   });
 
   it("applies palette overrides on top of the selected built-in theme", () => {

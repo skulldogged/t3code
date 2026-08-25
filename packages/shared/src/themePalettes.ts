@@ -1,5 +1,8 @@
 export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"] as const;
 
+/** Extra palettes compiled into mobile without changing the desktop built-in library. */
+export const MOBILE_BUNDLED_THEME_IDS = ["catppuccin-mocha"] as const;
+
 /** The mobile app's own hand-tuned palette, which is not part of the built-in library. */
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
 
@@ -8,7 +11,11 @@ export const MOBILE_DEFAULT_THEME_ID = "t3-code";
  * (the app-store screenshot harness) can validate a requested theme without
  * importing React Native application code.
  */
-export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...BUILT_IN_THEME_IDS] as const;
+export const MOBILE_THEME_IDS = [
+  MOBILE_DEFAULT_THEME_ID,
+  ...BUILT_IN_THEME_IDS,
+  ...MOBILE_BUNDLED_THEME_IDS,
+] as const;
 
 export type BuiltInThemeId = (typeof BUILT_IN_THEME_IDS)[number];
 export type MobileThemeId = (typeof MOBILE_THEME_IDS)[number];

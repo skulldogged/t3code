@@ -54,6 +54,14 @@ describe("getMobileTerminalTheme", () => {
     expect(terminal.foreground).toBe(themeColorToNativeColor(colors.terminalForeground));
     expect(terminal.cursorForeground).toBe(themeColorToNativeColor(colors.terminalCursor));
   });
+
+  it("uses the bundled Catppuccin Mocha terminal roles", () => {
+    expect(getMobileTerminalTheme("catppuccin-mocha", "dark")).toMatchObject({
+      background: "#11111b",
+      foreground: "#cdd6f4",
+      cursorForeground: "#f5e0dc",
+    });
+  });
 });
 
 describe("buildGhosttyThemeConfig", () => {
