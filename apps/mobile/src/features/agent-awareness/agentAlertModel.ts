@@ -12,6 +12,8 @@ const ALERT_PHASES = new Set<AgentAwarenessPhase>([
   "failed",
 ]);
 
+const RESUMED_PHASES = new Set<AgentAwarenessPhase>(["starting", "running"]);
+
 export function agentAwarenessStateKey(
   state: Pick<AgentAwarenessState, "environmentId" | "threadId">,
 ): string {
@@ -26,6 +28,17 @@ export function shouldNotifyAgentTransition(input: {
     input.previous !== undefined &&
     input.previous.phase !== input.current.phase &&
     ALERT_PHASES.has(input.current.phase)
+  );
+}
+
+export function shouldDismissAgentTransitionNotification(input: {
+  readonly previous: AgentAwarenessState | undefined;
+  readonly current: AgentAwarenessState;
+}): boolean {
+  return (
+    input.previous !== undefined &&
+    input.previous.phase !== input.current.phase &&
+    RESUMED_PHASES.has(input.current.phase)
   );
 }
 
@@ -65,7 +78,9 @@ export function buildAgentAlertNotificationContent(
   };
 }
 
-export function agentAlertNotificationIdentifier(state: AgentAwarenessState): string {
+export function agentAlertNotificationIdentifier(
+  state: Pick<AgentAwarenessState, "environmentId" | "threadId">,
+): string {
   return `${AGENT_ALERT_NOTIFICATION_TAG}:${agentAwarenessStateKey(state)}`;
 }
 

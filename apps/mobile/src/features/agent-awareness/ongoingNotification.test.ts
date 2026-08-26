@@ -6,6 +6,7 @@ import * as Notifications from "expo-notifications";
 import {
   agentAlertNotificationTrigger,
   buildAgentAlertNotificationContent,
+  shouldDismissAgentTransitionNotification,
   shouldNotifyAgentTransition,
 } from "./agentAlertModel";
 import {
@@ -14,6 +15,7 @@ import {
   shouldShowOngoingAgentNotification,
 } from "./ongoingNotificationModel";
 import {
+  dismissAgentTransitionNotification,
   publishAgentTransitionNotification,
   resetOngoingAgentNotificationSyncForTests,
   syncOngoingAgentNotification,
@@ -43,6 +45,7 @@ vi.mock("expo-notifications", () => ({
   setNotificationHandler: vi.fn(),
   scheduleNotificationAsync: vi.fn(() => Promise.resolve("t3-agent-aggregate")),
   dismissNotificationAsync: vi.fn(() => Promise.resolve()),
+  cancelScheduledNotificationAsync: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("expo-linking", () => ({
@@ -149,6 +152,27 @@ describe("agent transition alerts", () => {
     expect(shouldNotifyAgentTransition({ previous: current, current })).toBe(false);
   });
 
+  it("retires a thread alert when the thread resumes active work", () => {
+    const current = {
+      environmentId: aggregate.activities[0]!.environmentId,
+      threadId: aggregate.activities[0]!.threadId,
+      projectTitle: "T3 Code",
+      threadTitle: "Approval thread",
+      modelTitle: "gpt-5.4",
+      phase: "running" as const,
+      headline: "Agent is working",
+      updatedAt: aggregate.activities[0]!.updatedAt,
+      deepLink: aggregate.activities[0]!.deepLink,
+    };
+    expect(
+      shouldDismissAgentTransitionNotification({
+        previous: { ...current, phase: "completed", headline: "Turn completed" },
+        current,
+      }),
+    ).toBe(true);
+    expect(shouldDismissAgentTransitionNotification({ previous: current, current })).toBe(false);
+  });
+
   it("builds a high-priority alert on the independent alert channel", () => {
     const state = {
       environmentId: aggregate.activities[0]!.environmentId,
@@ -178,6 +202,7 @@ describe("syncOngoingAgentNotification", () => {
     resetOngoingAgentNotificationSyncForTests();
     vi.mocked(Notifications.scheduleNotificationAsync).mockClear();
     vi.mocked(Notifications.dismissNotificationAsync).mockClear();
+    vi.mocked(Notifications.cancelScheduledNotificationAsync).mockClear();
     vi.mocked(Notifications.setNotificationHandler).mockClear();
     nativeLiveUpdate.publish.mockClear();
     nativeLiveUpdate.end.mockClear();
@@ -278,5 +303,19 @@ describe("syncOngoingAgentNotification", () => {
       content: expect.objectContaining({ title: "Approval required: Approval thread" }),
       trigger: { channelId: "agent_alerts" },
     });
+  });
+
+  it("dismisses both delivered and not-yet-delivered alerts for a resumed thread", async () => {
+    const state = {
+      environmentId: aggregate.activities[0]!.environmentId,
+      threadId: aggregate.activities[0]!.threadId,
+    };
+    await dismissAgentTransitionNotification(state);
+    expect(Notifications.dismissNotificationAsync).toHaveBeenCalledWith(
+      expect.stringContaining("t3-agent-alert"),
+    );
+    expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith(
+      expect.stringContaining("t3-agent-alert"),
+    );
   });
 });

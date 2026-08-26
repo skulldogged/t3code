@@ -6,13 +6,18 @@ import { getAgentLiveUpdateStatus } from "../../native/backgroundConnection";
 import { environmentProjects } from "../../state/projects";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { environmentThreadShells } from "../../state/threads";
-import { agentAwarenessStateKey, shouldNotifyAgentTransition } from "./agentAlertModel";
+import {
+  agentAwarenessStateKey,
+  shouldDismissAgentTransitionNotification,
+  shouldNotifyAgentTransition,
+} from "./agentAlertModel";
 import {
   buildLocalAgentActivityAggregate,
   buildLocalAgentAwarenessStates,
 } from "./localAgentActivityAggregate";
 import {
   clearOngoingAgentNotification,
+  dismissAgentTransitionNotification,
   publishAgentTransitionNotification,
   syncOngoingAgentNotification,
 } from "./ongoingNotificationSync";
@@ -51,10 +56,17 @@ async function poll(worker: AndroidAgentNotificationWorker): Promise<void> {
       colorScheme: Appearance.getColorScheme() === "light" ? "light" : "dark",
     });
 
-    if (worker.initialized && notificationsEnabled && agentAlertsEnabled && !appIsForegrounded) {
+    if (worker.initialized) {
       for (const current of currentStates) {
         const previous = worker.previousStates.get(agentAwarenessStateKey(current));
-        if (shouldNotifyAgentTransition({ previous, current })) {
+        if (shouldDismissAgentTransitionNotification({ previous, current })) {
+          await dismissAgentTransitionNotification(current);
+        } else if (
+          notificationsEnabled &&
+          agentAlertsEnabled &&
+          !appIsForegrounded &&
+          shouldNotifyAgentTransition({ previous, current })
+        ) {
           await publishAgentTransitionNotification(current);
         }
       }
@@ -64,7 +76,13 @@ async function poll(worker: AndroidAgentNotificationWorker): Promise<void> {
       threads.map((thread) => JSON.stringify([thread.environmentId, thread.id])),
     );
     for (const key of worker.previousStates.keys()) {
-      if (!existingThreadKeys.has(key)) worker.previousStates.delete(key);
+      if (!existingThreadKeys.has(key)) {
+        const removedState = worker.previousStates.get(key);
+        if (removedState) {
+          await dismissAgentTransitionNotification(removedState);
+        }
+        worker.previousStates.delete(key);
+      }
     }
     for (const current of currentStates) {
       worker.previousStates.set(agentAwarenessStateKey(current), current);

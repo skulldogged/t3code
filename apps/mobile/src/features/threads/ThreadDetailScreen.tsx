@@ -3,6 +3,7 @@ import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/thre
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
+import { useIsFocused } from "@react-navigation/native";
 import type {
   ApprovalRequestId,
   EnvironmentId,
@@ -159,7 +160,11 @@ function latestStreamingAssistantMessage(
   return null;
 }
 
-function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedEntry>) {
+function useStreamingHaptics(
+  threadId: ThreadId,
+  feed: ReadonlyArray<ThreadFeedEntry>,
+  isScreenFocused: boolean,
+) {
   const lastStreamingAssistantRef = useRef<{
     readonly id: string;
     readonly textLength: number;
@@ -175,6 +180,13 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
     }
 
     const latestStreamingMessage = latestStreamingAssistantMessage(feed);
+
+    if (!isScreenFocused || AppState.currentState !== "active") {
+      // Keep the cursor current while hidden so returning to the screen does
+      // not replay a haptic for text that arrived off-screen.
+      lastStreamingAssistantRef.current = latestStreamingMessage;
+      return;
+    }
 
     if (!hydratedRef.current) {
       hydratedRef.current = true;
@@ -206,7 +218,7 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
 
     lastStreamHapticAtRef.current = now;
     void Haptics.selectionAsync();
-  }, [threadId, feed]);
+  }, [threadId, feed, isScreenFocused]);
 }
 
 const USER_INPUT_TOGGLE_TIMING = {
@@ -446,7 +458,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const isSplitLayout = layoutVariant === "split";
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
-  useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
+  const isScreenFocused = useIsFocused();
+  useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed, isScreenFocused);
   const selectedProviderSkills = useMemo(
     () =>
       props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)

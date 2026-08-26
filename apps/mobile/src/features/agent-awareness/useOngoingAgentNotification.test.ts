@@ -12,7 +12,22 @@ const appState = vi.hoisted(() => ({
 
 const notifications = vi.hoisted(() => ({
   clear: vi.fn(() => Promise.resolve()),
+  dismiss: vi.fn(() => Promise.resolve()),
+  publish: vi.fn(() => Promise.resolve()),
   sync: vi.fn(() => Promise.resolve()),
+}));
+
+const awareness = vi.hoisted(() => ({
+  states: [] as Array<{
+    environmentId: string;
+    threadId: string;
+    phase: string;
+  }>,
+  shouldDismiss: vi.fn(
+    (input: { previous?: { phase: string }; current: { phase: string } }) =>
+      input.previous?.phase === "completed" && input.current.phase === "running",
+  ),
+  shouldNotify: vi.fn(() => false),
 }));
 
 vi.mock("react-native", () => ({
@@ -42,18 +57,22 @@ vi.mock("../../state/preferences", () => ({
 }));
 
 vi.mock("./localAgentActivityAggregate", () => ({
-  buildLocalAgentAwarenessStates: vi.fn(() => []),
+  buildLocalAgentAwarenessStates: vi.fn(() => awareness.states),
   buildLocalAgentActivityAggregate: vi.fn(() => null),
 }));
 
 vi.mock("./agentAlertModel", () => ({
-  agentAwarenessStateKey: vi.fn(() => "thread"),
-  shouldNotifyAgentTransition: vi.fn(() => false),
+  agentAwarenessStateKey: vi.fn((state: { environmentId: string; threadId: string }) =>
+    JSON.stringify([state.environmentId, state.threadId]),
+  ),
+  shouldDismissAgentTransitionNotification: awareness.shouldDismiss,
+  shouldNotifyAgentTransition: awareness.shouldNotify,
 }));
 
 vi.mock("./ongoingNotificationSync", () => ({
   clearOngoingAgentNotification: notifications.clear,
-  publishAgentTransitionNotification: vi.fn(() => Promise.resolve()),
+  dismissAgentTransitionNotification: notifications.dismiss,
+  publishAgentTransitionNotification: notifications.publish,
   syncOngoingAgentNotification: notifications.sync,
 }));
 
@@ -62,11 +81,12 @@ import {
   AGENT_NOTIFICATION_POLL_INTERVAL_MS,
 } from "./useOngoingAgentNotification";
 
-function makeRegistry() {
+function makeRegistry(threads: Array<{ environmentId: string; id: string }> = []) {
   const subscribe = vi.fn();
   return {
     get(atom: object) {
-      if (atom === atoms.projects || atom === atoms.threads) return [];
+      if (atom === atoms.projects) return [];
+      if (atom === atoms.threads) return threads;
       if (atom === atoms.preferences) return { _tag: "Success", value: {} };
       throw new Error("unexpected atom");
     },
@@ -77,6 +97,7 @@ function makeRegistry() {
 beforeEach(() => {
   vi.useFakeTimers();
   appState.current = "background";
+  awareness.states = [];
   vi.clearAllMocks();
 });
 
@@ -114,6 +135,26 @@ describe("Android agent notification worker", () => {
       expect.objectContaining({ notificationsEnabled: false }),
     );
 
+    release();
+  });
+
+  it("dismisses a completed alert when work resumes while the app is foregrounded", async () => {
+    appState.current = "active";
+    const threads = [{ environmentId: "environment-1", id: "thread-1" }];
+    awareness.states = [
+      { environmentId: "environment-1", threadId: "thread-1", phase: "completed" },
+    ];
+    const release = acquireAndroidAgentNotifications(makeRegistry(threads) as never);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    awareness.states = [{ environmentId: "environment-1", threadId: "thread-1", phase: "running" }];
+    await vi.advanceTimersByTimeAsync(AGENT_NOTIFICATION_POLL_INTERVAL_MS);
+
+    expect(notifications.dismiss).toHaveBeenCalledWith(
+      expect.objectContaining({ environmentId: "environment-1", threadId: "thread-1" }),
+    );
+    expect(notifications.publish).not.toHaveBeenCalled();
     release();
   });
 });

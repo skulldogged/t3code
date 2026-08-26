@@ -74,9 +74,9 @@ internal object T3AgentLiveUpdate {
 
     val builder = NotificationCompat.Builder(context, CHANNEL_ID)
       .setSmallIcon(smallIcon)
+      .setSubText("T3 Code")
       .setContentTitle(title.take(96))
       .setContentText(text.take(160))
-      .setStyle(NotificationCompat.BigTextStyle().bigText(text.take(512)))
       .setShortCriticalText(shortCriticalText.take(7))
       .setRequestPromotedOngoing(true)
       .setOngoing(true)
@@ -88,6 +88,16 @@ internal object T3AgentLiveUpdate {
       .setCategory(NotificationCompat.CATEGORY_PROGRESS)
       .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
       .setPriority(NotificationCompat.PRIORITY_LOW)
+
+    if (Build.VERSION.SDK_INT >= 36) {
+      builder.setStyle(
+        NotificationCompat.ProgressStyle()
+          .setProgressIndeterminate(true)
+          .setStyledByProgress(false),
+      )
+    } else {
+      builder.setStyle(NotificationCompat.BigTextStyle().bigText(text.take(512)))
+    }
 
     contentIntent?.let(builder::setContentIntent)
     parseColor(color)?.let(builder::setColor)

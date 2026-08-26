@@ -58,6 +58,22 @@ export async function publishAgentTransitionNotification(
   });
 }
 
+export async function dismissAgentTransitionNotification(
+  state: Pick<
+    import("@t3tools/shared/agentAwareness").AgentAwarenessState,
+    "environmentId" | "threadId"
+  >,
+): Promise<void> {
+  if (Platform.OS !== "android") {
+    return;
+  }
+  const identifier = agentAlertNotificationIdentifier(state);
+  await Promise.allSettled([
+    Notifications.dismissNotificationAsync(identifier),
+    Notifications.cancelScheduledNotificationAsync(identifier),
+  ]);
+}
+
 function fingerprintAggregate(aggregate: RelayAgentActivityAggregateState): string {
   return JSON.stringify({
     activeCount: aggregate.activeCount,
