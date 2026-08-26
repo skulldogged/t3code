@@ -18,6 +18,8 @@ import * as ProcessRunner from "../processRunner.ts";
 
 const PINNED_RUNTIME_DIR = "runtime";
 const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);
+const PERSONAL_PI_RELEASE_REPOSITORY = "skulldogged/t3code";
+const PERSONAL_PI_VERSION_PATTERN = /-main[0-9a-f]{8}\.pi\.[0-9a-f]{8}$/i;
 // Boot-service setup and remote update can construct separate layers. Serialize
 // the complete install transaction across every caller in this process.
 const pinnedRuntimeInstallLock = Semaphore.makeUnsafe(1);
@@ -39,6 +41,11 @@ export function pinnedRuntimePaths(
     entryPath: path.join(versionDir, "node_modules", "t3", "dist", "bin.mjs"),
     sentinelPath: path.join(versionDir, ".install-complete"),
   };
+}
+
+export function pinnedRuntimePackageSpec(version: string): string {
+  if (!PERSONAL_PI_VERSION_PATTERN.test(version)) return `t3@${version}`;
+  return `https://github.com/${PERSONAL_PI_RELEASE_REPOSITORY}/releases/download/pi-v${version}/t3-${version}.tgz`;
 }
 
 export class PinnedRuntimeInstallError extends Schema.TaggedErrorClass<PinnedRuntimeInstallError>()(
@@ -155,7 +162,14 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
     yield* runner
       .run({
         command: "npm",
-        args: ["install", "--prefix", stagingDir, "--no-fund", "--no-audit", `t3@${input.version}`],
+        args: [
+          "install",
+          "--prefix",
+          stagingDir,
+          "--no-fund",
+          "--no-audit",
+          pinnedRuntimePackageSpec(input.version),
+        ],
         // Native dependencies may compile from source on slower machines.
         timeout: PINNED_RUNTIME_INSTALL_TIMEOUT,
       })

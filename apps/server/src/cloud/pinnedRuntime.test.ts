@@ -10,9 +10,19 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import * as ProcessRunner from "../processRunner.ts";
 import {
   ensurePinnedRuntimeInstalled,
+  pinnedRuntimePackageSpec,
   pinnedRuntimePaths,
   PinnedRuntimeInstallError,
 } from "./pinnedRuntime.ts";
+
+it("installs personal Pi versions from their GitHub release archive", () => {
+  const version = "0.0.52-main1baf9919.pi.68d089f4";
+  assert.equal(
+    pinnedRuntimePackageSpec(version),
+    `https://github.com/skulldogged/t3code/releases/download/pi-v${version}/t3-${version}.tgz`,
+  );
+  assert.equal(pinnedRuntimePackageSpec("0.0.34"), "t3@0.0.34");
+});
 
 const successfulRunner = (fs: FileSystem.FileSystem, path: Path.Path) =>
   ProcessRunner.ProcessRunner.of({
