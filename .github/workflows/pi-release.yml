@@ -206,10 +206,8 @@ jobs:
           EXPO_NO_GIT_STATUS: "1"
         run: |
           set -euo pipefail
-          # Keep automated fork builds above the earlier 100xxx manual-preview
-          # namespace while preserving a monotonically increasing value for
-          # Android and Obtainium upgrades.
-          export T3CODE_ANDROID_VERSION_CODE="$((200000000 + GITHUB_RUN_NUMBER))"
+          export T3CODE_MOBILE_VERSION="${{ needs.metadata.outputs.version }}"
+          export T3CODE_ANDROID_VERSION_CODE="$GITHUB_RUN_NUMBER"
           vp exec --filter @t3tools/mobile -- expo prebuild --clean --platform android
           ( cd apps/mobile/android && ./gradlew assembleRelease )
           cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
