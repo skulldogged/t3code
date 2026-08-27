@@ -16,11 +16,12 @@ import {
 } from "./pinnedRuntime.ts";
 
 it("installs personal Pi versions from their GitHub release archive", () => {
-  const version = "0.0.52-main1baf9919.pi.68d089f4";
-  assert.equal(
-    pinnedRuntimePackageSpec(version),
-    `https://github.com/skulldogged/t3code/releases/download/pi-v${version}/t3-${version}.tgz`,
-  );
+  for (const version of ["0.0.52-main1baf9919.pi.68d089f4", "0.0.56-main33b650a5.pi.c00465037"]) {
+    assert.equal(
+      pinnedRuntimePackageSpec(version),
+      `https://github.com/skulldogged/t3code/releases/download/pi-v${version}/t3-${version}.tgz`,
+    );
+  }
   assert.equal(pinnedRuntimePackageSpec("0.0.34"), "t3@0.0.34");
 });
 
