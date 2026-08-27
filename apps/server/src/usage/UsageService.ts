@@ -26,17 +26,23 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+import * as Scope from "effect/Scope";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import { ServerConfig } from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { resolveClaudeHomePath } from "../provider/Drivers/ClaudeHome.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
+import { probeClaudeUsage } from "../provider/Layers/ClaudeProvider.ts";
+import { probeCodexRateLimits } from "../provider/Layers/CodexProvider.ts";
 import { UsageAggregator } from "./usageAggregation.ts";
 import { parseRateTable, type RateTable } from "./usagePricing.ts";
 import {
@@ -52,6 +58,16 @@ import {
   type ScanCache,
 } from "./usageScanCache.ts";
 import type { UsageRecord } from "./usageTranscripts.ts";
+import {
+  awaitSubscriptionLimits,
+  makeSubscriptionLimitsCacheEntry,
+  normalizeClaudeSubscriptionLimits,
+  normalizeCodexSubscriptionLimits,
+  readSubscriptionLimitsCacheEntry,
+  runSubscriptionLimitsProbe,
+  type SubscriptionLimitsCacheEntry,
+  type SubscriptionLimitsProbeOutcome,
+} from "./usageSubscriptionLimits.ts";
 
 const LITELLM_RATES_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -106,6 +122,7 @@ export const layerTest = Layer.succeed(
         untilDay: input.untilDay,
         buckets: [],
         sources: [],
+        subscriptionLimits: [],
         pricing: {
           status: "unavailable",
           source: LITELLM_RATES_URL,
@@ -123,6 +140,10 @@ export const make = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const settingsService = yield* ServerSettings.ServerSettingsService;
   const httpClient = yield* HttpClient.HttpClient;
+  const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const subscriptionLimitsSemaphore = yield* Semaphore.make(1);
+  const subscriptionLimitsScope = yield* Scope.make("sequential");
+  yield* Effect.addFinalizer(() => Scope.close(subscriptionLimitsScope, Exit.void));
 
   const fileCache: ScanCache = new Map();
   let cacheDirty = false;
@@ -132,6 +153,90 @@ export const make = Effect.gen(function* () {
   let rates: RateTable = new Map();
   let ratesFetchedAtMs: number | null = null;
   let ratesStatus: UsageSummary["pricing"]["status"] = "unavailable";
+  const subscriptionLimitsCache = new Map<UsageProviderKind, SubscriptionLimitsCacheEntry>();
+
+  const readSubscriptionLimits = Effect.fn("UsageService.readSubscriptionLimits")(() =>
+    subscriptionLimitsSemaphore.withPermits(1)(
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const cachedOutcomes = new Map<UsageProviderKind, SubscriptionLimitsProbeOutcome>();
+        for (const [provider, cached] of subscriptionLimitsCache) {
+          const outcome = readSubscriptionLimitsCacheEntry(cached, now);
+          if (outcome !== undefined) cachedOutcomes.set(provider, outcome);
+          else subscriptionLimitsCache.delete(provider);
+        }
+
+        const settings = yield* settingsService.getSettings.pipe(
+          Effect.catchCause(() => Effect.succeed(null)),
+        );
+        if (settings === null) {
+          return [...cachedOutcomes.values()].flatMap((outcome) =>
+            outcome._tag === "Success" && outcome.limits !== null ? [outcome.limits] : [],
+          );
+        }
+
+        const cachedClaude = settings.providers.claudeAgent.enabled
+          ? cachedOutcomes.get("claude")
+          : undefined;
+        const cachedCodex = settings.providers.codex.enabled
+          ? cachedOutcomes.get("codex")
+          : undefined;
+        const codexHomeLayout = yield* resolveCodexHomeLayout(settings.providers.codex).pipe(
+          Effect.provideService(Path.Path, path),
+        );
+        const codexProbeSettings = {
+          ...settings.providers.codex,
+          homePath: codexHomeLayout.effectiveHomePath ?? "",
+        };
+
+        const [claudeProbeOutcome, codexProbeOutcome] = yield* Effect.all(
+          [
+            settings.providers.claudeAgent.enabled && cachedClaude === undefined
+              ? runSubscriptionLimitsProbe(
+                  probeClaudeUsage(settings.providers.claudeAgent, process.env, config.cwd).pipe(
+                    Effect.provideService(FileSystem.FileSystem, fileSystem),
+                    Effect.provideService(Path.Path, path),
+                  ),
+                  normalizeClaudeSubscriptionLimits,
+                ).pipe(Effect.map(Option.some))
+              : Effect.succeed(Option.none()),
+            settings.providers.codex.enabled && cachedCodex === undefined
+              ? runSubscriptionLimitsProbe(
+                  probeCodexRateLimits(codexProbeSettings, process.env, config.cwd).pipe(
+                    Effect.provideService(
+                      ChildProcessSpawner.ChildProcessSpawner,
+                      childProcessSpawner,
+                    ),
+                  ),
+                  normalizeCodexSubscriptionLimits,
+                ).pipe(Effect.map(Option.some))
+              : Effect.succeed(Option.none()),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        const claudeOutcome = cachedClaude ?? Option.getOrUndefined(claudeProbeOutcome);
+        const codexOutcome = cachedCodex ?? Option.getOrUndefined(codexProbeOutcome);
+        const fetchedAtMs = yield* Clock.currentTimeMillis;
+        if (Option.isSome(claudeProbeOutcome)) {
+          subscriptionLimitsCache.set(
+            "claude",
+            makeSubscriptionLimitsCacheEntry(claudeProbeOutcome.value, fetchedAtMs),
+          );
+        }
+        if (Option.isSome(codexProbeOutcome)) {
+          subscriptionLimitsCache.set(
+            "codex",
+            makeSubscriptionLimitsCacheEntry(codexProbeOutcome.value, fetchedAtMs),
+          );
+        }
+
+        return [codexOutcome, claudeOutcome].flatMap((outcome) =>
+          outcome?._tag === "Success" && outcome.limits !== null ? [outcome.limits] : [],
+        );
+      }),
+    ),
+  );
 
   /**
    * Loads the LiteLLM rate table, preferring a fresh copy and falling back to
@@ -323,6 +428,12 @@ export const make = Effect.gen(function* () {
     }
 
     const startedAtMs = yield* Clock.currentTimeMillis;
+    const subscriptionLimitsFiber = yield* readSubscriptionLimits().pipe(
+      // Subscription meters are optional. Provider payload drift must not make
+      // transcript usage unavailable.
+      Effect.catchCause(() => Effect.succeed([])),
+      Effect.forkIn(subscriptionLimitsScope),
+    );
     yield* ensureRates();
     yield* ensureScanCacheLoaded;
 
@@ -420,6 +531,7 @@ export const make = Effect.gen(function* () {
     const aggregated = aggregator.finish();
     const readAt = yield* DateTime.now;
     const finishedAtMs = yield* Clock.currentTimeMillis;
+    const subscriptionLimits = yield* awaitSubscriptionLimits(subscriptionLimitsFiber);
 
     return {
       contractVersion: USAGE_CONTRACT_VERSION,
@@ -429,6 +541,7 @@ export const make = Effect.gen(function* () {
       untilDay: input.untilDay,
       buckets: aggregated.buckets,
       sources,
+      subscriptionLimits,
       pricing: {
         status: ratesStatus,
         source: LITELLM_RATES_URL,

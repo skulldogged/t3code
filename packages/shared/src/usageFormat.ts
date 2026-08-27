@@ -14,6 +14,7 @@ const CURRENCY = new Intl.NumberFormat("en-US", {
 });
 
 const INTEGER = new Intl.NumberFormat("en-US");
+const MINUTE_MS = 60 * 1000;
 
 export function formatUsd(value: number): string {
   return CURRENCY.format(value);
@@ -44,6 +45,41 @@ function trim(value: number): string {
 
 export function formatPercent(share: number, digits = 1): string {
   return `${(share * 100).toFixed(digits)}%`;
+}
+
+/** Compact time remaining for subscription-limit reset labels. */
+export function formatUsageResetCountdown(resetsAt: string, nowMs: number): string | null {
+  const resetMs = Date.parse(resetsAt);
+  if (Number.isNaN(resetMs)) return null;
+
+  const remainingMs = resetMs - nowMs;
+  if (remainingMs <= 0) return "now";
+
+  const totalMinutes = Math.ceil(remainingMs / MINUTE_MS);
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
+/** Exact reset instant for subscription-limit details, including minutes. */
+export function formatUsageResetDateTime(instant: string, timeZone?: string): string | null {
+  const date = new Date(instant);
+  if (Number.isNaN(date.getTime())) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      ...(timeZone === undefined ? {} : { timeZone }),
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date);
+  } catch {
+    return null;
+  }
 }
 
 /** `2026-08-07` to `Aug 7`. */
