@@ -242,7 +242,7 @@ describe("UsagePage subscription limits", () => {
 
     const markup = renderToStaticMarkup(<UsagePage />);
 
-    expect(markup.match(/grid-rows-\[auto_auto\]/g)).toHaveLength(4);
+    expect(markup.match(/grid-rows-\[auto_auto\]/g)).toHaveLength(6);
     expect(markup).toContain("min-h-60 flex-1");
     expect(markup).not.toContain("size-2 shrink-0 rounded-full bg-muted");
   });

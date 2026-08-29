@@ -12,8 +12,7 @@ import {
   STANDARD_THEME_PREVIEW_COLORS,
   type ThemePreviewColors,
 } from "@t3tools/shared/themePreview";
-import { DEFAULT_MOBILE_THEME_VARIABLES } from "./mobileDefaultTheme";
-import catppuccinMochaJson from "../themes/catppuccin-mocha.json";
+import catppuccinMochaJson from "../themes/catppuccin-mocha.json" with { type: "json" };
 
 export const DEFAULT_MOBILE_THEME_ID = MOBILE_DEFAULT_THEME_ID;
 export const MOBILE_THEME_IDS = SHARED_MOBILE_THEME_IDS;
@@ -55,7 +54,7 @@ export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
   })),
 ];
 
-type MobileThemeVariable = `--color-${string}`;
+export type MobileThemeVariable = `--color-${string}`;
 export type MobileThemeVariables = Readonly<Record<MobileThemeVariable, string>>;
 
 export function normalizeMobileThemeId(value: unknown): MobileThemeId {
@@ -314,17 +313,18 @@ export function createMobileThemeVariables(
   };
 }
 
+export const MOBILE_THEME_VARIABLE_NAMES = Object.keys(
+  createMobileThemeVariables(BUILT_IN_THEMES[0].colors, "light"),
+) as ReadonlyArray<MobileThemeVariable>;
+
 export function getMobileThemeVariables(
   themeId: MobileThemeId,
   appearance: MobileThemeAppearance,
   overrides: Partial<MobileThemeVariables> | null = null,
 ): MobileThemeVariables {
-  const baseVariables = (() => {
-    if (themeId === DEFAULT_MOBILE_THEME_ID) return DEFAULT_MOBILE_THEME_VARIABLES[appearance];
-    const theme = getMobileThemeDefinition(themeId) ?? BUILT_IN_THEMES[0];
-    const colors = getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
-    return createMobileThemeVariables(colors, appearance);
-  })();
+  const theme = getMobileThemeDefinition(themeId) ?? BUILT_IN_THEMES[0];
+  const colors = getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
+  const baseVariables = createMobileThemeVariables(colors, appearance);
 
   // The complete base record guarantees that optional overrides cannot leave a token undefined.
   return overrides ? ({ ...baseVariables, ...overrides } as MobileThemeVariables) : baseVariables;
