@@ -186,7 +186,21 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Restore Android compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: android-ccache-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            android-ccache-v1-${{ runner.os }}-
+      - name: Configure Android compiler cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v ccache
+          ccache --max-size=2G
+          ccache --zero-stats
       - name: Stamp release versions
         run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
       - name: Build web and server
@@ -209,7 +223,11 @@ jobs:
           export T3CODE_MOBILE_VERSION="${{ needs.metadata.outputs.version }}"
           export T3CODE_ANDROID_VERSION_CODE="$GITHUB_RUN_NUMBER"
           vp exec --filter @t3tools/mobile -- expo prebuild --clean --platform android
-          ( cd apps/mobile/android && ./gradlew assembleRelease )
+          ( cd apps/mobile/android && \
+            ./gradlew --build-cache --parallel \
+              -PreactNativeArchitectures=arm64-v8a \
+              assembleRelease )
+          ccache --show-stats
           cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
             "release-publish/T3-Code-${{ needs.metadata.outputs.version }}-preview.apk"
       - uses: actions/upload-artifact@v7
