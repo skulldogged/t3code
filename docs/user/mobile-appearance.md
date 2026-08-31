@@ -5,8 +5,8 @@ themes. T3 Code, T3 Chat, Grove, Ocean, Ember, and Iris include light and dark c
 Mocha is available for dark appearance. Theme colors apply throughout the app, including code
 reviews, file previews, the terminal, native headers, and sheets.
 
-On supported iOS versions, the new-task and thread composers use the system glass material.
-Other platforms use a themed background.
+On supported iOS versions, the new-task and thread composers, working timer, and scroll-to-end
+button use the system glass material. Other platforms use a themed background.
 
 To change themes:
 
