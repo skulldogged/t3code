@@ -5,13 +5,17 @@ import {
   reportAtomCommandResult,
   settleAsyncResult,
   settlePromise,
+  squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
 import { type ReactNode, useEffect, useRef } from "react";
 
-import { environmentCatalog } from "../../connection/catalog";
 import { runtime } from "../../lib/runtime";
 import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  getComposerCloudAccountId,
+  restoreCloudComposerDrafts,
+} from "../../state/use-composer-drafts";
 import {
   releaseAgentAwarenessRelayTokenProvider,
   setAgentAwarenessRelayTokenProvider,
@@ -24,6 +28,7 @@ import {
 } from "./backgroundManagedRelayAuth";
 import { managedRelaySessionOwnership } from "./managedRelaySessionOwnership";
 import { resolveCloudPublicConfig, resolveRelayClerkTokenOptions } from "./publicConfig";
+import { removeCloudEnvironments } from "./cloud-drafts";
 
 function resetManagedRelayTokenCache() {
   return settleAsyncResult(() =>
@@ -74,7 +79,7 @@ export function releaseCloudRelayUiAccount(
 
 function CloudAuthBridge(props: { readonly children: ReactNode }) {
   const { getToken, isLoaded, isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false });
-  const removeRelayEnvironments = useAtomCommand(environmentCatalog.removeRelayEnvironments, {
+  const removeRelayEnvironments = useAtomCommand(removeCloudEnvironments, {
     reportFailure: false,
     reportDefect: false,
   });
@@ -108,32 +113,37 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
       clearConnectOnboardingRequest();
     }
 
-    const queueAccountCleanup = (
+    const cleanUpAccount = async (
       previous: {
         readonly userId: string;
         readonly provider: () => Promise<string | null>;
       } | null,
+      accountId: string | null,
     ) => {
-      const previousTransition = accountTransitionRef.current ?? Promise.resolve();
-      accountTransitionRef.current = previousTransition.then(async () => {
-        const cleanup = [
-          resetManagedRelayTokenCache(),
-          removeRelayEnvironments(),
-          ...(previous
-            ? [
-                settleAsyncResult(() =>
-                  runtime.runPromiseExit(
-                    unregisterAgentAwarenessDeviceForCurrentUser(previous.provider),
-                  ),
+      const removal = await removeRelayEnvironments(accountId);
+      if (removal._tag !== "Success") throw squashAtomCommandFailure(removal);
+      const cleanup = [
+        resetManagedRelayTokenCache(),
+        ...(previous
+          ? [
+              settleAsyncResult(() =>
+                runtime.runPromiseExit(
+                  unregisterAgentAwarenessDeviceForCurrentUser(previous.provider),
                 ),
-              ]
-            : []),
-        ];
-        const results = await Promise.all(cleanup);
-        for (const result of results) {
-          reportAtomCommandResult(result, { label: "cloud account cleanup" });
-        }
-      });
+              ),
+            ]
+          : []),
+      ];
+      const results = await Promise.all(cleanup);
+      for (const result of results) {
+        reportAtomCommandResult(result, { label: "cloud account cleanup" });
+      }
+    };
+    const queueAccountCleanup = (previous: typeof previousTokenProviderRef.current) => {
+      const previousTransition = accountTransitionRef.current ?? Promise.resolve();
+      accountTransitionRef.current = previousTransition
+        .catch(() => {})
+        .then(() => cleanUpAccount(previous, previousObservedAccount ?? null));
       return accountTransitionRef.current;
     };
 
@@ -142,7 +152,9 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
       previousTokenProviderRef.current = null;
       deactivateCloudRelayAccount();
       if (previousObservedAccount !== null) {
-        void queueAccountCleanup(previous);
+        void settlePromise(() => queueAccountCleanup(previous)).then((result) => {
+          reportAtomCommandResult(result, { label: "cloud account cleanup" });
+        });
       }
       return;
     }
@@ -160,13 +172,21 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
       }
     };
     const activateAfterTransition = (transition: Promise<void>) => {
-      void (async () => {
-        const result = await settlePromise(async () => {
-          await transition;
-          activateSession();
-        });
-        reportAtomCommandResult(result, { label: "cloud account activation" });
+      const activation = (async () => {
+        await transition;
+        if (cancelled) return;
+        const storedAccount = await getComposerCloudAccountId();
+        if (storedAccount !== null && storedAccount !== userId) {
+          await cleanUpAccount(null, storedAccount);
+        }
+        if (cancelled) return;
+        await restoreCloudComposerDrafts(userId);
+        activateSession();
       })();
+      accountTransitionRef.current = activation;
+      void settlePromise(() => activation).then((result) => {
+        reportAtomCommandResult(result, { label: "cloud account activation" });
+      });
     };
     if (
       previousObservedAccount !== undefined &&
@@ -180,7 +200,9 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
       deactivateCloudRelayAccount({ refreshBackground: false });
       activateAfterTransition(queueAccountCleanup(previous));
     } else {
-      activateAfterTransition(accountTransitionRef.current ?? Promise.resolve());
+      // A failed disk write can be retried. The persisted account check above
+      // still requires cleanup before activating a different account.
+      activateAfterTransition((accountTransitionRef.current ?? Promise.resolve()).catch(() => {}));
     }
 
     return () => {
