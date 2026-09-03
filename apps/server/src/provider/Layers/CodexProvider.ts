@@ -371,16 +371,7 @@ const startCodexAppServerProbe = Effect.fn("startCodexAppServerProbe")(function*
     Effect.provide(clientContext),
   );
 
-  const initialize = yield* client.request("initialize", {
-    clientInfo: {
-      name: "t3code_desktop",
-      title: "T3 Code Desktop",
-      version: "0.1.0",
-    },
-    capabilities: {
-      experimentalApi: true,
-    },
-  });
+  const initialize = yield* client.request("initialize", buildCodexInitializeParams());
   yield* client.notify("initialized", undefined);
 
   // Extract the version string after the first '/' in userAgent, up to the next space or the end
@@ -452,6 +443,18 @@ export const probeCodexRateLimits = Effect.fn("probeCodexRateLimits")(function* 
 
   if (Result.isFailure(response) || Option.isNone(response.success)) return undefined;
   return response.success.value;
+});
+
+export const probeCodexSkillsForCwd = Effect.fn("probeCodexSkillsForCwd")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly launchArgs?: string;
+  readonly cwd: string;
+  readonly environment?: NodeJS.ProcessEnv;
+}) {
+  const { client } = yield* startCodexAppServerProbe(input);
+  const skillsResponse = yield* client.request("skills/list", { cwds: [input.cwd] });
+  return parseCodexSkillsListResponse(skillsResponse, input.cwd);
 });
 
 const emptyCodexModelsFromSettings = (codexSettings: CodexSettings): ServerProvider["models"] => {

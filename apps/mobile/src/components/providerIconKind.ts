@@ -1,4 +1,5 @@
 export type ProviderIconKind =
+  | "antigravity"
   | "claudeAgent"
   | "codex"
   | "cursor"
@@ -8,6 +9,7 @@ export type ProviderIconKind =
   | "unknown";
 
 const KNOWN_PROVIDER_ICON_KINDS = new Set<ProviderIconKind>([
+  "antigravity",
   "claudeAgent",
   "codex",
   "cursor",

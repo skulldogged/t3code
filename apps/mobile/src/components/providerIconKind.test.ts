@@ -15,6 +15,10 @@ describe("resolveProviderIconKind", () => {
     expect(resolveProviderIconKind({ driver: "codex", instanceId: "work" })).toBe("codex");
   });
 
+  it("preserves upstream provider kinds added after the Pi icon resolver", () => {
+    expect(resolveProviderIconKind({ driver: "antigravity" })).toBe("antigravity");
+  });
+
   it("does not label an unknown provider as OpenAI", () => {
     expect(resolveProviderIconKind({ driver: "third-party", instanceId: "work" })).toBe("unknown");
   });

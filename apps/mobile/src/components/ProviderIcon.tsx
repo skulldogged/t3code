@@ -1,5 +1,5 @@
 import { Circle, Path, Rect, Svg } from "react-native-svg";
-
+import { Image } from "expo-image";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { resolveProviderIconKind } from "./providerIconKind";
 
@@ -18,6 +18,16 @@ export function ProviderIcon(props: ProviderIconProps) {
     driver: props.provider,
     instanceId: props.providerInstanceId,
   });
+
+  if (provider === "antigravity") {
+    return (
+      <Image
+        source={require("../../assets/antigravity.png")}
+        style={{ width: size, height: size }}
+        contentFit="contain"
+      />
+    );
+  }
 
   if (provider === "claudeAgent") {
     return (

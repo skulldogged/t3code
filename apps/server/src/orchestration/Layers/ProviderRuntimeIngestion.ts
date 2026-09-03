@@ -812,7 +812,11 @@ export function runtimeEventToActivities(
             itemType: event.payload.itemType,
             ...(event.itemId !== undefined ? { toolCallId: event.itemId } : {}),
             ...(event.payload.status ? { status: event.payload.status } : {}),
+            ...(event.payload.title ? { title: event.payload.title } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
+            ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
+            ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.parentToolUseId
@@ -840,7 +844,11 @@ export function runtimeEventToActivities(
             itemType: event.payload.itemType,
             ...(event.itemId !== undefined ? { toolCallId: event.itemId } : {}),
             ...(event.payload.status ? { status: event.payload.status } : {}),
+            ...(event.payload.title ? { title: event.payload.title } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
+            ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
+            ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.parentToolUseId
@@ -868,7 +876,11 @@ export function runtimeEventToActivities(
             itemType: event.payload.itemType,
             ...(event.itemId !== undefined ? { toolCallId: event.itemId } : {}),
             ...(event.payload.status ? { status: event.payload.status } : {}),
+            ...(event.payload.title ? { title: event.payload.title } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
+            ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
+            ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.parentToolUseId
@@ -1499,6 +1511,10 @@ const make = Effect.gen(function* () {
 
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
+      if (event.type === "content.delta" && event.payload.streamKind !== "assistant_text") {
+        return;
+      }
+
       const thread = yield* resolveThreadShell(event.threadId);
       if (!thread) return;
 
@@ -1515,9 +1531,17 @@ const make = Effect.gen(function* () {
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
       const activeTurnId = thread.session?.activeTurnId ?? null;
-      const pendingTurnStart = yield* projectionTurnRepository.getPendingTurnStartByThreadId({
-        threadId: thread.id,
-      });
+      const pendingTurnStart =
+        event.type === "session.started" ||
+        event.type === "session.state.changed" ||
+        event.type === "session.exited" ||
+        event.type === "thread.started" ||
+        event.type === "turn.started" ||
+        event.type === "turn.completed"
+          ? yield* projectionTurnRepository.getPendingTurnStartByThreadId({
+              threadId: thread.id,
+            })
+          : Option.none();
       const hasPendingTurnStart =
         Option.isSome(pendingTurnStart) && thread.session?.status === "starting";
 
