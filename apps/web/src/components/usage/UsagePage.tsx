@@ -25,6 +25,7 @@ import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
+import { Skeleton } from "../ui/skeleton";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -699,31 +700,31 @@ function UsageSkeleton() {
       <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-6">
           <div className="flex flex-col gap-1">
-            <div className="h-10 w-36 rounded-sm bg-muted" />
-            <div className="h-4 w-32 rounded-sm bg-muted" />
+            <Skeleton className="h-10 w-36" />
+            <Skeleton className="h-4 w-32" />
           </div>
           {PROVIDER_ORDER.map((provider) => (
             <div key={provider} className="flex flex-col gap-1.5">
               <div className="flex flex-col gap-0.5">
                 <div className="flex min-h-5 items-center justify-between gap-4">
                   <span className="flex items-center gap-2">
-                    <span className="size-4 shrink-0 rounded-full bg-muted" />
+                    <Skeleton className="size-4 shrink-0 rounded-full" />
                     <span className="flex items-baseline gap-1.5">
-                      <span className="h-3.5 w-20 rounded-sm bg-muted" />
-                      <span className="h-3 w-14 rounded-sm bg-muted" />
+                      <Skeleton className="h-3.5 w-20" />
+                      <Skeleton className="h-3 w-14" />
                     </span>
                   </span>
-                  <span className="h-3.5 w-14 rounded-sm bg-muted" />
+                  <Skeleton className="h-3.5 w-14" />
                 </div>
-                <div className="ml-6 h-4 w-36 rounded-sm bg-muted" />
+                <Skeleton className="ml-6 h-4 w-36" />
               </div>
               <div className={USAGE_LIMITS_CLASS_NAME}>
                 {["fiveHour", "weekly"].map((window) => (
                   <div key={window} className={USAGE_LIMIT_ROW_CLASS_NAME}>
-                    <span className="col-start-1 row-start-1 h-2.5 w-5 rounded-sm bg-muted" />
-                    <span className="col-start-2 row-start-1 h-1 rounded-full bg-muted" />
-                    <span className="col-start-3 row-start-1 h-2.5 w-6 justify-self-end rounded-sm bg-muted" />
-                    <span className="col-start-2 row-start-2 h-2.5 w-20 rounded-sm bg-muted" />
+                    <Skeleton className="col-start-1 row-start-1 h-2.5 w-5" />
+                    <Skeleton className="col-start-2 row-start-1 h-1 rounded-full" />
+                    <Skeleton className="col-start-3 row-start-1 h-2.5 w-6 justify-self-end" />
+                    <Skeleton className="col-start-2 row-start-2 h-2.5 w-20" />
                   </div>
                 ))}
               </div>
@@ -732,13 +733,13 @@ function UsageSkeleton() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-3 lg:h-full">
-          <div className="h-5 w-24 rounded-sm bg-muted" />
+          <Skeleton className="h-5 w-24" />
           <div className="flex min-h-60 flex-1 flex-col gap-1">
             <div className="flex min-h-56 flex-1 gap-2">
               <div className="w-14 shrink-0" />
-              <div className="min-w-0 flex-1 rounded-sm bg-muted/35" />
+              <Skeleton className="min-w-0 flex-1 bg-muted/35" />
             </div>
-            <div className="ml-16 h-4 rounded-sm bg-muted/35" />
+            <Skeleton className="ml-16 h-4 bg-muted/35" />
           </div>
         </div>
       </section>
