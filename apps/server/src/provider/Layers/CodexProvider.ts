@@ -39,13 +39,17 @@ import {
   codexRateLimitsFailureMessage,
   codexRateLimitsToLimits,
   type CodexRateLimitSnapshot,
+  type CodexResetCreditsSummary,
 } from "./codexUsageLimits.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 const RATE_LIMITS_PROBE_TIMEOUT_MS = 3_000;
 
 type CodexRateLimitsProbe =
-  | { readonly snapshot: CodexRateLimitSnapshot }
+  | {
+      readonly snapshot: CodexRateLimitSnapshot;
+      readonly resetCredits: CodexResetCreditsSummary | null | undefined;
+    }
   | { readonly failure: string };
 
 const CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER = "2 seconds" as const;
@@ -61,14 +65,6 @@ export interface CodexAppServerProviderSnapshot {
   readonly version: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
-}
-
-interface CodexAppServerProbeInput {
-  readonly binaryPath: string;
-  readonly homePath?: string;
-  readonly launchArgs?: string;
-  readonly cwd: string;
-  readonly environment?: NodeJS.ProcessEnv;
 }
 
 const REASONING_EFFORT_LABELS: Readonly<Record<string, string>> = {
@@ -342,9 +338,19 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
   };
 }
 
-const startCodexAppServerProbe = Effect.fn("startCodexAppServerProbe")(function* (
-  input: CodexAppServerProbeInput,
-) {
+/**
+ * Spawns a short-lived `codex app-server`, runs the initialize handshake, and
+ * hands the caller a connected client. Scoped: the process is killed when
+ * the caller's scope closes. Shared by the status probe, the skills probe,
+ * and account-level requests such as reset-credit redemption.
+ */
+export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string | undefined;
+  readonly launchArgs?: string | undefined;
+  readonly cwd: string;
+  readonly environment?: NodeJS.ProcessEnv | undefined;
+}) {
   // `~` is not shell-expanded when env vars are set via `child_process.spawn`,
   // so `CODEX_HOME=~/.codex_work` would reach codex verbatim and trip
   // "CODEX_HOME points to '~/.codex_work', but that path does not exist".
@@ -358,10 +364,7 @@ const startCodexAppServerProbe = Effect.fn("startCodexAppServerProbe")(function*
   const spawnCommand = yield* resolveSpawnCommand(
     input.binaryPath,
     codexAppServerArgs(input.launchArgs),
-    {
-      env: environment,
-      extendEnv: true,
-    },
+    { env: environment, extendEnv: true },
   );
   const child = yield* spawner
     .spawn(
@@ -386,23 +389,35 @@ const startCodexAppServerProbe = Effect.fn("startCodexAppServerProbe")(function*
   const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
     Effect.provide(clientContext),
   );
-
   const initialize = yield* client.request("initialize", buildCodexInitializeParams());
   yield* client.notify("initialized", undefined);
+  return { client, initialize };
+});
+
+
+const startCodexAppServerProbe = Effect.fn("startCodexAppServerProbe")(function* (
+  input: CodexAppServerProbeInput,
+) {
+  const { client, initialize } = yield* withCodexAppServerClient(input);
+  // Extract the version string after the first '/' in userAgent, up to the next space or the end.
+  const versionMatch = initialize.userAgent.match(/\/([^\s]+)/);
+  const version = versionMatch ? versionMatch[1] : undefined;
+  return { client, version } as const;
+});
+
+const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly launchArgs?: string;
+  readonly cwd: string;
+  readonly customModels?: ReadonlyArray<string>;
+  readonly environment?: NodeJS.ProcessEnv;
+}) {
+  const { client, initialize } = yield* withCodexAppServerClient(input);
 
   // Extract the version string after the first '/' in userAgent, up to the next space or the end
   const versionMatch = initialize.userAgent.match(/\/([^\s]+)/);
   const version = versionMatch ? versionMatch[1] : undefined;
-
-  return { client, version } as const;
-});
-
-const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (
-  input: CodexAppServerProbeInput & {
-    readonly customModels?: ReadonlyArray<string>;
-  },
-) {
-  const { client, version } = yield* startCodexAppServerProbe(input);
 
   const accountResponse = yield* client.request("account/read", {});
   if (!accountResponse.account && accountResponse.requiresOpenaiAuth) {
@@ -423,7 +438,10 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
       // Usage is an enrichment: a failure or a slow answer degrades to "no
       // usage this probe" rather than costing the account and models.
       client.request("account/rateLimits/read", undefined).pipe(
-        Effect.map((response): CodexRateLimitsProbe => ({ snapshot: response.rateLimits })),
+        Effect.map((response): CodexRateLimitsProbe => ({
+          snapshot: response.rateLimits,
+          resetCredits: response.rateLimitResetCredits,
+        })),
         Effect.timeoutOption(Duration.millis(RATE_LIMITS_PROBE_TIMEOUT_MS)),
         Effect.map(
           Option.getOrElse((): CodexRateLimitsProbe => ({
@@ -485,7 +503,7 @@ export const probeCodexSkillsForCwd = Effect.fn("probeCodexSkillsForCwd")(functi
   readonly cwd: string;
   readonly environment?: NodeJS.ProcessEnv;
 }) {
-  const { client } = yield* startCodexAppServerProbe(input);
+  const { client } = yield* withCodexAppServerClient(input);
   const skillsResponse = yield* client.request("skills/list", { cwds: [input.cwd] });
   return parseCodexSkillsListResponse(skillsResponse, input.cwd);
 });
@@ -678,7 +696,11 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
             reason: "probeFailed",
             ...(snapshot.rateLimits ? { message: snapshot.rateLimits.failure } : {}),
           })
-        : codexRateLimitsToLimits({ snapshot: snapshot.rateLimits.snapshot, checkedAt });
+        : codexRateLimitsToLimits({
+            snapshot: snapshot.rateLimits.snapshot,
+            resetCredits: snapshot.rateLimits.resetCredits,
+            checkedAt,
+          });
 
   return buildServerProvider({
     presentation: CODEX_PRESENTATION,
