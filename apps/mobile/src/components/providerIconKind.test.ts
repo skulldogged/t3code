@@ -19,6 +19,10 @@ describe("resolveProviderIconKind", () => {
     expect(resolveProviderIconKind({ driver: "antigravity" })).toBe("antigravity");
   });
 
+  it("normalizes the Antigravity driver name", () => {
+    expect(resolveProviderIconKind({ driver: " Antigravity " })).toBe("antigravity");
+  });
+
   it("does not label an unknown provider as OpenAI", () => {
     expect(resolveProviderIconKind({ driver: "third-party", instanceId: "work" })).toBe("unknown");
   });

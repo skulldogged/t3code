@@ -20,6 +20,9 @@ const KNOWN_PROVIDER_ICON_KINDS = new Set<ProviderIconKind>([
 
 function knownProviderIconKind(value: string | null | undefined): ProviderIconKind | null {
   const normalized = value?.trim();
+  if (normalized?.toLowerCase() === "antigravity") {
+    return "antigravity";
+  }
   return normalized && KNOWN_PROVIDER_ICON_KINDS.has(normalized as ProviderIconKind)
     ? (normalized as ProviderIconKind)
     : null;
