@@ -395,16 +395,6 @@ export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(fu
 });
 
 
-const startCodexAppServerProbe = Effect.fn("startCodexAppServerProbe")(function* (
-  input: CodexAppServerProbeInput,
-) {
-  const { client, initialize } = yield* withCodexAppServerClient(input);
-  // Extract the version string after the first '/' in userAgent, up to the next space or the end.
-  const versionMatch = initialize.userAgent.match(/\/([^\s]+)/);
-  const version = versionMatch ? versionMatch[1] : undefined;
-  return { client, version } as const;
-});
-
 const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
@@ -478,7 +468,7 @@ export const probeCodexRateLimits = Effect.fn("probeCodexRateLimits")(function* 
   if (!codexSettings.enabled) return undefined;
 
   const response = yield* Effect.gen(function* () {
-    const { client } = yield* startCodexAppServerProbe({
+    const { client } = yield* withCodexAppServerClient({
       binaryPath: codexSettings.binaryPath,
       homePath: codexSettings.homePath,
       launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, environment),
