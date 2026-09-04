@@ -873,9 +873,6 @@ function ThreadNavigationSidebarPane(
                       (thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
                   )?.driver ?? null
               }
-              providerInstanceId={
-                thread.session?.providerInstanceId ?? thread.modelSelection.instanceId
-              }
               environmentLabel={
                 Object.keys(savedConnectionsById).length > 1
                   ? (savedConnectionsById[thread.environmentId]?.environmentLabel ?? null)

@@ -732,28 +732,6 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
-export const PiSettings = makeProviderSettingsSchema(
-  {
-    enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(true)),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
-    ),
-    binaryPath: makeBinaryPathSetting("pi").pipe(
-      Schema.annotateKey({
-        title: "Binary path",
-        description: "Path to the Pi CLI binary.",
-        providerSettingsForm: { placeholder: "pi", clearWhenEmpty: "omit" },
-      }),
-    ),
-    customModels: Schema.Array(Schema.String).pipe(
-      Schema.withDecodingDefault(Effect.succeed([])),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
-    ),
-  },
-  { order: ["binaryPath"] },
-);
-export type PiSettings = typeof PiSettings.Type;
-
 /**
  * A read-only quota source outside this environment's provider CLIs. The
  * only kind today is a CLIProxyAPI hub, whose management API reports the
@@ -936,7 +914,6 @@ export const ServerSettings = Schema.Struct({
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-    pi: PiSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     antigravity: AntigravitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
@@ -1106,12 +1083,6 @@ const OpenCodeSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
-const PiSettingsPatch = Schema.Struct({
-  enabled: Schema.optionalKey(Schema.Boolean),
-  binaryPath: Schema.optionalKey(TrimmedString),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
-});
-
 export const ServerSettingsPatch = Schema.Struct({
   // Server settings
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
@@ -1156,7 +1127,6 @@ export const ServerSettingsPatch = Schema.Struct({
       cursor: Schema.optionalKey(CursorSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
-      pi: Schema.optionalKey(PiSettingsPatch),
       antigravity: Schema.optionalKey(AntigravitySettingsPatch),
     }),
   ),

@@ -816,9 +816,6 @@ export function HomeScreen(props: HomeScreenProps) {
                   (thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
               )?.driver ?? null
           }
-          providerInstanceId={
-            thread.session?.providerInstanceId ?? thread.modelSelection.instanceId
-          }
           environmentLabel={
             Object.keys(props.savedConnectionsById).length > 1
               ? (props.savedConnectionsById[thread.environmentId]?.environmentLabel ?? null)

@@ -8,14 +8,6 @@ separate from the raw token cost shown here.
 Grok Build totals come from persisted session updates. Interactive turns that never wrote a
 completed-turn record will not appear.
 
-When a signed-in provider exposes subscription quotas, its summary row keeps the usual cost and
-token summary and adds the current five-hour and weekly usage meters. Each meter shows the time
-remaining until it resets. On web and desktop, hover a meter to see the exact reset time. Providers
-that do not expose quota data omit the meters.
-
-Codex Pro 5x and Pro 20x plans show `∞` for the uncapped five-hour window. Plus plans show the
-five-hour percentage reported by Codex.
-
 The **Limits** view shows how much of each subscription window you have used on Codex and Claude
 Code, per connected environment: the session and weekly windows, plus a per-model weekly window
 such as Fable when your plan has one. Each window is a bar from the moment it opened to its reset,

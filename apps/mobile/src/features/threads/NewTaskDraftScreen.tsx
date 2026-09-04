@@ -1333,7 +1333,6 @@ export function NewTaskDraftScreen(props: {
                       iconNode={
                         <ProviderIcon
                           provider={flow.selectedModelOption?.providerDriver}
-                          providerInstanceId={flow.selectedModel?.instanceId}
                           size={16}
                         />
                       }

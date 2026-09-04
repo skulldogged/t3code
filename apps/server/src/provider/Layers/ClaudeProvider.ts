@@ -16,8 +16,8 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
   query as claudeQuery,
   type Options as ClaudeQueryOptions,
-  type SDKControlGetUsageResponse,
   type SlashCommand as ClaudeSlashCommand,
+  type SDKControlGetUsageResponse,
   type SDKUserMessage,
   type SettingSource,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -380,58 +380,6 @@ const probeClaudeCapabilities = (
         slashCommands: parseClaudeInitializationCommands(init.commands),
         ...(usage ? { usage } : {}),
       } satisfies ClaudeCapabilitiesProbe;
-    });
-  }).pipe(
-    Effect.ensuring(
-      Effect.sync(() => {
-        if (!abort.signal.aborted) abort.abort();
-      }),
-    ),
-    Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
-    Effect.result,
-    Effect.map((result) => {
-      if (Result.isFailure(result)) return undefined;
-      return Option.isSome(result.success) ? result.success.value : undefined;
-    }),
-  );
-};
-
-/**
- * Reads the structured data behind Claude Code's `/usage` screen without
- * sending a prompt or starting an Anthropic API request.
- */
-export const probeClaudeUsage = (
-  claudeSettings: ClaudeSettings,
-  environment?: NodeJS.ProcessEnv,
-  cwd?: string,
-): Effect.Effect<
-  SDKControlGetUsageResponse | undefined,
-  never,
-  FileSystem.FileSystem | Path.Path
-> => {
-  const abort = new AbortController();
-  return Effect.gen(function* () {
-    const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, environment);
-    const executablePath = yield* resolveClaudeSdkExecutablePath(
-      claudeSettings.binaryPath,
-      claudeEnvironment,
-    );
-    return yield* Effect.tryPromise(async () => {
-      const q = claudeQuery({
-        // Never yield. Initialization is enough to use the local control API.
-        // oxlint-disable-next-line require-yield
-        prompt: (async function* (): AsyncGenerator<SDKUserMessage> {
-          await waitForAbortSignal(abort.signal);
-        })(),
-        options: buildClaudeCapabilitiesProbeQueryOptions({
-          executablePath,
-          abortController: abort,
-          environment: claudeEnvironment,
-          cwd,
-        }),
-      });
-      await q.initializationResult();
-      return q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
     });
   }).pipe(
     Effect.ensuring(

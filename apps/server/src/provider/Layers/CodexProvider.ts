@@ -394,7 +394,6 @@ export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(fu
   return { client, initialize };
 });
 
-
 const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
@@ -457,33 +456,6 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     ),
     skills: parseCodexSkillsListResponse(skillsResponse, input.cwd),
   } satisfies CodexAppServerProviderSnapshot;
-});
-
-/** Reads Codex's current ChatGPT subscription quota windows. */
-export const probeCodexRateLimits = Effect.fn("probeCodexRateLimits")(function* (
-  codexSettings: CodexSettings,
-  environment: NodeJS.ProcessEnv = process.env,
-  cwd: string = process.cwd(),
-) {
-  if (!codexSettings.enabled) return undefined;
-
-  const response = yield* Effect.gen(function* () {
-    const { client } = yield* withCodexAppServerClient({
-      binaryPath: codexSettings.binaryPath,
-      homePath: codexSettings.homePath,
-      launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, environment),
-      cwd,
-      environment,
-    });
-    return yield* client.request("account/rateLimits/read", undefined);
-  }).pipe(
-    Effect.scoped,
-    Effect.timeoutOption(Duration.millis(AUTH_PROBE_TIMEOUT_MS)),
-    Effect.result,
-  );
-
-  if (Result.isFailure(response) || Option.isNone(response.success)) return undefined;
-  return response.success.value;
 });
 
 export const probeCodexSkillsForCwd = Effect.fn("probeCodexSkillsForCwd")(function* (input: {

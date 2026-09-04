@@ -11,7 +11,6 @@ import {
   type EnvironmentId,
   type UsageBucket,
   type UsageProviderKind,
-  type UsageProviderLimits,
   type UsageSourceFingerprint,
   type UsageSummary,
 } from "@t3tools/contracts";
@@ -74,7 +73,6 @@ export interface MergedUsage {
   readonly records: number;
   readonly sessions: number;
   readonly providers: readonly ProviderTotals[];
-  readonly subscriptionLimits: readonly UsageProviderLimits[];
   readonly models: readonly ModelTotals[];
   readonly daily: readonly DailyTotals[];
   readonly hourly: readonly HourlyTotals[];
@@ -190,7 +188,6 @@ const EMPTY_MERGED: MergedUsage = {
   records: 0,
   sessions: 0,
   providers: [],
-  subscriptionLimits: [],
   models: [],
   daily: [],
   hourly: [],
@@ -231,19 +228,6 @@ export function mergeUsage(
   }
 
   const { ownerByFingerprint, duplicates } = claimSources(current);
-  const subscriptionLimitsByProvider = new Map<UsageProviderKind, UsageProviderLimits>();
-  const newestFirst = [...current].sort(
-    (left, right) =>
-      right.summary.readAt.localeCompare(left.summary.readAt) ||
-      left.environmentId.localeCompare(right.environmentId),
-  );
-  for (const environment of newestFirst) {
-    for (const limits of environment.summary.subscriptionLimits) {
-      if (!subscriptionLimitsByProvider.has(limits.provider)) {
-        subscriptionLimitsByProvider.set(limits.provider, limits);
-      }
-    }
-  }
 
   let costUsd = 0;
   let uncachedInputTokens = 0;
@@ -423,7 +407,6 @@ export function mergeUsage(
     records,
     sessions,
     providers,
-    subscriptionLimits: [...subscriptionLimitsByProvider.values()],
     models,
     daily,
     hourly,

@@ -13,7 +13,6 @@
  * @module usage
  */
 import * as Schema from "effect/Schema";
-import * as Effect from "effect/Effect";
 
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
@@ -170,27 +169,6 @@ export const UsagePricing = Schema.Struct({
 });
 export type UsagePricing = typeof UsagePricing.Type;
 
-export const UsageLimitWindowKind = Schema.Literals(["fiveHour", "weekly"]);
-export type UsageLimitWindowKind = typeof UsageLimitWindowKind.Type;
-
-/** One subscription quota window reported by the provider CLI. */
-export const UsageLimitWindow = Schema.Struct({
-  kind: UsageLimitWindowKind,
-  usedPercent: Schema.Number,
-  resetsAt: Schema.NullOr(Schema.String),
-  /** True when this plan has no cap for the window. */
-  unlimited: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-});
-export type UsageLimitWindow = typeof UsageLimitWindow.Type;
-
-/** Best-effort subscription limits for one provider account. */
-export const UsageProviderLimits = Schema.Struct({
-  provider: UsageProviderKind,
-  plan: Schema.NullOr(TrimmedNonEmptyString),
-  windows: Schema.Array(UsageLimitWindow),
-});
-export type UsageProviderLimits = typeof UsageProviderLimits.Type;
-
 export const UsageSummaryInput = Schema.Struct({
   /** Inclusive first day of the window, in `timeZone`. */
   sinceDay: UsageDay,
@@ -218,10 +196,6 @@ export const UsageSummary = Schema.Struct({
   untilDay: UsageDay,
   buckets: Schema.Array(UsageBucket),
   sources: Schema.Array(UsageSource),
-  /** Current provider subscription quotas, when the local CLI exposes them. */
-  subscriptionLimits: Schema.Array(UsageProviderLimits).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-  ),
   pricing: UsagePricing,
   /** Wall-clock cost of the scan, surfaced in diagnostics. */
   scanDurationMs: NonNegativeInt,

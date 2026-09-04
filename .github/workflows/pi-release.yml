@@ -1,4 +1,4 @@
-name: Pi release
+name: Personal release
 
 on:
   push:
@@ -59,10 +59,10 @@ jobs:
           run-install: true
       - name: Stamp version
         run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
-      - name: Check Pi adapter and mobile provider behavior
+      - name: Check personal mobile and update behavior
         run: |
-          vp test run apps/server/src/provider/Layers/PiAdapter.test.ts
-          vp test run apps/mobile/src/components/providerIconKind.test.ts
+          vp test run apps/server/src/cloud/pinnedRuntime.test.ts
+          vp test run apps/mobile/src/features/background-connection apps/mobile/src/features/agent-awareness/ongoingNotification.test.ts apps/mobile/src/lib/mobileTheme.test.ts
       - name: Typecheck changed packages
         run: vp run --filter t3 --filter @t3tools/mobile typecheck
 
@@ -267,7 +267,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: pi-v${{ needs.metadata.outputs.version }}
-          name: T3 Code Pi ${{ needs.metadata.outputs.version }}
+          name: T3 Code Personal ${{ needs.metadata.outputs.version }}
           generate_release_notes: true
           prerelease: false
           make_latest: true
