@@ -128,11 +128,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_target }}
-      - name: Install ImageMagick
+      - name: Install Linux desktop build dependencies
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y imagemagick
+          sudo apt-get install -y imagemagick libsecret-1-dev pkg-config
       - name: Download WSL node-pty
         if: matrix.platform == 'win'
         uses: actions/download-artifact@v8
