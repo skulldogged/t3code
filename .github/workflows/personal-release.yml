@@ -3,7 +3,7 @@ name: Personal release
 on:
   push:
     tags:
-      - "pi-v*"
+      - "personal-v*"
   workflow_dispatch:
     inputs:
       version:
@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            version="${GITHUB_REF_NAME#pi-v}"
+            version="${GITHUB_REF_NAME#personal-v}"
           else
             version="${DISPATCH_VERSION#v}"
           fi
@@ -266,7 +266,7 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: pi-v${{ needs.metadata.outputs.version }}
+          tag_name: personal-v${{ needs.metadata.outputs.version }}
           name: T3 Code Personal ${{ needs.metadata.outputs.version }}
           generate_release_notes: true
           prerelease: false

@@ -15,11 +15,14 @@ import {
   PinnedRuntimeInstallError,
 } from "./pinnedRuntime.ts";
 
-it("installs personal Pi versions from their GitHub release archive", () => {
-  for (const version of ["0.0.52-main1baf9919.pi.68d089f4", "0.0.56-main33b650a5.pi.c00465037"]) {
+it("installs personal nightly versions from their GitHub release archive", () => {
+  for (const version of [
+    "0.0.85-nightly.20260904.1280.personal.c68d089f4",
+    "0.0.86-nightly.20260904.1281.personal.c00465037",
+  ]) {
     assert.equal(
       pinnedRuntimePackageSpec(version),
-      `https://github.com/skulldogged/t3code/releases/download/pi-v${version}/t3-${version}.tgz`,
+      `https://github.com/skulldogged/t3code/releases/download/personal-v${version}/t3-${version}.tgz`,
     );
   }
   assert.equal(pinnedRuntimePackageSpec("0.0.34"), "t3@0.0.34");

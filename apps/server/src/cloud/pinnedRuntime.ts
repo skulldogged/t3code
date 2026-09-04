@@ -18,8 +18,8 @@ import * as ProcessRunner from "../processRunner.ts";
 
 const PINNED_RUNTIME_DIR = "runtime";
 const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);
-const PERSONAL_PI_RELEASE_REPOSITORY = "skulldogged/t3code";
-const PERSONAL_PI_VERSION_PATTERN = /-main[0-9a-f]{8}\.pi\.c?[0-9a-f]{8}$/i;
+const PERSONAL_RELEASE_REPOSITORY = "skulldogged/t3code";
+const PERSONAL_VERSION_PATTERN = /-nightly\.[0-9]{8}\.[0-9]+\.personal\.c[0-9a-f]{8}$/i;
 // Boot-service setup and remote update can construct separate layers. Serialize
 // the complete install transaction across every caller in this process.
 const pinnedRuntimeInstallLock = Semaphore.makeUnsafe(1);
@@ -44,8 +44,8 @@ export function pinnedRuntimePaths(
 }
 
 export function pinnedRuntimePackageSpec(version: string): string {
-  if (!PERSONAL_PI_VERSION_PATTERN.test(version)) return `t3@${version}`;
-  return `https://github.com/${PERSONAL_PI_RELEASE_REPOSITORY}/releases/download/pi-v${version}/t3-${version}.tgz`;
+  if (!PERSONAL_VERSION_PATTERN.test(version)) return `t3@${version}`;
+  return `https://github.com/${PERSONAL_RELEASE_REPOSITORY}/releases/download/personal-v${version}/t3-${version}.tgz`;
 }
 
 export class PinnedRuntimeInstallError extends Schema.TaggedErrorClass<PinnedRuntimeInstallError>()(
