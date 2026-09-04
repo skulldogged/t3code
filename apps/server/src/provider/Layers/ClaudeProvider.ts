@@ -18,7 +18,6 @@ import {
   type Options as ClaudeQueryOptions,
   type SDKControlGetUsageResponse,
   type SlashCommand as ClaudeSlashCommand,
-  type SDKControlGetUsageResponse,
   type SDKUserMessage,
   type SettingSource,
 } from "@anthropic-ai/claude-agent-sdk";
