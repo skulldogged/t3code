@@ -17,8 +17,9 @@ import {
 
 it("installs personal nightly versions from their GitHub release archive", () => {
   for (const version of [
-    "0.0.85-nightly.20260904.1280.personal.c68d089f4",
-    "0.0.86-nightly.20260904.1281.personal.c00465037",
+    "0.0.39-nightly.20260905.1289.personal.1",
+    "0.0.39-nightly.20260905.1289.personal.10",
+    "1.2.3-nightly.20260906.1290.personal.1",
   ]) {
     assert.equal(
       pinnedRuntimePackageSpec(version),
@@ -26,6 +27,8 @@ it("installs personal nightly versions from their GitHub release archive", () =>
     );
   }
   assert.equal(pinnedRuntimePackageSpec("0.0.34"), "t3@0.0.34");
+  const officialNightly = "0.0.39-nightly.20260905.1289";
+  assert.equal(pinnedRuntimePackageSpec(officialNightly), `t3@${officialNightly}`);
 });
 
 const successfulRunner = (fs: FileSystem.FileSystem, path: Path.Path) =>
