@@ -107,7 +107,6 @@ import {
   toShellApplicationEvent,
   type ShellApplicationEvent,
 } from "./orchestration-v2/ShellStream.ts";
-import { ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION } from "./orchestration-v2/ProjectionStore.ts";
 import { bufferLiveStream } from "./orchestration/LiveStreamBudget.ts";
 import { coalesceThreadLiveStream } from "./orchestration-v2/ThreadLiveEventCoalescer.ts";
 import {
@@ -162,15 +161,9 @@ import * as ProjectService from "./project/ProjectService.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
 import { EventSinkV2 } from "./orchestration-v2/EventSink.ts";
-import {
-  ProjectionStoreV2,
-  layer as projectionStoreV2Layer,
-} from "./orchestration-v2/ProjectionStore.ts";
+import * as ProjectionStore from "./orchestration-v2/ProjectionStore.ts";
 import { OrchestrationV2EventSinkLayerLive } from "./orchestration-v2/runtimeLayer.ts";
-import {
-  AgentSessionImportSources,
-  layer as agentSessionImportSourcesLayer,
-} from "./orchestration-v2/AgentSessionImportSources.ts";
+import * as AgentSessionImportSources from "./orchestration-v2/AgentSessionImportSources.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
@@ -569,9 +562,9 @@ const makeWsRpcLayer = (
         return true;
       });
       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
-      const agentSessionImportSources = yield* AgentSessionImportSources;
+      const agentSessionImportSources = yield* AgentSessionImportSources.AgentSessionImportSources;
       const eventSinkV2 = yield* EventSinkV2;
-      const projectionStoreV2 = yield* ProjectionStoreV2;
+      const projectionStoreV2 = yield* ProjectionStore.ProjectionStoreV2;
       const providerSessionsV2 = yield* ProviderSessionManagerV2;
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Client-origin attribution (#7774): every thread/turn the connecting
@@ -1005,7 +998,7 @@ const makeWsRpcLayer = (
             const enriched = yield* enrichProjectShells(projects);
             return {
               snapshot: {
-                schemaVersion: ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
+                schemaVersion: ProjectionStore.ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
                 snapshotSequence,
                 projects: enriched.projects,
                 threads: [],
@@ -2251,8 +2244,11 @@ const makeWsRpcLayer = (
                 ProjectionSnapshotQuery.ProjectionSnapshotQuery,
                 projectionSnapshotQuery,
               ),
-              Effect.provideService(ProjectionStoreV2, projectionStoreV2),
-              Effect.provideService(AgentSessionImportSources, agentSessionImportSources),
+              Effect.provideService(ProjectionStore.ProjectionStoreV2, projectionStoreV2),
+              Effect.provideService(
+                AgentSessionImportSources.AgentSessionImportSources,
+                agentSessionImportSources,
+              ),
             ),
             { "rpc.aggregate": "workspace" },
           ),
@@ -2781,8 +2777,8 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(AgentSessionScanner.layer),
-              Layer.provide(agentSessionImportSourcesLayer),
-              Layer.provide(projectionStoreV2Layer),
+              Layer.provide(AgentSessionImportSources.layer),
+              Layer.provide(ProjectionStore.layer),
               Layer.provide(OrchestrationV2EventSinkLayerLive),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),

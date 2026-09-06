@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from "~/components/ui/alert";
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
 import type {
@@ -620,9 +621,9 @@ function PairDirectStep({
           />
         </div>
         {errorMessage ? (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/6 px-3 py-2 text-sm text-destructive">
-            {errorMessage}
-          </div>
+          <Alert variant="error">
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
         ) : null}
       </div>
       <div className="mt-7 flex justify-end">
