@@ -1061,7 +1061,7 @@ const RelayDpopClientGroup = HttpApiGroup.make("dpopClient")
   .annotate(OpenApi.Description, "DPoP-authenticated client access to linked environments.")
   .middleware(RelayDpopClientAuth);
 
-const RelayServerGroup = HttpApiGroup.make("server")
+export const RelayServerGroup = HttpApiGroup.make("server")
   .add(
     HttpApiEndpoint.post(
       "publishAgentActivity",
