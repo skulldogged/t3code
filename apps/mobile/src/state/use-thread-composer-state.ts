@@ -42,6 +42,7 @@ import { buildThreadFeed } from "../lib/threadActivity";
 import { acknowledgedThreadMessagesAtom } from "./acknowledged-thread-messages";
 import { appendPendingThreadMessages } from "../features/threads/pending-thread-feed";
 import { appAtomRegistry } from "../state/atom-registry";
+import { pendingThreadCreationMessage } from "./pending-thread-creation";
 import {
   composerAttachmentUploadBlockReason,
   composerAttachmentUploadsAtom,
@@ -109,7 +110,11 @@ export function useThreadDraftForThread(input: {
 }
 
 export function useThreadComposerState() {
-  const { selectedThread: selectedThreadShell, selectedEnvironmentRuntime } = useThreadSelection();
+  const {
+    selectedThread: selectedThreadShell,
+    selectedThreadCreation,
+    selectedEnvironmentRuntime,
+  } = useThreadSelection();
   const selectedThreadProjection = useSelectedThreadProjection();
   const selectedThreadVisibleTurnItems = useSelectedThreadVisibleTurnItems();
   const composerDrafts = useAtomValue(composerDraftsAtom);
@@ -130,8 +135,15 @@ export function useThreadComposerState() {
   const selectedThreadKey = selectedThreadShell
     ? scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id)
     : null;
+  // The creation entry is the thread itself (rendered as the first message),
+  // not a follow-up waiting behind it.
   const selectedThreadQueuedMessages = useMemo(
-    () => (selectedThreadKey ? (queuedMessagesByThreadKey[selectedThreadKey] ?? []) : []),
+    () =>
+      selectedThreadKey
+        ? (queuedMessagesByThreadKey[selectedThreadKey] ?? []).filter(
+            (message) => message.creation === undefined,
+          )
+        : [],
     [queuedMessagesByThreadKey, selectedThreadKey],
   );
   const feedbackSubmissions = useMemo(
@@ -150,11 +162,22 @@ export function useThreadComposerState() {
   );
   const selectedThreadAttempts = selectedThreadProjection?.projection.attempts;
   const selectedThreadNodes = selectedThreadProjection?.projection.nodes;
+  const pendingCreationMessage = selectedThreadCreation?.message ?? null;
   const selectedThreadFeed = useMemo(() => {
-    const feed = buildThreadFeed(selectedThreadVisibleTurnItems, {
+    const projectedPromptPresent =
+      pendingCreationMessage !== null &&
+      selectedThreadVisibleTurnItems.some(
+        ({ item }) =>
+          item.type === "user_message" && item.messageId === pendingCreationMessage.messageId,
+      );
+    const projectedFeed = buildThreadFeed(selectedThreadVisibleTurnItems, {
       attempts: selectedThreadAttempts,
       nodes: selectedThreadNodes,
     });
+    const feed =
+      pendingCreationMessage !== null && !projectedPromptPresent
+        ? [...projectedFeed, pendingThreadCreationMessage(pendingCreationMessage)]
+        : projectedFeed;
     const pendingAcknowledgments = acknowledgedMessages.filter(
       (message) =>
         scopedThreadKey(message.environmentId, message.threadId) === selectedThreadKey &&
@@ -168,6 +191,7 @@ export function useThreadComposerState() {
     selectedThreadAttempts,
     selectedThreadNodes,
     selectedThreadVisibleTurnItems,
+    pendingCreationMessage,
     selectedThreadKey,
     selectedThreadQueuedMessages,
     acknowledgedMessages,
@@ -279,6 +303,13 @@ export function useThreadComposerState() {
 
   const onSendMessage = useCallback(async () => {
     if (!selectedThreadShell) {
+      return null;
+    }
+    // The server has not created this thread yet. Queuing a follow-up against
+    // its id would strand the message: if the creation is rejected the thread
+    // never appears and the drain drops the orphan. The composer disables its
+    // send button too; this guard also covers the editor's submit key.
+    if (selectedThreadCreation !== null) {
       return null;
     }
 
@@ -401,7 +432,9 @@ export function useThreadComposerState() {
     });
     return messageId;
   }, [
-    selectedEnvironmentRuntime?.serverConfig?.providers,
+    selectedEnvironmentRuntime?.connectionState,
+    selectedEnvironmentRuntime?.serverConfig,
+    selectedThreadCreation,
     selectedThreadShell,
     uploadThreadFeedback,
   ]);
