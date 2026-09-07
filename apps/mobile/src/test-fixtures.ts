@@ -50,6 +50,8 @@ export function makeRawThreadShell(
     settledAt: null,
     deletedAt: null,
     ...input,
+    activeOrderKey: input.activeOrderKey ?? null,
+    branchPullRequest: input.branchPullRequest ?? null,
   };
 }
 

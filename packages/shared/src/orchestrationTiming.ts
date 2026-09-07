@@ -28,7 +28,7 @@ export function formatDuration(durationMs: number): string {
   return parts.join(" ");
 }
 
-export function isLatestRunSettled(
+function isLatestRunSettled(
   latestRun: LatestRunTiming | null,
   runtime: RuntimeActivityState | null,
 ): boolean {

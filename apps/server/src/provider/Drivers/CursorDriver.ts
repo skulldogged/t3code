@@ -25,6 +25,7 @@ import { ProviderDriverError } from "../Errors.ts";
 import {
   buildInitialCursorProviderSnapshot,
   checkCursorProviderStatus,
+  makeCursorSdkCatalogDiscovery,
 } from "../Layers/CursorProvider.ts";
 import { CursorSdkCatalogLive } from "../Layers/CursorSdkCatalog.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
@@ -105,10 +106,14 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
       );
       const textGeneration = yield* makeCursorTextGeneration(effectiveConfig, processEnv);
 
-      const checkProvider = checkCursorProviderStatus(effectiveConfig, processEnv).pipe(
-        Effect.map(stampIdentity),
+      const discoverCatalog = yield* makeCursorSdkCatalogDiscovery().pipe(
         Effect.provide(CursorSdkCatalogLive),
       );
+      const checkProvider = checkCursorProviderStatus(
+        effectiveConfig,
+        processEnv,
+        discoverCatalog,
+      ).pipe(Effect.map(stampIdentity), Effect.provide(CursorSdkCatalogLive));
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CursorSettings>>({

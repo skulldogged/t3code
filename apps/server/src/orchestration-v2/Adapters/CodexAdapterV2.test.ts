@@ -1057,6 +1057,7 @@ function makeCodexTestAppThread(input: {
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+    branchPullRequest: null,
     activeProviderThreadId: input.providerThread.id,
     lineage: {
       parentThreadId: null,
@@ -1069,6 +1070,7 @@ function makeCodexTestAppThread(input: {
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
+    activeOrderKey: null,
     lastVisitedAt: null,
     deletedAt: null,
   };

@@ -1,3 +1,7 @@
+import {
+  sameUsageLimitCommandCoverage,
+  withUsageLimitsCommands,
+} from "@t3tools/shared/usageLimits";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Encoding from "effect/Encoding";
@@ -172,7 +176,9 @@ import { requiredScopeForRpcMethod } from "./auth/RpcAuthorization.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
+import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
+import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -617,6 +623,7 @@ const makeWsRpcLayer = (
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
+      const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -672,6 +679,7 @@ const makeWsRpcLayer = (
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
+      const hostResources = yield* HostResources.HostResources;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
       const relayClient = yield* RelayClient.RelayClient;
@@ -741,59 +749,65 @@ const makeWsRpcLayer = (
           ),
         );
 
-      const loadServerConfig = Effect.gen(function* () {
-        const keybindingsConfig = yield* keybindings.loadConfigState;
-        const providers = yield* providerRegistry.getProviders;
-        const settings = ServerSettings.redactServerSettingsForClient(
-          yield* serverSettings.getSettings,
-        );
-        const environment = yield* serverEnvironment.getDescriptor;
-        const auth = yield* serverAuth.getDescriptor();
-        const availableEditors: ReadonlyArray<EditorId> = yield* resolveAvailableEditorsForConfig(
-          externalLauncher.resolveAvailableEditors(),
-        );
-        const fileManagerRevealKind = availableEditors.includes("file-manager")
-          ? yield* resolveFileManagerRevealKindForConfig(
-              externalLauncher.resolveFileManagerRevealKind(),
-            )
-          : undefined;
+      const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
+        Effect.gen(function* () {
+          const keybindingsConfig = yield* keybindings.loadConfigState;
+          const currentProviders = yield* providerRegistry.getProviders;
+          const providers = options.usageLimitsCommand
+            ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
+            : currentProviders;
+          const settings = ServerSettings.redactServerSettingsForClient(
+            yield* serverSettings.getSettings,
+          );
+          const environment = yield* serverEnvironment.getDescriptor;
+          const auth = yield* serverAuth.getDescriptor();
+          const availableEditors: ReadonlyArray<EditorId> = yield* resolveAvailableEditorsForConfig(
+            externalLauncher.resolveAvailableEditors(),
+          );
+          const fileManagerRevealKind = availableEditors.includes("file-manager")
+            ? yield* resolveFileManagerRevealKindForConfig(
+                externalLauncher.resolveFileManagerRevealKind(),
+              )
+            : undefined;
 
-        return {
-          environment,
-          auth,
-          cwd: config.cwd,
-          keybindingsConfigPath: config.keybindingsConfigPath,
-          keybindings: keybindingsConfig.keybindings,
-          issues: keybindingsConfig.issues,
-          providers,
-          availableEditors,
-          // Same discovery-with-timeout treatment as editors: a slow probe
-          // must not stall server.getConfig, so it degrades to no targets.
-          remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
-            remoteOpenTargets.resolveTargets(),
-          ),
-          observability: {
-            logsDirectoryPath: config.logsDir,
-            localTracingEnabled: true,
-            ...(config.otlpTracesUrl !== undefined ? { otlpTracesUrl: config.otlpTracesUrl } : {}),
-            otlpTracesEnabled: config.otlpTracesUrl !== undefined,
-            ...(config.otlpMetricsUrl !== undefined
-              ? { otlpMetricsUrl: config.otlpMetricsUrl }
-              : {}),
-            otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
-          },
-          settings,
-          shellResumeCompletionMarker: true,
-          ...(fileManagerRevealKind === undefined
-            ? {}
-            : {
-                shellRevealInFileManager: true,
-                shellRevealInFileManagerKind: fileManagerRevealKind,
-              }),
-          threadResumeCompletionMarker: true,
-          threadSnapshotPagination: true,
-        };
-      });
+          return {
+            environment,
+            auth,
+            cwd: config.cwd,
+            keybindingsConfigPath: config.keybindingsConfigPath,
+            keybindings: keybindingsConfig.keybindings,
+            issues: keybindingsConfig.issues,
+            providers,
+            availableEditors,
+            // Same discovery-with-timeout treatment as editors: a slow probe
+            // must not stall server.getConfig, so it degrades to no targets.
+            remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
+              remoteOpenTargets.resolveTargets(),
+            ),
+            observability: {
+              logsDirectoryPath: config.logsDir,
+              localTracingEnabled: true,
+              ...(config.otlpTracesUrl !== undefined
+                ? { otlpTracesUrl: config.otlpTracesUrl }
+                : {}),
+              otlpTracesEnabled: config.otlpTracesUrl !== undefined,
+              ...(config.otlpMetricsUrl !== undefined
+                ? { otlpMetricsUrl: config.otlpMetricsUrl }
+                : {}),
+              otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
+            },
+            settings,
+            shellResumeCompletionMarker: true,
+            ...(fileManagerRevealKind === undefined
+              ? {}
+              : {
+                  shellRevealInFileManager: true,
+                  shellRevealInFileManagerKind: fileManagerRevealKind,
+                }),
+            threadResumeCompletionMarker: true,
+            threadSnapshotPagination: true,
+          };
+        });
 
       const refreshGitStatus = (cwd: string) =>
         vcsStatusBroadcaster
@@ -1623,21 +1637,61 @@ const makeWsRpcLayer = (
             "rpc.aggregate": "server",
           }),
         [WS_METHODS.serverGetConfig]: (_input) =>
-          observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
-            "rpc.aggregate": "server",
-          }),
+          observeRpcEffect(
+            WS_METHODS.serverGetConfig,
+            loadServerConfig({ usageLimitsCommand: false }),
+            {
+              "rpc.aggregate": "server",
+            },
+          ),
         [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,
-            (input.cwd !== undefined && input.instanceId !== undefined
-              ? providerRegistry.refreshWorkspaceSnapshot({
-                  instanceId: input.instanceId,
-                  cwd: input.cwd,
-                })
-              : input.instanceId !== undefined
-                ? providerRegistry.refreshInstance(input.instanceId)
-                : providerRegistry.refresh()
-            ).pipe(Effect.map((providers) => ({ providers }))),
+            Effect.gen(function* () {
+              // An untargeted refresh is "re-read everything's status", which
+              // includes quota from configured usage-limit sources. Awaited,
+              // not forked: the RPC scope closes on return and would
+              // interrupt a fork before the hub answered.
+              if (input.instanceId === undefined) {
+                yield* usageLimitSources.refresh;
+              }
+              let providers = yield* input.cwd !== undefined && input.instanceId !== undefined
+                ? providerRegistry.refreshWorkspaceSnapshot({
+                    instanceId: input.instanceId,
+                    cwd: input.cwd,
+                  })
+                : input.instanceId !== undefined
+                  ? providerRegistry.refreshInstance(input.instanceId)
+                  : providerRegistry.refresh();
+              if (input.refreshModels) {
+                const instances = yield* providerInstances.listInstances;
+                for (const instance of instances) {
+                  if (
+                    !instance.refreshModels ||
+                    (input.instanceId !== undefined && input.instanceId !== instance.instanceId) ||
+                    !providers.some(
+                      (provider) =>
+                        provider.instanceId === instance.instanceId &&
+                        provider.enabled &&
+                        provider.installed,
+                    )
+                  )
+                    continue;
+                  yield* instance.refreshModels().pipe(
+                    Effect.mapError(
+                      (error) =>
+                        new ProviderSetupError({
+                          instanceId: instance.instanceId,
+                          operation: "refresh-models",
+                          detail: error.detail,
+                        }),
+                    ),
+                  );
+                  providers = yield* providerRegistry.refreshInstance(instance.instanceId);
+                }
+              }
+              return { providers };
+            }),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.providerUploadFeedback]: (input) =>
@@ -1703,6 +1757,7 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.providerConsumeResetCredit,
             Effect.gen(function* () {
+              if ("sourceId" in input) return yield* usageLimitSources.consumeResetCredit(input);
               const instance = yield* providerInstances.getInstance(input.instanceId);
               // A disabled instance must not spend anything on its account.
               if (instance === undefined || !instance.enabled) {
@@ -1876,6 +1931,10 @@ const makeWsRpcLayer = (
           ),
         [WS_METHODS.serverGetProcessDiagnostics]: (_input) =>
           observeRpcEffect(WS_METHODS.serverGetProcessDiagnostics, processDiagnostics.read, {
+            "rpc.aggregate": "server",
+          }),
+        [WS_METHODS.serverGetHostResources]: (_input) =>
+          observeRpcEffect(WS_METHODS.serverGetHostResources, hostResources.read, {
             "rpc.aggregate": "server",
           }),
         [WS_METHODS.serverGetProcessResourceHistory]: (input) =>
@@ -2580,6 +2639,8 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             WS_METHODS.subscribeServerConfig,
             Effect.gen(function* () {
+              const usageLimitsCommand = input.usageLimitsCommand === true;
+              const config = yield* loadServerConfig({ usageLimitsCommand });
               const keybindingsUpdates = keybindings.streamChanges.pipe(
                 Stream.map((event) => ({
                   version: 1 as const,
@@ -2590,7 +2651,33 @@ const makeWsRpcLayer = (
                   },
                 })),
               );
-              const providerStatuses = providerRegistry.streamChanges.pipe(
+              const providerStatuses = Stream.zipLatestWith(
+                // The registry stream carries changes only. Seed it with the current
+                // providers so a source refresh that lands before any provider change
+                // still pairs up and reaches the client.
+                Stream.concat(
+                  Stream.fromEffect(providerRegistry.getProviders),
+                  providerRegistry.streamChanges,
+                ),
+                usageLimitSources.streamChanges.pipe(
+                  // Quota updates already have their own stream. Republish the model
+                  // catalog only when the set of providers offered the command changes.
+                  Stream.changesWith(
+                    usageLimitsCommand ? sameUsageLimitCommandCoverage : () => true,
+                  ),
+                ),
+                (providers, sources) =>
+                  usageLimitsCommand ? withUsageLimitsCommands(providers, sources) : providers,
+              ).pipe(
+                // Both sides replay their current value, so the first pairing normally
+                // repeats the snapshot the client already holds. Compare against that
+                // snapshot rather than dropping blindly: a refresh that landed between
+                // the snapshot and the subscription still goes out.
+                (updates) => Stream.concat(Stream.make(config.providers), updates),
+                Stream.changesWith(
+                  (previous, next) => JSON.stringify(previous) === JSON.stringify(next),
+                ),
+                Stream.drop(1),
                 Stream.map((providers) => ({
                   version: 1 as const,
                   type: "providerStatuses" as const,
@@ -2615,6 +2702,17 @@ const makeWsRpcLayer = (
                       })),
                     )
                   : Stream.empty;
+              // Same gate as themes: an older client dies on an unknown event.
+              const usageLimitSourceUpdates =
+                input.usageLimitSources === true
+                  ? usageLimitSources.streamChanges.pipe(
+                      Stream.map((sources) => ({
+                        version: 1 as const,
+                        type: "usageLimitSourcesUpdated" as const,
+                        payload: { sources },
+                      })),
+                    )
+                  : Stream.empty;
               const settingsUpdates = serverSettings.streamChanges.pipe(
                 Stream.map((settings) => ServerSettings.redactServerSettingsForClient(settings)),
                 Stream.map((settings) => ({
@@ -2632,16 +2730,15 @@ const makeWsRpcLayer = (
                 keybindingsUpdates,
                 Stream.merge(
                   providerStatuses,
-                  Stream.merge(settingsUpdates, environmentThemeUpdates),
+                  Stream.merge(
+                    settingsUpdates,
+                    Stream.merge(environmentThemeUpdates, usageLimitSourceUpdates),
+                  ),
                 ),
               );
 
               return Stream.concat(
-                Stream.make({
-                  version: 1 as const,
-                  type: "snapshot" as const,
-                  config: yield* loadServerConfig,
-                }),
+                Stream.make({ version: 1 as const, type: "snapshot" as const, config }),
                 liveUpdates,
               );
             }),

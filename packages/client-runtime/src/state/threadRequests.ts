@@ -33,6 +33,8 @@ export interface ThreadPendingUserInput {
   readonly questions: ReadonlyArray<ThreadUserInputQuestion>;
   readonly responseCapability: OrchestrationV2RuntimeRequest["responseCapability"]["type"];
   readonly responseMode?: "message";
+  /** Async message-mode questions can be dismissed without a reply. */
+  readonly dismissible: boolean;
 }
 
 export interface PendingThreadRequests {
@@ -64,6 +66,7 @@ export function derivePendingThreadRequests(
           multiSelect: question.multiSelect ?? false,
         })),
         responseCapability,
+        dismissible: item.responseMode === "message" || responseCapability === "message",
         ...(item.responseMode === "message" || responseCapability === "message"
           ? { responseMode: "message" as const }
           : {}),

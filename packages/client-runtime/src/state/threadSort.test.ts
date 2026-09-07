@@ -1,24 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  activeThreadAnchorTimestampMs,
+  planPinnedReorder,
   planPinnedMove,
   resolveSettledThreadTimestamp,
+  sortActiveThreadsByOrderKey,
   sortPinnedThreadsByOrderKey,
   sortThreads,
   type ThreadSortInput,
 } from "./threadSort.ts";
-
-describe("activeThreadAnchorTimestampMs", () => {
-  it("uses the later unsettle time when an old thread re-enters the active list", () => {
-    expect(
-      activeThreadAnchorTimestampMs({
-        createdAt: "2026-01-01T00:00:00.000Z",
-        unsettledAt: "2026-08-01T00:00:00.000Z",
-      }),
-    ).toBe(Date.parse("2026-08-01T00:00:00.000Z"));
-  });
-});
 
 type TestThread = { readonly id: string } & ThreadSortInput;
 
@@ -183,5 +173,53 @@ describe("sortPinnedThreadsByOrderKey", () => {
       },
     ]);
     expect(sorted.map((thread) => thread.environmentId)).toEqual(["env-a", "env-b"]);
+  });
+});
+
+describe("sortActiveThreadsByOrderKey", () => {
+  it("keeps new and reopened threads ahead of the saved order", () => {
+    const sorted = sortActiveThreadsByOrderKey([
+      { id: "arranged-first", createdAt: "2026-03-09T09:00:00.000Z", activeOrderKey: "f" },
+      { id: "new", createdAt: "2026-03-09T11:00:00.000Z", activeOrderKey: null },
+      {
+        id: "arranged-last",
+        createdAt: "2026-03-09T12:00:00.000Z",
+        unsettledAt: "2026-03-09T13:00:00.000Z",
+        activeOrderKey: "t",
+      },
+      {
+        id: "reopened",
+        createdAt: "2026-03-01T09:00:00.000Z",
+        unsettledAt: "2026-03-09T12:00:00.000Z",
+      },
+    ]);
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      "reopened",
+      "new",
+      "arranged-first",
+      "arranged-last",
+    ]);
+  });
+
+  it("applies a move across a mixed keyless and keyed section", () => {
+    const threads = [
+      { id: "new", createdAt: "2026-03-09T12:00:00.000Z", activeOrderKey: null },
+      { id: "first", createdAt: "2026-03-09T10:00:00.000Z", activeOrderKey: "f" },
+      { id: "last", createdAt: "2026-03-09T11:00:00.000Z", activeOrderKey: "t" },
+    ];
+    const assignments = planPinnedReorder({
+      orderedIds: ["first", "new", "last"],
+      keysById: new Map(threads.map((thread) => [thread.id, thread.activeOrderKey])),
+      movedId: "new",
+    });
+    const assignmentsById = new Map(assignments.map((entry) => [entry.id, entry.orderKey]));
+    const sorted = sortActiveThreadsByOrderKey(
+      threads.map((thread) => ({
+        ...thread,
+        activeOrderKey: assignmentsById.get(thread.id) ?? thread.activeOrderKey,
+      })),
+    );
+    expect(sorted.map((thread) => thread.id)).toEqual(["first", "new", "last"]);
   });
 });

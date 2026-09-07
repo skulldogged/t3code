@@ -206,6 +206,7 @@ const seedNativeThreads = Effect.fn("ProjectCliTest.seedNativeThreads")(function
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
           activeProviderThreadId: null,
           lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
           forkedFrom: null,
@@ -214,6 +215,7 @@ const seedNativeThreads = Effect.fn("ProjectCliTest.seedNativeThreads")(function
           archivedAt: archived ? createdAt : null,
           settledOverride: null,
           settledAt: null,
+          activeOrderKey: null,
           lastVisitedAt: null,
           deletedAt: null,
         };

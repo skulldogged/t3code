@@ -60,6 +60,8 @@ function makeProjection(input: {
       interactionMode: "default",
       branch: null,
       worktreePath: "/workspace",
+      branchPullRequest: null,
+      activeOrderKey: null,
       activeProviderThreadId: input.providerThread.id,
       lineage: {
         parentThreadId: null,

@@ -1,3 +1,4 @@
+import { summarizeToolGroup } from "@t3tools/client-runtime/work-log/presentation";
 import {
   CheckpointRef,
   ThreadId,
@@ -28,7 +29,6 @@ import {
   shouldPreserveAssistantLineBreaks,
   type MessagesTimelineRow,
   resolveTimelineToolPresentation,
-  summarizeToolGroup,
   workEntryDisplayLabel,
 } from "./MessagesTimeline.logic";
 

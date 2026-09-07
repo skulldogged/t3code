@@ -8,6 +8,9 @@ import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-lo
 import { commandProgramName } from "@t3tools/client-runtime/work-log/command-label";
 import {
   workEntryDisplayIndicatesToolFailure,
+  workEntryIndicatesToolFailure,
+  workEntryIndicatesToolSuccess,
+  workLogEntryIsToolLike,
   liveActivityToolStatus,
   toolGroupAction,
   resolveWorkEntryToolPresentation,
@@ -150,7 +153,37 @@ export type ThreadFeedEntry =
       readonly runId: RunId;
       readonly label: string;
       readonly expanded: boolean;
+    }
+  | {
+      /** The running run's single live slot when no tool row is shimmering. */
+      readonly type: "thinking";
+      readonly id: string;
+      readonly createdAt: string;
+      readonly runId: RunId | null;
+    }
+  | {
+      /** A V2 subagent lifecycle item presented as a compact status card. */
+      readonly type: "agent-spawn";
+      readonly id: string;
+      readonly createdAt: string;
+      readonly runId: RunId | null;
+      readonly activity: ThreadFeedActivity;
+      readonly expanded: boolean;
+      readonly summary: AgentSpawnSummary;
     };
+
+export interface AgentSpawnSummary {
+  readonly title: string;
+  readonly status: string;
+  readonly tone: "working" | "completed" | "failed" | "stopped";
+  readonly members: ReadonlyArray<{
+    readonly title: string;
+    readonly status: string;
+    readonly tone: "working" | "completed" | "failed" | "stopped";
+    readonly detail: string | undefined;
+    readonly updatedAt: string;
+  }>;
+}
 
 export interface ThreadFeedLatestRun {
   readonly runId: RunId;
@@ -187,6 +220,7 @@ const runFoldRowsCache = new WeakMap<
   ThreadFeedEntry,
   Extract<ThreadFeedEntry, { readonly type: "run-fold" }>
 >();
+let cachedThinkingRow: Extract<ThreadFeedEntry, { readonly type: "thinking" }> | null = null;
 
 export function isContextCompactionActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return (
@@ -289,14 +323,17 @@ function itemIsProminent(item: OrchestrationV2TurnItem): boolean {
   );
 }
 
-function itemStatus(item: OrchestrationV2TurnItem): ThreadFeedActivity["status"] {
+function itemStatus(
+  item: OrchestrationV2TurnItem,
+  workEntry: WorkLogPresentationEntry,
+): ThreadFeedActivity["status"] {
   if (item.type === "error") {
     if (item.status === "failed") return "failure";
     return item.status === "completed" ? "success" : "neutral";
   }
-  if (!itemIsToolLike(item)) return null;
-  if (item.status === "failed") return "failure";
-  return item.status === "completed" ? "success" : "neutral";
+  if (!workLogEntryIsToolLike(workEntry)) return null;
+  if (workEntryIndicatesToolFailure(workEntry)) return "failure";
+  return workEntryIndicatesToolSuccess(workEntry) ? "success" : "neutral";
 }
 
 function itemLifecycleStatus(item: OrchestrationV2TurnItem): WorkLogToolLifecycleStatus {
@@ -594,7 +631,7 @@ function toFeedActivity(
     logo: toolPresentation?.logo ?? null,
     toolLike: itemIsToolLike(item),
     prominent: itemIsProminent(item),
-    status: itemStatus(item),
+    status: itemStatus(item, workEntry),
     lifecycleStatus: itemLifecycleStatus(item),
     workEntry,
     projectedItem: row,
@@ -853,9 +890,15 @@ export function deriveThreadFeedPresentation(
   activeWorkStartedAt: string | null = null,
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
-    (entry) => entry.type !== "run-fold" && entry.type !== "work-toggle",
+    (entry) =>
+      entry.type !== "run-fold" &&
+      entry.type !== "work-toggle" &&
+      entry.type !== "thinking" &&
+      entry.type !== "agent-spawn",
   );
-  const activeTailGroup = sourceFeed.at(-1);
+  const activeTailGroup = sourceFeed.findLast(
+    (entry) => entry.type !== "message" || !isEmptyMessage(entry),
+  );
   const foldsByAnchorId = deriveThreadFeedRunFolds(sourceFeed, latestRun);
   const activeRunId = unsettledRunId(latestRun);
   const isWorking = activeWorkStartedAt !== null;
@@ -908,12 +951,34 @@ export function deriveThreadFeedPresentation(
       );
     }
   }
+  if (
+    activeWorkStartedAt !== null &&
+    !result.some(
+      (row) =>
+        (row.type === "work-toggle" && row.shimmer) ||
+        (row.type === "agent-spawn" && row.summary.tone === "working" && row.runId === activeRunId),
+    )
+  ) {
+    result.push(thinkingRow(activeWorkStartedAt, activeRunId));
+  }
   return result;
+}
+
+export const LIVE_ACTIVITY_ROW_ID = "live-activity-row";
+
+function thinkingRow(createdAt: string, runId: RunId | null) {
+  if (cachedThinkingRow?.createdAt !== createdAt || cachedThinkingRow.runId !== runId) {
+    cachedThinkingRow = { type: "thinking", id: LIVE_ACTIVITY_ROW_ID, createdAt, runId };
+  }
+  return cachedThinkingRow;
 }
 
 function appendPresentedFeedEntry(
   result: ThreadFeedEntry[],
-  entry: Exclude<ThreadFeedEntry, { readonly type: "run-fold" | "work-toggle" }>,
+  entry: Exclude<
+    ThreadFeedEntry,
+    { readonly type: "run-fold" | "work-toggle" | "thinking" | "agent-spawn" }
+  >,
   expandedWorkGroupIds: ReadonlySet<string>,
   activeRunId: RunId | null,
   isWorking: boolean,
@@ -935,7 +1000,9 @@ function appendPresentedFeedEntry(
     cached.isWorking !== isWorking ||
     cached.activeTail !== activeTail ||
     cached.rows.some(
-      (row) => row.type === "work-toggle" && expandedWorkGroupIds.has(row.groupId) !== row.expanded,
+      (row) =>
+        (row.type === "work-toggle" && expandedWorkGroupIds.has(row.groupId) !== row.expanded) ||
+        (row.type === "agent-spawn" && expandedWorkGroupIds.has(row.id) !== row.expanded),
     )
   ) {
     const rows: ThreadFeedEntry[] = [];
@@ -993,6 +1060,20 @@ function appendActivityGroupRows(
   };
   for (const activity of activities) {
     const item = activity.projectedItem.item;
+    if (item.type === "subagent") {
+      flushGroupableRun(false);
+      const groupId = `agent-spawn:${item.subagentId}`;
+      result.push({
+        type: "agent-spawn",
+        id: groupId,
+        createdAt: activity.createdAt,
+        runId: activity.runId,
+        activity,
+        expanded: expandedWorkGroupIds.has(groupId),
+        summary: v2SubagentSummary(activity, item),
+      });
+      continue;
+    }
     const severeProviderError = item.type === "error" && item.status === "failed";
     if (!activity.prominent && !severeProviderError) {
       groupableRun.push(activity);
@@ -1008,6 +1089,72 @@ function appendActivityGroupRows(
     });
   }
   flushGroupableRun(true);
+}
+
+function v2SubagentTone(
+  status: Extract<OrchestrationV2TurnItem, { readonly type: "subagent" }>["status"],
+): AgentSpawnSummary["tone"] {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "interrupted":
+      return "stopped";
+    case "idle":
+    case "pending":
+    case "running":
+    case "waiting":
+      return "working";
+  }
+}
+
+function v2SubagentStatus(
+  item: Extract<OrchestrationV2TurnItem, { readonly type: "subagent" }>,
+): string {
+  const detail = item.progress?.trim() || item.result?.trim();
+  if (detail) return detail;
+  switch (item.status) {
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    case "cancelled":
+      return "Cancelled";
+    case "interrupted":
+      return "Stopped";
+    case "idle":
+    case "pending":
+      return "Waiting";
+    case "running":
+      return "Working";
+    case "waiting":
+      return "Waiting for input";
+  }
+}
+
+function v2SubagentSummary(
+  activity: ThreadFeedActivity,
+  item: Extract<OrchestrationV2TurnItem, { readonly type: "subagent" }>,
+): AgentSpawnSummary {
+  const title = item.title?.trim() || "Subagent";
+  const status = v2SubagentStatus(item);
+  const tone = v2SubagentTone(item.status);
+  return {
+    title,
+    status,
+    tone,
+    members: [
+      {
+        title,
+        status,
+        tone,
+        detail: item.result ?? item.progress,
+        updatedAt: activity.createdAt,
+      },
+    ],
+  };
 }
 
 function appendToolGroupRows(
@@ -1027,6 +1174,8 @@ function appendToolGroupRows(
   );
   const live = activeTail || latestInProgressActivity !== undefined;
   const latestActivity = latestInProgressActivity ?? activities.at(-1)!;
+  const shimmer =
+    latestInProgressActivity !== undefined || (activeTail && latestActivity.status === "success");
   const singleActivity = activities.length === 1 ? latestActivity : null;
   const groupSummary = summarizeToolGroup(activities.map((activity) => activity.workEntry));
   const summary = live
@@ -1068,7 +1217,7 @@ function appendToolGroupRows(
       : undefined;
   result.push({
     type: "work-toggle",
-    id: `${live ? "work-live" : "work-toggle"}:${groupId}`,
+    id: live && shimmer ? LIVE_ACTIVITY_ROW_ID : `${live ? "work-live" : "work-toggle"}:${groupId}`,
     createdAt: sourceGroup.createdAt,
     runId: sourceGroup.runId,
     groupId,
@@ -1088,10 +1237,7 @@ function appendToolGroupRows(
       );
     })(),
     live,
-    shimmer:
-      isWorking &&
-      latestActivity.lifecycleStatus === "inProgress" &&
-      latestActivity.runId === activeRunId,
+    shimmer,
   });
   if (!expanded) return;
   result.push({

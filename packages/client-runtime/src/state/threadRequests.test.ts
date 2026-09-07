@@ -67,6 +67,7 @@ describe("pending v2 questions", () => {
         createdAt: "2026-06-20T00:00:00.000Z",
         responseCapability: "message",
         responseMode: "message",
+        dismissible: true,
         questions: [
           {
             id: "next",

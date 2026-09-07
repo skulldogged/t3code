@@ -9,14 +9,16 @@ const seedHistorical = Effect.fn("seedHistorical")(function* (base: number, coun
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: base });
   for (const [id, name, migration] of migrationEntries.filter(
-    ([id]) => id >= 48 && id < 48 + count,
+    ([id]) => id >= 50 && id < 50 + count,
   )) {
     yield* migration;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${base + 1 + id - 48}, ${name})`;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${base + 1 + id - 50}, ${name})`;
   }
 });
 
 for (const [base, count] of [
+  [47, 13],
+  [47, 5],
   [43, 9],
   [44, 9],
   [44, 11],
@@ -39,6 +41,9 @@ for (const [base, count] of [
       const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_projects)`;
       assert.ok(columns.some(({ name }) => name === "auto_pull"));
       assert.ok(columns.some(({ name }) => name === "project_icon_json"));
+      const threadColumns = yield* sql<{ name: string }>`PRAGMA table_info(projection_threads)`;
+      assert.ok(threadColumns.some(({ name }) => name === "branch_pull_request_json"));
+      assert.ok(threadColumns.some(({ name }) => name === "active_order_key"));
       assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
   );
@@ -101,7 +106,7 @@ it.effect("preserves V2 import progress and original migration timestamps", () =
     yield* runMigrations();
     assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, before);
     assert.deepStrictEqual(
-      yield* sql`SELECT created_at FROM effect_sql_migrations WHERE migration_id = 48`,
+      yield* sql`SELECT created_at FROM effect_sql_migrations WHERE migration_id = 50`,
       [{ created_at: "2026-09-01 00:00:00" }],
     );
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
@@ -119,6 +124,21 @@ it.effect("rejects a historical migration ceiling below the required main schema
     assert.deepStrictEqual(
       yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`,
       before,
+    );
+  }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+);
+
+it.effect("upgrades a current main database through 49 into V2", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations({ toMigrationInclusive: 49 });
+    assert.deepStrictEqual(yield* runMigrations(), migrationManifest.slice(49));
+    const rows = yield* sql<{ migration_id: number; name: string }>`
+      SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id
+    `;
+    assert.deepStrictEqual(
+      rows.map(({ migration_id, name }) => [migration_id, name] as const),
+      migrationManifest,
     );
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );

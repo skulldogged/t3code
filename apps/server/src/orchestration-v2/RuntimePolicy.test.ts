@@ -38,6 +38,8 @@ function makeThread(input: {
     interactionMode: "default",
     branch: null,
     worktreePath: input.worktreePath,
+    branchPullRequest: null,
+    activeOrderKey: null,
     activeProviderThreadId: null,
     lineage: {
       parentThreadId: null,

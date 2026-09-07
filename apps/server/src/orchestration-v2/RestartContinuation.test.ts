@@ -53,6 +53,11 @@ function makeProjection() {
         providerInstanceId: instanceId,
         providerSessionId: sessionId,
         nativeThreadRef: { driver, nativeId: "native-thread", strength: "strong" },
+        nativeConversationHeadRef: {
+          driver,
+          nativeId: "previous-provider-turn",
+          strength: "strong",
+        },
         status: "active",
       },
     ],
@@ -64,6 +69,7 @@ function makeProjection() {
         id: ProviderTurnId.make("turn:restart"),
         providerThreadId,
         runAttemptId: attemptId,
+        nativeTurnRef: { driver, nativeId: "current-provider-turn", strength: "strong" },
         status: "running",
       },
     ],
@@ -112,6 +118,15 @@ it("requires matching saved native state for an unfinished root run", () => {
     ].map((status) => ({ ...projection, runs: [{ ...projection.runs[0]!, status }] })),
   ])
     assert.isUndefined(restartContinuationRun(invalid as OrchestrationV2ThreadProjection));
+});
+
+it("trusts the projected running turn when the persisted native head still names the prior turn", () => {
+  const projection = makeProjection();
+  assert.notEqual(
+    projection.providerThreads[0]?.nativeConversationHeadRef?.nativeId,
+    projection.providerTurns[0]?.nativeTurnRef?.nativeId,
+  );
+  assert.equal(restartContinuationRun(projection)?.id, runId);
 });
 
 it("recovers an admitted continuation after another crash before provider start", () => {

@@ -120,6 +120,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "branch"
   | "worktreePath"
   | "linkedPullRequest"
+  | "branchPullRequest"
   | "createdAt"
   | "updatedAt"
   | "archivedAt"
@@ -1080,6 +1081,7 @@ export function threadShellFromProjection(
     ...(projection.thread.linkedPullRequest === undefined
       ? {}
       : { linkedPullRequest: projection.thread.linkedPullRequest }),
+    branchPullRequest: projection.thread.branchPullRequest,
     lineage: projection.thread.lineage,
     forkedFrom: projection.thread.forkedFrom,
     activeProviderThreadId: projection.thread.activeProviderThreadId,
@@ -1122,6 +1124,7 @@ export function threadShellFromProjection(
     snoozedAt: projection.thread.snoozedAt ?? null,
     pinnedAt: projection.thread.pinnedAt ?? null,
     pinOrderKey: projection.thread.pinOrderKey ?? null,
+    activeOrderKey: projection.thread.activeOrderKey,
     lastVisitedAt: projection.thread.lastVisitedAt,
     titleRegeneration: projection.thread.titleRegeneration ?? null,
     deletedAt: projection.thread.deletedAt,
@@ -1264,6 +1267,7 @@ function shellFromState(input: {
     ...(input.state.thread.linkedPullRequest === undefined
       ? {}
       : { linkedPullRequest: input.state.thread.linkedPullRequest }),
+    branchPullRequest: input.state.thread.branchPullRequest,
     lineage: input.state.thread.lineage,
     forkedFrom: input.state.thread.forkedFrom,
     activeProviderThreadId: input.state.thread.activeProviderThreadId,
@@ -1302,6 +1306,7 @@ function shellFromState(input: {
     snoozedAt: input.state.thread.snoozedAt ?? null,
     pinnedAt: input.state.thread.pinnedAt ?? null,
     pinOrderKey: input.state.thread.pinOrderKey ?? null,
+    activeOrderKey: input.state.thread.activeOrderKey,
     lastVisitedAt: input.state.thread.lastVisitedAt,
     titleRegeneration: input.state.thread.titleRegeneration ?? null,
     deletedAt: input.state.thread.deletedAt,

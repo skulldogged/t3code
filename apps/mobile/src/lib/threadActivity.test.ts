@@ -728,7 +728,7 @@ describe("buildThreadFeed", () => {
     const collapsed = deriveThreadFeedPresentation(feed, null, new Set());
     expect(collapsed.map((entry) => entry.type)).toEqual([
       "message",
-      "activity-group",
+      "agent-spawn",
       "activity-group",
       "run-fold",
       "activity-group",
@@ -742,7 +742,9 @@ describe("buildThreadFeed", () => {
       collapsed.flatMap((entry) =>
         entry.type === "activity-group"
           ? entry.activities.map((activity) => activity.projectedItem)
-          : [],
+          : entry.type === "agent-spawn"
+            ? [entry.activity.projectedItem]
+            : [],
       ),
     ).toEqual(projectedResources);
   });
@@ -798,11 +800,22 @@ describe("buildThreadFeed", () => {
     });
   });
 
-  it("does not append synthetic timeline work without a projected item", () => {
+  it("uses a stable thinking row for an active run without projected work", () => {
     const startedAt = "2026-04-01T00:00:01.000Z";
-    const presented = deriveThreadFeedPresentation([], null, new Set(), new Set(), startedAt);
+    const latestRun = {
+      runId,
+      status: "running" as const,
+      startedAt,
+      completedAt: null,
+    };
+    const presented = deriveThreadFeedPresentation([], latestRun, new Set(), new Set(), startedAt);
 
-    expect(presented).toEqual([]);
+    expect(presented).toEqual([
+      { type: "thinking", id: "live-activity-row", createdAt: startedAt, runId },
+    ]);
+    expect(deriveThreadFeedPresentation([], latestRun, new Set(), new Set(), startedAt)[0]).toBe(
+      presented[0],
+    );
   });
 
   it("keeps expanded work in one group with stable row identities", () => {
@@ -1152,7 +1165,10 @@ describe("retained v2 feed presentation", () => {
       activities: [{ status: "neutral", lifecycleStatus: "idle", prominent: true }],
     });
     expect(deriveThreadFeedPresentation(rows, null, new Set())).toMatchObject([
-      { type: "activity-group", activities: [{ lifecycleStatus: "idle" }] },
+      {
+        type: "agent-spawn",
+        summary: { title: "Search", status: "Waiting", tone: "working" },
+      },
     ]);
   });
 });

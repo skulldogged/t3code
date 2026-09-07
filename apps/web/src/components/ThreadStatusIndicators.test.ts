@@ -12,14 +12,14 @@ import {
 import {
   ChangeRequestStatusIcon,
   nextThreadChangeRequestSnapshot,
-  prStatusIndicator,
   resolveDisplayedThreadPr,
   resolveDisplayedThreadPrProvider,
   resolveThreadPr,
-  settledPrHoverColorClass,
   threadChangeRequestSnapshotsEqual,
   threadChangeRequestSnapshotsAtom,
   type ThreadChangeRequestSnapshot,
+  prStatusIndicator,
+  settledPrHoverColorClass,
 } from "./ThreadStatusIndicators";
 import { newestPullRequestSummary } from "../state/pullRequests";
 

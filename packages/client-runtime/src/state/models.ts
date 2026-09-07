@@ -96,17 +96,22 @@ export interface EnvironmentThreadShell {
   readonly archivedAt: string | null;
   readonly settledOverride: "settled" | "active" | null;
   readonly settledAt: string | null;
+  readonly unsettledAt: string | null;
   readonly snoozedUntil: string | null;
   readonly snoozedAt: string | null;
   readonly pinnedAt: string | null;
   /** Slot in the user-arranged pinned order; null for keyless (legacy) pins. */
   readonly pinOrderKey: string | null;
+  /** Slot in the user-arranged active-thread order; null for unarranged threads. */
+  readonly activeOrderKey: string | null;
   /**
    * Pull request the user linked to the thread (#8160). The v2 server does not
    * project this yet, so it stays undefined on v2 environments; UI treats
    * undefined and null alike.
    */
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
+  /** Pull request discovered from the thread's branch by the server. */
+  readonly branchPullRequest?: ThreadLinkedPullRequest | null;
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any
@@ -196,6 +201,7 @@ export function presentThreadShell(
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     linkedPullRequest: thread.linkedPullRequest ?? null,
+    branchPullRequest: thread.branchPullRequest,
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,
     activeProviderThreadId: thread.activeProviderThreadId,
@@ -216,10 +222,12 @@ export function presentThreadShell(
     archivedAt: nullableIso(thread.archivedAt),
     settledOverride: thread.settledOverride,
     settledAt: nullableIso(thread.settledAt),
+    unsettledAt: thread.unsettledAt === undefined ? null : nullableIso(thread.unsettledAt),
     snoozedUntil: nullableIso(thread.snoozedUntil ?? null),
     snoozedAt: nullableIso(thread.snoozedAt ?? null),
     pinnedAt: nullableIso(thread.pinnedAt ?? null),
     pinOrderKey: thread.pinOrderKey ?? null,
+    activeOrderKey: thread.activeOrderKey,
     ...(thread.lastVisitedAt === undefined
       ? {}
       : { lastVisitedAt: nullableIso(thread.lastVisitedAt) }),

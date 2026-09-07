@@ -11,6 +11,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
   WS_METHODS,
   type OrchestrationV2Command,
@@ -37,6 +38,7 @@ import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFixtures.ts";
 import {
   archiveThread,
+  dismissThreadUserInput,
   createProject,
   updateProject,
   interruptThreadTurn,
@@ -45,6 +47,7 @@ import {
   cancelQueuedRun,
   editQueuedRun,
   promoteQueuedRun,
+  reorderActiveThread,
   reorderQueuedRun,
   revertThreadCheckpoint,
   settleThread,
@@ -216,6 +219,50 @@ describe("V2 environment commands", () => {
 
       expect(commands).toEqual([
         { type: "thread.archive", commandId: "queued-command", threadId: "thread-1" },
+      ]);
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
+  it.effect("dispatches the V2 active-thread reorder command", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+
+      yield* reorderActiveThread({
+        commandId: CommandId.make("reorder-active"),
+        threadId: v2ThreadId,
+        orderKey: "mf",
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toEqual([
+        {
+          type: "thread.active.reorder",
+          commandId: "reorder-active",
+          threadId: v2ThreadId,
+          orderKey: "mf",
+        },
+      ]);
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
+  it.effect("dispatches the V2 async user-input dismissal command", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+
+      yield* dismissThreadUserInput({
+        commandId: CommandId.make("dismiss-input"),
+        threadId: v2ThreadId,
+        requestId: RuntimeRequestId.make("request-1"),
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toEqual([
+        {
+          type: "thread.user-input.dismiss",
+          commandId: "dismiss-input",
+          threadId: v2ThreadId,
+          requestId: "request-1",
+        },
       ]);
     }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
   );

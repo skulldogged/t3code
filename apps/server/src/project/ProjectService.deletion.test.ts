@@ -115,6 +115,7 @@ function nativeThreadCreated(projectId: ProjectId, threadId: ThreadId) {
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+    branchPullRequest: null,
     activeProviderThreadId: null,
     lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
     forkedFrom: null,
@@ -123,6 +124,7 @@ function nativeThreadCreated(projectId: ProjectId, threadId: ThreadId) {
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
+    activeOrderKey: null,
     lastVisitedAt: null,
     deletedAt: null,
   };

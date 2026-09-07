@@ -27,6 +27,7 @@ import {
   ProviderInstanceId,
   type ProviderSessionId,
   RunId,
+  type ThreadLinkedPullRequest,
   ThreadId,
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
@@ -255,6 +256,8 @@ function commandThreadId(command: OrchestrationV2Command): ThreadId {
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
+    case "thread.active.reorder":
+    case "thread.pull-request.sync":
     case "thread.visit":
     case "thread.mark-unread":
     case "thread.metadata.update":
@@ -273,6 +276,7 @@ function commandThreadId(command: OrchestrationV2Command): ThreadId {
     case "queued-run.cancel":
     case "queued-run.edit":
     case "runtime-request.respond":
+    case "thread.user-input.dismiss":
     case "checkpoint.rollback":
     case "provider.switch":
       return command.threadId;
@@ -286,6 +290,19 @@ function commandThreadId(command: OrchestrationV2Command): ThreadId {
     case "thread.merge_back":
       return command.targetThreadId;
   }
+}
+
+function samePullRequest(
+  left: ThreadLinkedPullRequest | null | undefined,
+  right: ThreadLinkedPullRequest | null | undefined,
+): boolean {
+  if (left == null || right == null) return left == null && right == null;
+  return (
+    left.projectId === right.projectId &&
+    left.repository.toLowerCase() === right.repository.toLowerCase() &&
+    left.number === right.number &&
+    left.url === right.url
+  );
 }
 
 function pendingThreadTitleGenerationEffect(
@@ -1363,6 +1380,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       interactionMode: command.interactionMode,
       branch: command.branch,
       worktreePath: command.worktreePath,
+      branchPullRequest: null,
       activeProviderThreadId: null,
       lineage: {
         parentThreadId: null,
@@ -1378,6 +1396,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       snoozedUntil: null,
       snoozedAt: null,
       lastVisitedAt: null,
+      activeOrderKey: null,
       deletedAt: null,
     };
 
@@ -1433,6 +1452,59 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  const dispatchThreadPullRequestSync = Effect.fn("orchestrationV2.dispatch.threadPullRequestSync")(
+    function* (
+      command: Extract<OrchestrationV2Command, { readonly type: "thread.pull-request.sync" }>,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    ) {
+      const projection = yield* projectionStore
+        .getThreadProjection(command.threadId)
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      const thread = projection.thread;
+      if (
+        thread.archivedAt !== null ||
+        thread.deletedAt !== null ||
+        thread.projectId !== command.projectId ||
+        DateTime.toEpochMillis(projection.updatedAt) !==
+          DateTime.toEpochMillis(command.snapshotAt) ||
+        thread.branch !== command.expected.branch ||
+        thread.worktreePath !== command.expected.worktreePath ||
+        !samePullRequest(thread.linkedPullRequest, command.expected.linkedPullRequest) ||
+        !samePullRequest(thread.branchPullRequest, command.expected.branchPullRequest)
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} changed before pull request discovery.`,
+        });
+      }
+      const now = yield* DateTime.now;
+      const updatedThread: OrchestrationV2AppThread = {
+        ...thread,
+        branchPullRequest: command.branchPullRequest,
+        ...(command.linkedPullRequest === undefined
+          ? {}
+          : { linkedPullRequest: command.linkedPullRequest }),
+        // Discovery changes sidebar metadata, not user activity.
+        updatedAt: thread.updatedAt,
+      };
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: updatedThread,
+      });
+    },
+  );
+
   const dispatchThreadMutation = Effect.fn("orchestrationV2.dispatch.threadMutation")(function* (
     command: Extract<
       OrchestrationV2Command,
@@ -1447,6 +1519,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.pin"
           | "thread.unpin"
           | "thread.pin.reorder"
+          | "thread.active.reorder"
           | "thread.mark-unread"
           | "thread.metadata.update"
           | "thread.title.regeneration.complete"
@@ -1458,6 +1531,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     >,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    dismissMessageRequests: boolean,
   ) {
     const projection = yield* projectionStore.getThreadProjection(command.threadId).pipe(
       Effect.mapError(
@@ -1508,7 +1582,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.unsnooze" ||
         command.type === "thread.pin" ||
         command.type === "thread.unpin" ||
-        command.type === "thread.pin.reorder") &&
+        command.type === "thread.pin.reorder" ||
+        command.type === "thread.active.reorder") &&
       thread.archivedAt !== null
     ) {
       return yield* new OrchestratorDispatchError({
@@ -1528,11 +1603,34 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     if (
+      command.type === "thread.active.reorder" &&
+      (thread.pinnedAt != null || thread.settledOverride === "settled")
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${command.threadId} is not in the active list and cannot be reordered.`,
+      });
+    }
+    const dismissibleMessageRequests = projection.runtimeRequests.filter(
+      (request) =>
+        request.status === "pending" &&
+        request.kind === "user_input" &&
+        request.responseCapability.type === "message" &&
+        projection.turnItems.some(
+          (item) => item.type === "user_input_request" && item.requestId === request.id,
+        ),
+    );
+    if (
       command.type === "thread.settle" &&
       (projection.runs.some((run) =>
         ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
       ) ||
-        projection.runtimeRequests.some((request) => request.status === "pending"))
+        projection.runtimeRequests.some(
+          (request) =>
+            request.status === "pending" &&
+            (!dismissMessageRequests || !dismissibleMessageRequests.includes(request)),
+        ))
     ) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
@@ -1624,6 +1722,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             unsettledAt: null,
             pinnedAt: null,
             pinOrderKey: null,
+            activeOrderKey: null,
             updatedAt: alreadySettled ? thread.updatedAt : now,
           };
         }
@@ -1704,6 +1803,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: keyUnchanged ? thread.updatedAt : now,
           };
         }
+        case "thread.active.reorder":
+          return {
+            ...thread,
+            activeOrderKey: command.orderKey,
+            // Arrangement changes are not activity and must not postpone
+            // inactivity settlement.
+            updatedAt: thread.updatedAt,
+          };
         case "thread.mark-unread":
           return { ...thread, lastVisitedAt: markUnreadVisitedAt };
         case "thread.metadata.update":
@@ -1771,6 +1878,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
         case "thread.title.regeneration.complete":
+        case "thread.active.reorder":
           return "thread.metadata-updated" as const;
         case "thread.runtime-mode.set":
           return "thread.runtime-mode-updated" as const;
@@ -1792,6 +1900,47 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       occurredAt: now,
       payload: updatedThread,
     });
+
+    if (command.type === "thread.settle" && dismissMessageRequests) {
+      const emitEvent = emit(events, command);
+      for (const runtimeRequest of dismissibleMessageRequests) {
+        const requestNode = projection.nodes.find((node) => node.id === runtimeRequest.nodeId);
+        const questionItem = projection.turnItems.find(
+          (item) => item.type === "user_input_request" && item.requestId === runtimeRequest.id,
+        )!;
+        yield* emitEvent({
+          type: "runtime-request.updated",
+          threadId: command.threadId,
+          ...(requestNode?.runId == null ? {} : { runId: requestNode.runId }),
+          nodeId: runtimeRequest.nodeId,
+          occurredAt: now,
+          payload: { ...runtimeRequest, status: "resolved", resolvedAt: now },
+        });
+        if (requestNode !== undefined) {
+          yield* emitEvent({
+            type: "node.updated",
+            threadId: command.threadId,
+            ...(requestNode.runId === null ? {} : { runId: requestNode.runId }),
+            nodeId: requestNode.id,
+            occurredAt: now,
+            payload: { ...requestNode, status: "completed", completedAt: now },
+          });
+        }
+        yield* emitEvent({
+          type: "turn-item.updated",
+          threadId: command.threadId,
+          ...(questionItem.runId === null ? {} : { runId: questionItem.runId }),
+          ...(questionItem.nodeId === null ? {} : { nodeId: questionItem.nodeId }),
+          occurredAt: now,
+          payload: {
+            ...questionItem,
+            status: "completed",
+            completedAt: now,
+            updatedAt: now,
+          },
+        });
+      }
+    }
 
     if (command.type === "thread.metadata.update" && command.regenerateTitle === true) {
       yield* Ref.update(effects, (existing) => [
@@ -5229,6 +5378,84 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ]);
     });
 
+  const dispatchRuntimeRequestDismiss = (
+    command: Extract<OrchestrationV2Command, { readonly type: "thread.user-input.dismiss" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) =>
+    Effect.gen(function* () {
+      const projection = yield* projectionStore
+        .getThreadProjection(command.threadId)
+        .pipe(
+          Effect.mapError(() => new OrchestratorProjectionError({ threadId: command.threadId })),
+        );
+      const runtimeRequest = projection.runtimeRequests.find(
+        (candidate) => candidate.id === command.requestId,
+      );
+      if (runtimeRequest === undefined) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Runtime request ${command.requestId} was not found.`,
+        });
+      }
+      if (runtimeRequest.status !== "pending") {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Runtime request ${command.requestId} is ${runtimeRequest.status}.`,
+        });
+      }
+      const questionItem = projection.turnItems.find(
+        (item) => item.type === "user_input_request" && item.requestId === command.requestId,
+      );
+      if (
+        runtimeRequest.kind !== "user_input" ||
+        runtimeRequest.responseCapability.type !== "message" ||
+        questionItem === undefined
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "This question needs an answer. Answer it or stop the turn.",
+        });
+      }
+
+      const now = yield* DateTime.now;
+      const emitEvent = emit(events, command);
+      const requestNode = projection.nodes.find((node) => node.id === runtimeRequest.nodeId);
+      yield* emitEvent({
+        type: "runtime-request.updated",
+        threadId: command.threadId,
+        ...(requestNode?.runId == null ? {} : { runId: requestNode.runId }),
+        nodeId: runtimeRequest.nodeId,
+        occurredAt: now,
+        payload: { ...runtimeRequest, status: "resolved", resolvedAt: now },
+      });
+      if (requestNode !== undefined) {
+        yield* emitEvent({
+          type: "node.updated",
+          threadId: command.threadId,
+          ...(requestNode.runId === null ? {} : { runId: requestNode.runId }),
+          nodeId: requestNode.id,
+          occurredAt: now,
+          payload: { ...requestNode, status: "completed", completedAt: now },
+        });
+      }
+      yield* emitEvent({
+        type: "turn-item.updated",
+        threadId: command.threadId,
+        ...(questionItem.runId === null ? {} : { runId: questionItem.runId }),
+        ...(questionItem.nodeId === null ? {} : { nodeId: questionItem.nodeId }),
+        occurredAt: now,
+        payload: {
+          ...questionItem,
+          status: "completed",
+          completedAt: now,
+          updatedAt: now,
+        },
+      });
+    });
+
   const dispatchQueuedMessagePromoteToSteer = (
     command: Extract<OrchestrationV2Command, { readonly type: "queued-message.promote-to-steer" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -6916,6 +7143,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.visit":
         yield* dispatchThreadVisit(command, events);
         break;
+      case "thread.pull-request.sync":
+        yield* dispatchThreadPullRequestSync(command, events);
+        break;
       case "thread.auto-settle": {
         // Automatic settlement (#8600): the sweep evaluated a shell snapshot,
         // so re-check against the live thread before settling. Any change
@@ -6947,6 +7177,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           },
           events,
           effects,
+          false,
         );
         break;
       }
@@ -6971,6 +7202,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pin":
       case "thread.unpin":
       case "thread.pin.reorder":
+      case "thread.active.reorder":
       case "thread.mark-unread":
       case "thread.metadata.update":
       case "thread.title.regeneration.complete":
@@ -6978,7 +7210,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.interaction-mode.set":
       case "thread.model-selection.set":
       case "provider.switch":
-        yield* dispatchThreadMutation(command, events, effects);
+        yield* dispatchThreadMutation(command, events, effects, command.type === "thread.settle");
         break;
       case "provider-session.detach":
         yield* dispatchProviderSessionDetach(command, events, effects);
@@ -6997,6 +7229,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "runtime-request.respond":
         yield* dispatchRuntimeRequestRespond(command, events, effects);
+        break;
+      case "thread.user-input.dismiss":
+        yield* dispatchRuntimeRequestDismiss(command, events);
         break;
       case "run.interrupt":
         cancelUnsettledEffects = yield* dispatchRunInterrupt(command, events, effects);

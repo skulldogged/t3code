@@ -64,6 +64,7 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     deletedAt: null,
     branch: null,
     linkedPullRequest: null,
+    branchPullRequest: null,
     status: "running",
     activityRunStatus: null,
     pendingRuntimeRequest: null,
@@ -81,6 +82,7 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     snoozedUntil: null,
     snoozedAt: null,
     pinnedAt: null,
+    activeOrderKey: null,
     ...overrides,
   };
 }

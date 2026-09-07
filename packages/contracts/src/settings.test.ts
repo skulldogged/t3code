@@ -144,6 +144,77 @@ describe("ClientSettings composer context strip", () => {
   });
 });
 
+describe("ClientSettings load balancing", () => {
+  it("requires opt-in when settings are new or omit load balancing", () => {
+    expect(decodeClientSettings({}).loadBalancingEnabled).toBe(false);
+    expect(decodeClientSettings({ loadBalancingWeights: {} }).loadBalancingEnabled).toBe(false);
+  });
+
+  it.each([true, false])("preserves a saved choice of %s", (loadBalancingEnabled) => {
+    const settings = decodeClientSettings({ loadBalancingEnabled });
+    expect(encodeClientSettings(settings).loadBalancingEnabled).toBe(loadBalancingEnabled);
+    expect(decodeClientSettingsPatch({ loadBalancingEnabled }).loadBalancingEnabled).toBe(
+      loadBalancingEnabled,
+    );
+  });
+});
+
+describe("ServerSettings project defaults", () => {
+  const script = {
+    id: "test",
+    name: "Test",
+    command: "vp test",
+    icon: "test" as const,
+    runOnWorktreeCreate: false,
+  };
+  const modelSelection = {
+    instanceId: "codex",
+    model: "gpt-5",
+    options: [],
+  };
+
+  it("provides backward-compatible defaults", () => {
+    const settings = decodeServerSettings({});
+    expect(settings.defaultAutoPull).toBe(false);
+    expect(settings.defaultModelSelection).toBeNull();
+    expect(settings.defaultProjectScripts).toEqual([]);
+    expect(settings.projectAgentBrowserAccessOverrides).toEqual({});
+    expect(settings.projectAutoPullOverrides).toEqual({});
+    expect(settings.projectScriptOverrides).toEqual({});
+  });
+
+  it("round-trips defaults and project overrides", () => {
+    const settings = decodeServerSettings({
+      defaultAutoPull: true,
+      defaultModelSelection: modelSelection,
+      defaultProjectScripts: [script],
+      projectAgentBrowserAccessOverrides: { alpha: false },
+      projectAutoPullOverrides: { alpha: true },
+      projectScriptOverrides: { alpha: [script], beta: null },
+    });
+    const encoded = encodeServerSettings(settings);
+
+    expect(encoded.defaultAutoPull).toBe(true);
+    expect(encoded.defaultModelSelection).toEqual(modelSelection);
+    expect(encoded.defaultProjectScripts).toEqual([script]);
+    expect(encoded.projectAgentBrowserAccessOverrides).toEqual({ alpha: false });
+    expect(encoded.projectAutoPullOverrides).toEqual({ alpha: true });
+    expect(encoded.projectScriptOverrides).toEqual({ alpha: [script], beta: null });
+  });
+
+  it("accepts removals in project override patches", () => {
+    const patch = decodeServerSettingsPatch({
+      projectAgentBrowserAccessOverrides: { alpha: null },
+      projectAutoPullOverrides: { alpha: null },
+      projectScriptOverrides: { alpha: null },
+    });
+
+    expect(patch.projectAgentBrowserAccessOverrides).toEqual({ alpha: null });
+    expect(patch.projectAutoPullOverrides).toEqual({ alpha: null });
+    expect(patch.projectScriptOverrides).toEqual({ alpha: null });
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);

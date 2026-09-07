@@ -42,6 +42,8 @@ function makeParentThread(): OrchestrationV2AppThread {
     interactionMode: "plan",
     branch: "feature/source",
     worktreePath: "/tmp/source-worktree",
+    branchPullRequest: null,
+    activeOrderKey: null,
     activeProviderThreadId: ProviderThreadId.make("provider-thread:subagent-snoozed-parent"),
     lineage: {
       parentThreadId: null,

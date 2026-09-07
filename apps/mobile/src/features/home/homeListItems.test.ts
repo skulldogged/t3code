@@ -60,6 +60,8 @@ function makeThread(id: string, projectId: ProjectId): EnvironmentThreadShell {
     latestVisibleMessage: null,
     settledOverride: null,
     settledAt: null,
+    activeOrderKey: null,
+    branchPullRequest: null,
     latestUserMessageAt: null,
     hasActionableProposedPlan: false,
     itemCount: 0,

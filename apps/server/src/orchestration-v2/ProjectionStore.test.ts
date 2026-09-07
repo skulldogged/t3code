@@ -134,6 +134,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
           forkedFrom: null,
@@ -225,6 +227,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
           forkedFrom: null,
@@ -777,6 +781,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         interactionMode: "default" as const,
         branch: null,
         worktreePath: null,
+        branchPullRequest: null,
+        activeOrderKey: null,
         activeProviderThreadId: null,
         lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
         forkedFrom: null,
@@ -878,6 +884,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         interactionMode: "default" as const,
         branch: null,
         worktreePath: null,
+        branchPullRequest: null,
+        activeOrderKey: null,
         activeProviderThreadId: null,
         lineage: {
           parentThreadId: null,
@@ -949,6 +957,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         interactionMode: "default" as const,
         branch: null,
         worktreePath: null,
+        branchPullRequest: null,
+        activeOrderKey: null,
         activeProviderThreadId: null,
         lineage: {
           parentThreadId: null,
@@ -1120,6 +1130,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           lineage: {
             parentThreadId: null,
@@ -1203,6 +1215,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         interactionMode: "default" as const,
         branch: null,
         worktreePath: null,
+        branchPullRequest: null,
+        activeOrderKey: null,
         activeProviderThreadId: null,
         lineage: {
           parentThreadId: null,
@@ -1336,6 +1350,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
             interactionMode: "default",
             branch: "feature",
             worktreePath: "/repo/worktree",
+            branchPullRequest: null,
+            activeOrderKey: null,
             activeProviderThreadId: null,
             lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
             forkedFrom: null,
@@ -1468,6 +1484,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           lineage: {
             parentThreadId: null,
@@ -1587,6 +1605,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           historyOrigin: "v1_import",
           lineage: {
@@ -1621,6 +1641,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           lineage: {
             parentThreadId: sourceThreadId,
@@ -1749,6 +1771,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: providerThreadId,
           lineage: {
             parentThreadId: null,
@@ -2163,6 +2187,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: sourceProviderThreadId,
           lineage: {
             parentThreadId: null,
@@ -2196,6 +2222,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: targetProviderThreadId,
           lineage: {
             parentThreadId: sourceThreadId,
@@ -2675,6 +2703,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           lineage: {
             parentThreadId: targetThreadId,
@@ -2763,6 +2793,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           lineage: {
             parentThreadId: sourceThreadId,
@@ -2823,6 +2855,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          branchPullRequest: null,
+          activeOrderKey: null,
           activeProviderThreadId: null,
           lineage: {
             parentThreadId: emptyMiddleThreadId,

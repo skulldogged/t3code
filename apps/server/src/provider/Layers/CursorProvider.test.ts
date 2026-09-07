@@ -1,7 +1,9 @@
 import type { SDKModel } from "@cursor/sdk";
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import type { CursorSettings } from "@t3tools/contracts";
 import { CursorSettings as CursorSettingsSchema } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
@@ -12,6 +14,7 @@ import {
   buildCursorProviderSnapshot,
   buildInitialCursorProviderSnapshot,
   checkCursorProviderStatus,
+  makeCursorSdkCatalogDiscovery,
 } from "./CursorProvider.ts";
 import { CursorSdkCatalogError, makeCursorSdkCatalogTestLayer } from "./CursorSdkCatalog.ts";
 
@@ -46,7 +49,6 @@ const baseCursorSettings: CursorSettings = decodeCursorSettings({
   enabled: true,
   customModels: [],
 });
-
 const sdkParameterizedModel = {
   id: "claude-opus-4-8",
   displayName: "Opus 4.8",
@@ -144,6 +146,102 @@ describe("Cursor SDK model discovery", () => {
         ],
       }),
     );
+  });
+
+  it.effect("caches a successful nonempty SDK catalog for 30 minutes", () => {
+    let reads = 0;
+    const layer = makeCursorSdkCatalogTestLayer(() => {
+      reads += 1;
+      return Effect.succeed({
+        user: {
+          apiKeyName: "test-key",
+          userEmail: "cursor@example.com",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        models: [sdkParameterizedModel],
+      });
+    });
+    return Effect.gen(function* () {
+      const discoverCatalog = yield* makeCursorSdkCatalogDiscovery();
+      yield* discoverCatalog("test-cursor-key");
+      yield* TestClock.adjust("29 minutes");
+      yield* discoverCatalog("test-cursor-key");
+      expect(reads).toBe(1);
+
+      yield* TestClock.adjust("2 minutes");
+      yield* discoverCatalog("test-cursor-key");
+      expect(reads).toBe(2);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("invalidates the SDK catalog cache when the credential changes", () => {
+    const keys: Array<string> = [];
+    const layer = makeCursorSdkCatalogTestLayer((apiKey) => {
+      keys.push(apiKey);
+      return Effect.succeed({
+        user: {
+          apiKeyName: apiKey,
+          userEmail: "cursor@example.com",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        models: [sdkParameterizedModel],
+      });
+    });
+    return Effect.gen(function* () {
+      const discoverCatalog = yield* makeCursorSdkCatalogDiscovery();
+      yield* discoverCatalog("first-key");
+      yield* discoverCatalog("second-key");
+      expect(keys).toEqual(["first-key", "second-key"]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("retries immediately after an empty SDK catalog", () => {
+    let reads = 0;
+    const layer = makeCursorSdkCatalogTestLayer(() => {
+      reads += 1;
+      return Effect.succeed({
+        user: {
+          apiKeyName: "test-key",
+          userEmail: "cursor@example.com",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        models: reads === 1 ? [] : [sdkParameterizedModel],
+      });
+    });
+    return Effect.gen(function* () {
+      const discoverCatalog = yield* makeCursorSdkCatalogDiscovery();
+      expect((yield* discoverCatalog("test-cursor-key")).models).toEqual([]);
+      expect((yield* discoverCatalog("test-cursor-key")).models).toEqual([sdkParameterizedModel]);
+      expect(reads).toBe(2);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("retries immediately after an SDK catalog failure", () => {
+    let reads = 0;
+    const layer = makeCursorSdkCatalogTestLayer(() => {
+      reads += 1;
+      return reads === 1
+        ? Effect.fail(
+            new CursorSdkCatalogError({
+              authenticationFailure: false,
+              cause: new Error("temporary failure"),
+            }),
+          )
+        : Effect.succeed({
+            user: {
+              apiKeyName: "test-key",
+              userEmail: "cursor@example.com",
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+            models: [sdkParameterizedModel],
+          });
+    });
+    return Effect.gen(function* () {
+      const discoverCatalog = yield* makeCursorSdkCatalogDiscovery();
+      assert(Exit.isFailure(yield* Effect.exit(discoverCatalog("test-cursor-key"))));
+      expect((yield* discoverCatalog("test-cursor-key")).models).toEqual([sdkParameterizedModel]);
+      expect(reads).toBe(2);
+    }).pipe(Effect.provide(layer));
   });
 
   it("filters invalid and duplicate SDK model entries", () => {

@@ -16,6 +16,7 @@ import {
   ProviderReplayTranscript,
   ProviderThreadId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
   TurnItemId,
 } from "./index.ts";
@@ -24,6 +25,7 @@ import {
   OrchestrationV2CheckpointScope,
   OrchestrationV2Command,
   OrchestrationV2DomainEvent,
+  OrchestrationV2PlanArtifact,
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderThreadJson,
   OrchestrationV2ShellSnapshot,
@@ -49,6 +51,8 @@ const decodeOrchestrationV2CheckpointScope = Schema.decodeUnknownSync(
 );
 const decodeOrchestrationV2Checkpoint = Schema.decodeUnknownSync(OrchestrationV2Checkpoint);
 const decodeOrchestrationV2DomainEvent = Schema.decodeUnknownSync(OrchestrationV2DomainEvent);
+const decodeOrchestrationV2PlanArtifact = Schema.decodeUnknownSync(OrchestrationV2PlanArtifact);
+const encodeOrchestrationV2PlanArtifact = Schema.encodeSync(OrchestrationV2PlanArtifact);
 const decodeProviderReplayTranscript = Schema.decodeUnknownSync(ProviderReplayTranscript);
 const decodeOrchestrationV2Subagent = Schema.decodeUnknownSync(OrchestrationV2Subagent);
 const decodeOrchestrationV2ThreadProjection = Schema.decodeUnknownSync(
@@ -61,6 +65,47 @@ const decodeOrchestrationV2ProviderThread = Schema.decodeUnknownSync(Orchestrati
 const decodeOrchestrationV2ThreadShell = Schema.decodeUnknownSync(OrchestrationV2ThreadShell);
 
 describe("orchestration V2 contracts", () => {
+  it("round-trips optional plan-step duration state and accepts historical steps", () => {
+    const base = {
+      id: "plan-1",
+      threadId: "thread-1",
+      runId: "run-1",
+      nodeId: "node-1",
+      kind: "todo_list",
+      status: "active",
+    } as const;
+    const historical = decodeOrchestrationV2PlanArtifact({
+      ...base,
+      steps: [{ id: "step-1", text: "Inspect", status: "pending" }],
+    });
+    const timed = decodeOrchestrationV2PlanArtifact({
+      ...base,
+      steps: [
+        {
+          id: "step-1",
+          text: "Implement",
+          status: "running",
+          durationAnchorAt: "2026-04-20T00:00:00.000Z",
+        },
+        {
+          id: "step-2",
+          text: "Verify",
+          status: "completed",
+          durationMs: 3_000,
+        },
+      ],
+    });
+
+    expect(historical.kind === "todo_list" ? historical.steps[0] : null).toEqual({
+      id: "step-1",
+      text: "Inspect",
+      status: "pending",
+    });
+    expect(decodeOrchestrationV2PlanArtifact(encodeOrchestrationV2PlanArtifact(timed))).toEqual(
+      timed,
+    );
+  });
+
   it("lets legacy snapshot decoders ignore enrichment metadata", () => {
     const decoded = decodeLegacyShellStreamItem({
       kind: "snapshot",
@@ -178,6 +223,57 @@ describe("orchestration V2 contracts", () => {
       throw new Error(`Expected run.created, received ${event.type}.`);
     }
     expect(event.payload.id).toBe(RunId.make("run-1"));
+  });
+
+  it("decodes manual active ordering and async user-input dismissal commands", () => {
+    const reorder = decodeOrchestrationV2Command({
+      type: "thread.active.reorder",
+      commandId: "command-reorder-1",
+      threadId: "thread-1",
+      orderKey: "mf",
+    });
+    const dismiss = decodeOrchestrationV2Command({
+      type: "thread.user-input.dismiss",
+      commandId: "command-dismiss-1",
+      threadId: "thread-1",
+      requestId: "request-1",
+    });
+
+    expect(reorder).toMatchObject({ type: "thread.active.reorder", orderKey: "mf" });
+    expect(dismiss).toMatchObject({
+      type: "thread.user-input.dismiss",
+      requestId: RuntimeRequestId.make("request-1"),
+    });
+  });
+
+  it("decodes guarded branch pull-request synchronization", () => {
+    const branchPullRequest = {
+      projectId: ProjectId.make("project-1"),
+      repository: "pingdotgg/t3code",
+      number: 10051,
+      url: "https://github.com/pingdotgg/t3code/pull/10051",
+    };
+    const command = decodeOrchestrationV2Command({
+      type: "thread.pull-request.sync",
+      commandId: CommandId.make("command-pr-sync-1"),
+      threadId: ThreadId.make("thread-1"),
+      projectId: ProjectId.make("project-1"),
+      snapshotAt: now,
+      expected: {
+        branch: "ready/pr-10051",
+        worktreePath: "/tmp/t3code",
+        linkedPullRequest: null,
+        branchPullRequest: null,
+      },
+      branchPullRequest,
+      linkedPullRequest: branchPullRequest,
+    });
+
+    expect(command).toMatchObject({
+      type: "thread.pull-request.sync",
+      projectId: ProjectId.make("project-1"),
+      branchPullRequest,
+    });
   });
 
   it("decodes app-owned delegated task commands", () => {
@@ -768,5 +864,7 @@ describe("orchestration V2 contracts", () => {
     });
 
     expect(shell.pendingBackgroundTasks).toEqual([]);
+    expect(shell.activeOrderKey).toBeNull();
+    expect(shell.branchPullRequest).toBeNull();
   });
 });

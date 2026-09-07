@@ -53,6 +53,8 @@ const createThread = Effect.fn(function* (
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+    branchPullRequest: null,
+    activeOrderKey: null,
     activeProviderThreadId: null,
     lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
     forkedFrom: null,

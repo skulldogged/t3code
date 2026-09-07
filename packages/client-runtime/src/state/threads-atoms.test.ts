@@ -7,6 +7,7 @@ import {
   type OrchestrationV2ThreadStreamItem,
 } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -292,6 +293,29 @@ describe("createEnvironmentThreadStateAtoms", () => {
       unmountStatus();
       yield* Deferred.await(first.closed);
       expect(h.counts().active).toBe(0);
+    }),
+  );
+
+  it.effect("surfaces a terminated stream load without exposing its defect", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ connected: true });
+      const unmount = h.registry.mount(h.stateAtom);
+      const first = yield* Queue.take(h.subscriptions);
+
+      yield* Queue.failCause(
+        first.events,
+        Cause.die(new Error("SYNTHETIC_RAW_DEFECT_SHOULD_NOT_REACH_THREAD_UI")),
+      );
+      yield* Deferred.await(first.closed);
+      const failed = yield* observeState(h.registry, h.stateAtom, (state) =>
+        Option.isSome(state.error),
+      );
+
+      expect(failed.status).toBe("cached");
+      expect(failed.error).toEqual(Option.some("Could not synchronize the thread."));
+      expect(failed.data).toEqual(Option.some(THREAD));
+      expect(h.counts()).toMatchObject({ opened: 1, active: 0 });
+      unmount();
     }),
   );
 

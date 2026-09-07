@@ -14,6 +14,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderSessionId,
   ProviderThreadId,
   RunId,
   ThreadId,
@@ -355,6 +356,63 @@ it.layer(TestLayer)("OrchestrationV2LayerLive", (it) => {
     }),
   );
 
+  it.effect("persists active ordering without treating arrangement as activity", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* OrchestratorV2;
+      const maintenance = yield* ProjectionMaintenanceV2;
+      const threadId = ThreadId.make("runtime-active-order");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("runtime-active-order-create"),
+        threadId,
+        projectId: ProjectId.make("runtime-active-order-project"),
+        title: "Active ordering",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const created = yield* orchestrator.getThreadProjection(threadId);
+      assert.isNull(created.thread.activeOrderKey);
+
+      yield* orchestrator.dispatch({
+        type: "thread.active.reorder",
+        commandId: CommandId.make("runtime-active-order-reorder"),
+        threadId,
+        orderKey: "m",
+      });
+      const reordered = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(reordered.thread.activeOrderKey, "m");
+      assert.deepEqual(reordered.thread.updatedAt, created.thread.updatedAt);
+      const reorderedShell = yield* orchestrator.getThreadShell(threadId);
+      assert.isNotNull(reorderedShell);
+      assert.equal(reorderedShell.activeOrderKey, "m");
+
+      const rebuilt = yield* maintenance.rebuild;
+      assert.isTrue(rebuilt.valid);
+      assert.equal((yield* orchestrator.getThreadProjection(threadId)).thread.activeOrderKey, "m");
+
+      yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("runtime-active-order-settle"),
+        threadId,
+      });
+      assert.isNull((yield* orchestrator.getThreadProjection(threadId)).thread.activeOrderKey);
+      const rejected = yield* orchestrator
+        .dispatch({
+          type: "thread.active.reorder",
+          commandId: CommandId.make("runtime-active-order-reorder-settled"),
+          threadId,
+          orderKey: "z",
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(rejected, OrchestratorDispatchError);
+    }),
+  );
+
   it.effect("answers an async question after its provider exits and commits the answer once", () =>
     Effect.gen(function* () {
       const orchestrator = yield* OrchestratorV2;
@@ -494,6 +552,266 @@ it.layer(TestLayer)("OrchestrationV2LayerLive", (it) => {
         .pipe(Effect.result);
       assert.equal(duplicate._tag, "Failure");
       assert.equal((yield* orchestrator.getThreadProjection(threadId)).messages.length, 1);
+    }),
+  );
+
+  it.effect("dismisses async questions while native callbacks remain blocking", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* OrchestratorV2;
+      const eventSink = yield* EventSinkV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("runtime-dismiss-question");
+      const asyncRequestId = RuntimeRequestId.make("runtime-dismiss-question-async");
+      const settleRequestId = RuntimeRequestId.make("runtime-dismiss-question-settle");
+      const nativeRequestId = RuntimeRequestId.make("runtime-dismiss-question-native");
+      const asyncNodeId = NodeId.make("runtime-dismiss-question-async-node");
+      const settleNodeId = NodeId.make("runtime-dismiss-question-settle-node");
+      const nativeNodeId = NodeId.make("runtime-dismiss-question-native-node");
+      const asyncItemId = TurnItemId.make("runtime-dismiss-question-async-item");
+      const settleItemId = TurnItemId.make("runtime-dismiss-question-settle-item");
+      const nativeItemId = TurnItemId.make("runtime-dismiss-question-native-item");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("runtime-dismiss-question-create"),
+        createdBy: "user",
+        creationSource: "web",
+        threadId,
+        projectId: ProjectId.make("runtime-dismiss-question-project"),
+        title: "Dismiss questions",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+      });
+
+      const requestNode = (id: NodeId, requestId: RuntimeRequestId) => ({
+        id,
+        threadId,
+        runId: null,
+        parentNodeId: null,
+        rootNodeId: id,
+        kind: "user_input_request" as const,
+        status: "waiting" as const,
+        countsForRun: false,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        runtimeRequestId: requestId,
+        checkpointScopeId: null,
+        startedAt: now,
+        completedAt: null,
+      });
+      const questionItem = (
+        id: TurnItemId,
+        nodeId: NodeId,
+        requestId: RuntimeRequestId,
+        responseMode: "message" | "native",
+      ) => ({
+        id,
+        type: "user_input_request" as const,
+        threadId,
+        runId: null,
+        nodeId,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: responseMode === "message" ? 0 : 1,
+        status: "waiting" as const,
+        title: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+        requestId,
+        ...(responseMode === "message" ? { responseMode } : {}),
+        questions: [{ id: "choice", header: "Choice", question: "Choose?", options: [] }],
+      });
+      yield* eventSink.write({
+        commandId: CommandId.make("runtime-dismiss-question-seed"),
+        events: [
+          {
+            id: EventId.make("runtime-dismiss-question-async-node-event"),
+            type: "node.updated",
+            threadId,
+            nodeId: asyncNodeId,
+            occurredAt: now,
+            payload: requestNode(asyncNodeId, asyncRequestId),
+          },
+          {
+            id: EventId.make("runtime-dismiss-question-settle-node-event"),
+            type: "node.updated",
+            threadId,
+            nodeId: settleNodeId,
+            occurredAt: now,
+            payload: requestNode(settleNodeId, settleRequestId),
+          },
+          {
+            id: EventId.make("runtime-dismiss-question-native-node-event"),
+            type: "node.updated",
+            threadId,
+            nodeId: nativeNodeId,
+            occurredAt: now,
+            payload: requestNode(nativeNodeId, nativeRequestId),
+          },
+          {
+            id: EventId.make("runtime-dismiss-question-async-request-event"),
+            type: "runtime-request.updated",
+            threadId,
+            nodeId: asyncNodeId,
+            occurredAt: now,
+            payload: {
+              id: asyncRequestId,
+              nodeId: asyncNodeId,
+              providerTurnId: null,
+              nativeRequestRef: null,
+              kind: "user_input",
+              status: "pending",
+              responseCapability: { type: "message" },
+              createdAt: now,
+              resolvedAt: null,
+            },
+          },
+          {
+            id: EventId.make("runtime-dismiss-question-settle-request-event"),
+            type: "runtime-request.updated",
+            threadId,
+            nodeId: settleNodeId,
+            occurredAt: now,
+            payload: {
+              id: settleRequestId,
+              nodeId: settleNodeId,
+              providerTurnId: null,
+              nativeRequestRef: null,
+              kind: "user_input",
+              status: "pending",
+              responseCapability: { type: "message" },
+              createdAt: now,
+              resolvedAt: null,
+            },
+          },
+          {
+            id: EventId.make("runtime-dismiss-question-native-request-event"),
+            type: "runtime-request.updated",
+            threadId,
+            nodeId: nativeNodeId,
+            occurredAt: now,
+            payload: {
+              id: nativeRequestId,
+              nodeId: nativeNodeId,
+              providerTurnId: null,
+              nativeRequestRef: null,
+              kind: "user_input",
+              status: "pending",
+              responseCapability: {
+                type: "live",
+                providerSessionId: ProviderSessionId.make("runtime-dismiss-question-session"),
+              },
+              createdAt: now,
+              resolvedAt: null,
+            },
+          },
+          {
+            id: EventId.make("runtime-dismiss-question-async-item-event"),
+            type: "turn-item.updated",
+            threadId,
+            nodeId: asyncNodeId,
+            occurredAt: now,
+            payload: questionItem(asyncItemId, asyncNodeId, asyncRequestId, "message"),
+          },
+          {
+            id: EventId.make("runtime-dismiss-question-settle-item-event"),
+            type: "turn-item.updated",
+            threadId,
+            nodeId: settleNodeId,
+            occurredAt: now,
+            payload: questionItem(settleItemId, settleNodeId, settleRequestId, "message"),
+          },
+          {
+            id: EventId.make("runtime-dismiss-question-native-item-event"),
+            type: "turn-item.updated",
+            threadId,
+            nodeId: nativeNodeId,
+            occurredAt: now,
+            payload: questionItem(nativeItemId, nativeNodeId, nativeRequestId, "native"),
+          },
+        ],
+      });
+
+      const blockedSettlement = yield* orchestrator
+        .dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("runtime-dismiss-question-native-settle"),
+          threadId,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(blockedSettlement, OrchestratorDispatchError);
+
+      yield* orchestrator.dispatch({
+        type: "thread.user-input.dismiss",
+        commandId: CommandId.make("runtime-dismiss-question-async-command"),
+        threadId,
+        requestId: asyncRequestId,
+      });
+      const nativeDismiss = yield* orchestrator
+        .dispatch({
+          type: "thread.user-input.dismiss",
+          commandId: CommandId.make("runtime-dismiss-question-native-command"),
+          threadId,
+          requestId: nativeRequestId,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(nativeDismiss, OrchestratorDispatchError);
+
+      const beforeSettlement = yield* orchestrator.getThreadProjection(threadId);
+      const nativeRequest = beforeSettlement.runtimeRequests.find(
+        (request) => request.id === nativeRequestId,
+      )!;
+      yield* eventSink.write({
+        commandId: CommandId.make("runtime-dismiss-question-native-resolved"),
+        events: [
+          {
+            id: EventId.make("runtime-dismiss-question-native-resolved-event"),
+            type: "runtime-request.updated",
+            threadId,
+            nodeId: nativeNodeId,
+            occurredAt: now,
+            payload: { ...nativeRequest, status: "resolved", resolvedAt: now },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("runtime-dismiss-question-async-settle"),
+        threadId,
+      });
+
+      const projection = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(
+        projection.runtimeRequests.find((request) => request.id === asyncRequestId)?.status,
+        "resolved",
+      );
+      assert.equal(projection.nodes.find((node) => node.id === asyncNodeId)?.status, "completed");
+      assert.equal(
+        projection.turnItems.find((item) => item.id === asyncItemId)?.status,
+        "completed",
+      );
+      assert.equal(
+        projection.runtimeRequests.find((request) => request.id === nativeRequestId)?.status,
+        "resolved",
+      );
+      assert.equal(
+        projection.runtimeRequests.find((request) => request.id === settleRequestId)?.status,
+        "resolved",
+      );
+      assert.equal(projection.nodes.find((node) => node.id === settleNodeId)?.status, "completed");
+      assert.equal(
+        projection.turnItems.find((item) => item.id === settleItemId)?.status,
+        "completed",
+      );
+      assert.equal(projection.thread.settledOverride, "settled");
+      assert.deepEqual(projection.messages, []);
+      assert.deepEqual(projection.runs, []);
     }),
   );
 
@@ -1076,7 +1394,7 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("persists linked pull requests through projection rebuilds and unlinking", () =>
+  it.effect("persists guarded pull request links through projection rebuilds", () =>
     Effect.gen(function* () {
       const orchestrator = yield* OrchestratorV2;
       const maintenance = yield* ProjectionMaintenanceV2;
@@ -1086,6 +1404,11 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
         repository: "pingdotgg/t3code",
         number: 8160,
         url: "https://github.com/pingdotgg/t3code/pull/8160",
+      } as const;
+      const branchPullRequest = {
+        ...linkedPullRequest,
+        number: 10101,
+        url: "https://github.com/pingdotgg/t3code/pull/10101",
       } as const;
 
       yield* orchestrator.dispatch({
@@ -1116,12 +1439,33 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       const linkedShell = yield* orchestrator.getThreadShell(threadId);
       assert.isNotNull(linkedShell);
       assert.deepEqual(linkedShell.linkedPullRequest, linkedPullRequest);
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.sync",
+        commandId: CommandId.make("runtime-layer-linked-pull-request-sync"),
+        threadId,
+        projectId: linkedPullRequest.projectId,
+        snapshotAt: linkedShell.updatedAt,
+        expected: {
+          branch: null,
+          worktreePath: null,
+          linkedPullRequest,
+          branchPullRequest: null,
+        },
+        branchPullRequest,
+      });
+      const synchronizedShell = yield* orchestrator.getThreadShell(threadId);
+      assert.isNotNull(synchronizedShell);
+      assert.deepEqual(synchronizedShell.branchPullRequest, branchPullRequest);
 
       const rebuilt = yield* maintenance.rebuild;
       assert.isTrue(rebuilt.valid);
       assert.deepEqual(
         (yield* orchestrator.getThreadProjection(threadId)).thread.linkedPullRequest,
         linkedPullRequest,
+      );
+      assert.deepEqual(
+        (yield* orchestrator.getThreadProjection(threadId)).thread.branchPullRequest,
+        branchPullRequest,
       );
 
       yield* orchestrator.dispatch({
@@ -1134,6 +1478,23 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       const unlinkedShell = yield* orchestrator.getThreadShell(threadId);
       assert.isNotNull(unlinkedShell);
       assert.isNull(unlinkedShell.linkedPullRequest);
+      const staleSync = yield* orchestrator
+        .dispatch({
+          type: "thread.pull-request.sync",
+          commandId: CommandId.make("runtime-layer-linked-pull-request-stale-sync"),
+          threadId,
+          projectId: linkedPullRequest.projectId,
+          snapshotAt: linkedShell.updatedAt,
+          expected: {
+            branch: null,
+            worktreePath: null,
+            linkedPullRequest,
+            branchPullRequest: null,
+          },
+          branchPullRequest,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(staleSync, OrchestratorDispatchError);
     }),
   );
 

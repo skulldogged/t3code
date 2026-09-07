@@ -88,7 +88,9 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
           snoozed_at,
           pinned_at,
           pin_order_key,
+          active_order_key,
           linked_pull_request_json,
+          branch_pull_request_json,
           deleted_at
         ) VALUES (
           ${threadId},
@@ -110,7 +112,9 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
           '2026-01-04T00:00:00.000Z',
           '2026-01-02T00:00:00.000Z',
           'm',
+          'n',
           '{"projectId":"project:legacy-import","repository":"pingdotgg/t3code","number":9000,"url":"https://github.com/pingdotgg/t3code/pull/9000"}',
+          '{"projectId":"project:legacy-import","repository":"pingdotgg/t3code","number":10101,"url":"https://github.com/pingdotgg/t3code/pull/10101"}',
           NULL
         )
       `;
@@ -199,6 +203,7 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
         DateTime.makeUnsafe("2026-01-02T00:00:00.000Z"),
       );
       assert.equal(shellProjection.thread.pinOrderKey, "m");
+      assert.equal(shellProjection.thread.activeOrderKey, "n");
       assert.deepEqual(
         shellProjection.thread.snoozedUntil,
         DateTime.makeUnsafe("2026-02-01T00:00:00.000Z"),
@@ -208,6 +213,7 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
         DateTime.makeUnsafe("2026-01-03T12:00:00.000Z"),
       );
       assert.equal(shellProjection.thread.linkedPullRequest?.number, 9000);
+      assert.equal(shellProjection.thread.branchPullRequest?.number, 10101);
       const shellSnapshot = yield* projections.getShellSnapshot();
       assert.equal(
         shellSnapshot.threads.find((thread) => thread.id === threadId)?.historyOrigin,
@@ -285,7 +291,12 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
             threadId,
             providerInstanceId: projection.thread.providerInstanceId,
             occurredAt: renamedAt,
-            payload: { ...projection.thread, pinnedAt: null, pinOrderKey: null },
+            payload: {
+              ...projection.thread,
+              pinnedAt: null,
+              pinOrderKey: null,
+              activeOrderKey: null,
+            },
           },
         ],
       });
@@ -296,7 +307,8 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
           '$.snoozedUntil',
           '$.snoozedAt',
           '$.unsettledAt',
-          '$.linkedPullRequest'
+          '$.linkedPullRequest',
+          '$.branchPullRequest'
         )
         WHERE thread_id = ${threadId}
       `;
@@ -307,6 +319,7 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
       const repaired = yield* projections.getThreadProjection(threadId);
       assert.isNull(repaired.thread.pinnedAt);
       assert.isNull(repaired.thread.pinOrderKey);
+      assert.isNull(repaired.thread.activeOrderKey);
       assert.deepEqual(
         repaired.thread.snoozedUntil,
         DateTime.makeUnsafe("2026-02-01T00:00:00.000Z"),
@@ -316,6 +329,7 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
         DateTime.makeUnsafe("2026-01-03T12:00:00.000Z"),
       );
       assert.equal(repaired.thread.linkedPullRequest?.number, 9000);
+      assert.equal(repaired.thread.branchPullRequest?.number, 10101);
       const eventCountBeforeRetry = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count
         FROM orchestration_events

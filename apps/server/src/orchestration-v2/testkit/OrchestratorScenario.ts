@@ -125,6 +125,9 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
+    case "thread.active.reorder":
+    case "thread.user-input.dismiss":
+    case "thread.pull-request.sync":
     case "thread.visit":
     case "thread.mark-unread":
     case "thread.metadata.update":

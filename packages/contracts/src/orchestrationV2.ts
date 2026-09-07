@@ -310,6 +310,11 @@ export const OrchestrationV2AppThread = Schema.Struct({
   /** Pull request the user linked to this thread (#8160); optional so
       pre-linking servers still decode. */
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  /** Pull request discovered from the thread's branch. Missing historical
+      payloads decode as null. */
+  branchPullRequest: Schema.NullOr(ThreadLinkedPullRequest).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
   lineage: OrchestrationV2AppThreadLineage,
@@ -340,6 +345,11 @@ export const OrchestrationV2AppThread = Schema.Struct({
   // Fractional-index slot in the user-arranged pinned order. Optional so
   // payloads from pre-reorder servers still decode.
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Fractional-index slot in the user-arranged active-thread order. Missing
+  // values from pre-reorder projections decode as null.
+  activeOrderKey: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -729,6 +739,10 @@ export const OrchestrationV2PlanStep = Schema.Struct({
   id: TrimmedNonEmptyString,
   text: TrimmedNonEmptyString,
   status: Schema.Literals(["pending", "running", "completed"]),
+  /** Durable server-owned boundary used to calculate elapsed time. */
+  durationAnchorAt: Schema.optional(IsoDateTime),
+  /** Elapsed time for a completed step. */
+  durationMs: Schema.optional(NonNegativeInt),
 });
 export type OrchestrationV2PlanStep = typeof OrchestrationV2PlanStep.Type;
 
@@ -1329,6 +1343,10 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   /** Pull request the user linked to this thread (#8160). */
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  /** Pull request discovered from the thread's branch. */
+  branchPullRequest: Schema.NullOr(ThreadLinkedPullRequest).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   lineage: OrchestrationV2AppThreadLineage,
   forkedFrom: Schema.NullOr(OrchestrationV2AppThread.fields.forkedFrom),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
@@ -1366,6 +1384,10 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   /** Slot in the user-arranged pinned order; omitted by pre-reorder servers. */
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** Slot in the user-arranged active-thread order. */
+  activeOrderKey: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   /**
    * Omitted by servers that predate server-side visited tracking; clients fall
    * back to their local visited state when the field is absent.
@@ -2072,6 +2094,22 @@ export const OrchestrationV2Command = Schema.Union([
     snapshotAt: Schema.DateTimeUtc,
     settledAt: Schema.optional(Schema.DateTimeUtc),
   }),
+  /** Server-internal guarded synchronization of branch-derived PR metadata. */
+  Schema.Struct({
+    type: Schema.Literal("thread.pull-request.sync"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    projectId: ProjectId,
+    snapshotAt: Schema.DateTimeUtc,
+    expected: Schema.Struct({
+      branch: Schema.NullOr(TrimmedNonEmptyString),
+      worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+      linkedPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
+      branchPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
+    }),
+    branchPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
+    linkedPullRequest: Schema.optional(ThreadLinkedPullRequest),
+  }),
   Schema.Struct({
     type: Schema.Literal("thread.unsettle"),
     commandId: CommandId,
@@ -2112,6 +2150,13 @@ export const OrchestrationV2Command = Schema.Union([
     // keys, so a drag writes one key to one thread — neighbors are never
     // touched. Clients compute a key that sorts between the dropped
     // position's neighbors.
+    orderKey: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.active.reorder"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    // Fractional-index key for manual ordering in the active thread block.
     orderKey: TrimmedNonEmptyString,
   }),
   Schema.Struct({
@@ -2267,6 +2312,12 @@ export const OrchestrationV2Command = Schema.Union([
     requestId: RuntimeRequestId,
     decision: Schema.optional(ProviderApprovalDecision),
     answers: Schema.optional(ProviderUserInputAnswers),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.user-input.dismiss"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: RuntimeRequestId,
   }),
   Schema.Struct({
     type: Schema.Literal("checkpoint.rollback"),

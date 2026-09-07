@@ -74,6 +74,8 @@ const SHELL_SNAPSHOT: OrchestrationV2ShellSnapshot = {
       archivedAt: null,
       settledOverride: null,
       settledAt: NOW,
+      activeOrderKey: null,
+      branchPullRequest: null,
       lastVisitedAt: null,
       titleRegeneration: {
         requestId: CommandId.make("title-regeneration-1"),
@@ -114,6 +116,8 @@ const THREAD_SNAPSHOT: OrchestrationV2ThreadDetailSnapshot = {
       archivedAt: null,
       settledOverride: null,
       settledAt: NOW,
+      activeOrderKey: null,
+      branchPullRequest: null,
       lastVisitedAt: null,
       deletedAt: null,
     },
@@ -162,6 +166,12 @@ function makeDatabase() {
   const database = MobileDatabase.of({
     loadCache: (environmentId, kind, cacheKey) =>
       Effect.succeed(Option.fromUndefinedOr(values.get(cacheId(environmentId, kind, cacheKey)))),
+    listCache: (kind) =>
+      Effect.sync(() =>
+        [...values.entries()]
+          .filter(([key]) => key.split(":")[1] === kind)
+          .map(([, payload]) => payload),
+      ),
     saveCache: (environmentId, kind, cacheKey, schemaVersion, payload) =>
       Effect.sync(() => {
         const id = cacheId(environmentId, kind, cacheKey);

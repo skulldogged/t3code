@@ -62,11 +62,17 @@ describe("scoped entity keys", () => {
 
 describe("V2 client presentation", () => {
   it("presents shell timestamps and status without constructing V1 state", () => {
-    const shell = presentThreadShell(environmentId, v2ThreadShell);
+    const source = {
+      ...v2ThreadShell,
+      activeOrderKey: "mf",
+    };
+    const shell = presentThreadShell(environmentId, source);
     expect(shell.environmentId).toBe(environmentId);
     expect(shell.createdAt).toBe("2026-06-20T00:00:00.000Z");
     expect(shell.runtime).toBeNull();
-    expect(shell.source).toBe(v2ThreadShell);
+    expect(shell.activeOrderKey).toBe("mf");
+    expect(shell.branchPullRequest).toBeNull();
+    expect(shell.source).toBe(source);
   });
 
   it("presents provider errors carried by failed thread shells", () => {

@@ -39,6 +39,7 @@ export function makeThreadProjectionFixture(): OrchestrationV2ThreadProjection {
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      branchPullRequest: null,
       activeProviderThreadId: null,
       lineage: { rootThreadId: id, parentThreadId: null, relationshipToParent: null },
       forkedFrom: null,
@@ -49,6 +50,7 @@ export function makeThreadProjectionFixture(): OrchestrationV2ThreadProjection {
       archivedAt: null,
       settledOverride: null,
       settledAt: null,
+      activeOrderKey: null,
       lastVisitedAt: null,
       deletedAt: null,
     },
@@ -105,6 +107,7 @@ export function makeThreadFixture(overrides: ThreadFixtureOverrides = {}): Threa
     interactionMode: overrides.interactionMode ?? "default",
     branch: overrides.branch ?? null,
     worktreePath: overrides.worktreePath ?? null,
+    branchPullRequest: overrides.branchPullRequest ?? null,
     activeProviderThreadId: overrides.activeProviderThreadId ?? null,
     lineage: overrides.lineage ?? {
       rootThreadId: id,
@@ -134,6 +137,7 @@ export function makeThreadFixture(overrides: ThreadFixtureOverrides = {}): Threa
       overrides.settledAt === null || overrides.settledAt === undefined
         ? null
         : DateTime.makeUnsafe(overrides.settledAt),
+    activeOrderKey: overrides.activeOrderKey ?? null,
     deletedAt,
   });
 

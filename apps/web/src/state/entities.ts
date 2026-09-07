@@ -47,7 +47,7 @@ const EMPTY_THREAD_HISTORY_ATOM = Atom.make<ThreadHistoryMeta>(EMPTY_THREAD_HIST
   Atom.withLabel("web-thread-history:empty"),
 );
 
-export const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
+const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
   Atom.keepAlive,
   Atom.withLabel("web-active-environment-id"),
 );
@@ -252,6 +252,13 @@ export function readEnvironmentSupportsVisitedTracking(environmentId: Environmen
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .threadVisitedTracking === true
+  );
+}
+
+export function readEnvironmentSupportsActiveReorder(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadActiveReorder === true
   );
 }
 

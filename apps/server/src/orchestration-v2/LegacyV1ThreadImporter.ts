@@ -49,12 +49,16 @@ interface LegacyThreadRow {
   readonly snoozed_at: string | null;
   readonly pinned_at: string | null;
   readonly pin_order_key: string | null;
+  readonly active_order_key: string | null;
   readonly linked_pull_request_json: string | null;
+  readonly branch_pull_request_json: string | null;
   readonly deleted_at: string | null;
 }
 
 interface LegacyRepairRow extends LegacyThreadRow {
   readonly payload_json: string;
+  readonly active_order_key_json_type: string | null;
+  readonly branch_pull_request_json_type: string | null;
 }
 
 interface LegacyMessageRow {
@@ -187,6 +191,10 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     branch,
     worktreePath,
     linkedPullRequest: linkedPullRequestFor(row),
+    branchPullRequest:
+      row.branch_pull_request_json === null
+        ? null
+        : Option.getOrNull(decodeLinkedPullRequest(parseJson(row.branch_pull_request_json))),
     activeProviderThreadId: null,
     historyOrigin: "v1_import",
     lineage: {
@@ -205,6 +213,7 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     snoozedAt: nullableDateTime(row.snoozed_at),
     pinnedAt: nullableDateTime(row.pinned_at),
     pinOrderKey: row.pin_order_key?.trim() || null,
+    activeOrderKey: row.active_order_key?.trim() || null,
     lastVisitedAt: null,
     deletedAt: nullableDateTime(row.deleted_at),
   };
@@ -407,9 +416,13 @@ const make = Effect.gen(function* () {
         thread.snoozed_at,
         thread.pinned_at,
         thread.pin_order_key,
+        thread.active_order_key,
         thread.linked_pull_request_json,
+        thread.branch_pull_request_json,
         thread.deleted_at,
-        projection.payload_json
+        projection.payload_json,
+        json_type(projection.payload_json, '$.activeOrderKey') AS active_order_key_json_type,
+        json_type(projection.payload_json, '$.branchPullRequest') AS branch_pull_request_json_type
       FROM orchestration_v2_legacy_imports AS legacy_import
       INNER JOIN projection_threads AS thread
         ON thread.thread_id = legacy_import.thread_id
@@ -417,10 +430,12 @@ const make = Effect.gen(function* () {
         ON projection.thread_id = legacy_import.thread_id
       WHERE json_type(projection.payload_json, '$.pinnedAt') IS NULL
          OR json_type(projection.payload_json, '$.pinOrderKey') IS NULL
+         OR json_type(projection.payload_json, '$.activeOrderKey') IS NULL
          OR json_type(projection.payload_json, '$.snoozedUntil') IS NULL
          OR json_type(projection.payload_json, '$.snoozedAt') IS NULL
          OR json_type(projection.payload_json, '$.unsettledAt') IS NULL
          OR json_type(projection.payload_json, '$.linkedPullRequest') IS NULL
+         OR json_type(projection.payload_json, '$.branchPullRequest') IS NULL
       ORDER BY thread.created_at ASC, thread.thread_id ASC
     `;
     let repairedThreadCount = 0;
@@ -433,6 +448,8 @@ const make = Effect.gen(function* () {
         ...current,
         pinnedAt: current.pinnedAt === undefined ? legacy.pinnedAt : current.pinnedAt,
         pinOrderKey: current.pinOrderKey === undefined ? legacy.pinOrderKey : current.pinOrderKey,
+        activeOrderKey:
+          row.active_order_key_json_type === null ? legacy.activeOrderKey : current.activeOrderKey,
         snoozedUntil:
           current.snoozedUntil === undefined ? legacy.snoozedUntil : current.snoozedUntil,
         snoozedAt: current.snoozedAt === undefined ? legacy.snoozedAt : current.snoozedAt,
@@ -441,6 +458,10 @@ const make = Effect.gen(function* () {
           current.linkedPullRequest === undefined
             ? legacy.linkedPullRequest
             : current.linkedPullRequest,
+        branchPullRequest:
+          row.branch_pull_request_json_type === null
+            ? legacy.branchPullRequest
+            : current.branchPullRequest,
       };
       yield* eventSink.write({
         events: [
@@ -476,7 +497,9 @@ const make = Effect.gen(function* () {
         thread.snoozed_at,
         thread.pinned_at,
         thread.pin_order_key,
+        thread.active_order_key,
         thread.linked_pull_request_json,
+        thread.branch_pull_request_json,
         thread.deleted_at
       FROM projection_threads AS thread
       WHERE NOT EXISTS (

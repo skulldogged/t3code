@@ -55,6 +55,8 @@ function makeProjection(): OrchestrationV2ThreadProjection {
       interactionMode: "default",
       branch: "feature",
       worktreePath: "/workspace/feature",
+      branchPullRequest: null,
+      activeOrderKey: null,
       activeProviderThreadId: null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
       forkedFrom: null,

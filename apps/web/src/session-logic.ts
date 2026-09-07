@@ -36,13 +36,19 @@ import { shallow } from "zustand/vanilla/shallow";
 
 export { formatDuration } from "@t3tools/shared/orchestrationTiming";
 
-export type WorkLogToolLifecycleStatus =
-  | "idle"
-  | "inProgress"
-  | "completed"
-  | "failed"
-  | "declined"
-  | "stopped";
+import {
+  workEntryIndicatesToolFailure,
+  workEntryIndicatesToolSuccess,
+  workLogEntryIsToolLike,
+  type WorkLogToolLifecycleStatus,
+} from "@t3tools/client-runtime/work-log/presentation";
+export {
+  workEntryIndicatesToolFailure,
+  workEntryDisplayIndicatesToolFailure,
+  workEntryIndicatesToolSuccess,
+  workLogEntryIsToolLike,
+  type WorkLogToolLifecycleStatus,
+} from "@t3tools/client-runtime/work-log/presentation";
 
 export interface WorkLogEntry {
   readonly id: string;
@@ -82,6 +88,7 @@ export interface ActivePlanState {
   readonly steps: Array<{
     readonly step: string;
     readonly status: "pending" | "inProgress" | "completed";
+    readonly durationMs?: number;
   }>;
 }
 
@@ -130,123 +137,11 @@ export type TimelineEntry = (
   readonly attempt?: TimelineAttempt;
 };
 
-export function workLogEntryIsToolLike(entry: WorkLogEntry): boolean {
-  return (
-    entry.tone === "tool" ||
-    entry.tone === "thinking" ||
-    entry.tone === "error" ||
-    entry.command !== undefined ||
-    entry.requestKind !== undefined
-  );
-}
-
-/** Heuristic: providers often emit successful item status while error text lives in `detail` / `command`. */
-function toolDetailTextLooksLikeFailure(text: string): boolean {
-  const t = text.toLowerCase();
-  if (t.includes("file not found")) {
-    return true;
-  }
-  if (t.includes("no files found")) {
-    return true;
-  }
-  if (
-    t.includes("enoent") ||
-    t.includes("no such file or directory") ||
-    t.includes("no such file")
-  ) {
-    return true;
-  }
-  if (t.includes("cannot find path") && t.includes("because it does not exist")) {
-    return true;
-  }
-  if (t.includes("commandnotfoundexception")) {
-    return true;
-  }
-  if (t.includes("is not recognized as the name of a cmdlet")) {
-    return true;
-  }
-  if (t.includes("is not recognized") && t.includes("the term '")) {
-    return true;
-  }
-  if (t.includes("a parameter cannot be found that matches parameter name")) {
-    return true;
-  }
-  if (t.includes("command not found")) {
-    return true;
-  }
-  if (/<exited with exit code\s+[1-9]\d*\s*>/i.test(text)) {
-    return true;
-  }
-  if (/exit(?:ed)? with exit code\s+[1-9]\d*/i.test(text)) {
-    return true;
-  }
-  if (/exit code\s*[:\s]\s*[1-9]\d*\b/i.test(text)) {
-    return true;
-  }
-  return false;
-}
-
-function workEntryIndicatesToolFailureFromOutput(
-  entry: WorkLogEntry,
-  includeCommand: boolean,
-): boolean {
-  if (entry.tone === "error") {
-    return true;
-  }
-  const ls = entry.toolLifecycleStatus;
-  if (ls === "failed" || ls === "declined") {
-    return true;
-  }
-  if (!workLogEntryIsToolLike(entry)) {
-    return false;
-  }
-  const parts: string[] = [];
-  if (entry.detail) {
-    parts.push(entry.detail);
-  }
-  if (includeCommand && entry.command) {
-    parts.push(entry.command);
-  }
-  const blob = parts.join("\n");
-  if (blob.length === 0) {
-    return false;
-  }
-  return toolDetailTextLooksLikeFailure(blob);
-}
-
-/** True when a tool failed, including providers that put error output in `command`. */
-export function workEntryIndicatesToolFailure(entry: WorkLogEntry): boolean {
-  return workEntryIndicatesToolFailureFromOutput(entry, true);
-}
-
-/** True when the rendered result indicates failure. The command itself is user intent, not output. */
-export function workEntryDisplayIndicatesToolFailure(entry: WorkLogEntry): boolean {
-  return workEntryIndicatesToolFailureFromOutput(entry, false);
-}
-
 /** Severe failures keep the red treatment ordinary tool failures lost: provider
  *  runtime errors mean the turn or a core side effect broke, not that a
  *  command exited nonzero. */
 export function workEntrySignalsSevereFailure(entry: WorkLogEntry): boolean {
   return entry.itemType === "error";
-}
-
-export function workEntryIndicatesToolSuccess(entry: WorkLogEntry): boolean {
-  if (
-    !workLogEntryIsToolLike(entry) ||
-    workEntryIndicatesToolFailure(entry) ||
-    entry.tone === "thinking"
-  ) {
-    return false;
-  }
-  const status = entry.toolLifecycleStatus;
-  return (
-    status !== "failed" &&
-    status !== "declined" &&
-    status !== "inProgress" &&
-    status !== "stopped" &&
-    status !== "idle"
-  );
 }
 
 export function workEntryIndicatesToolNeutralStatus(entry: WorkLogEntry): boolean {
@@ -274,18 +169,21 @@ export function isLatestRunSettled(
 }
 
 export function deriveActiveWorkStartedAt(
-  latestRun: Pick<ThreadRunSummary, "runId" | "startedAt" | "completedAt" | "status"> | null,
+  latestRun: Pick<
+    ThreadRunSummary,
+    "runId" | "requestedAt" | "startedAt" | "completedAt" | "status"
+  > | null,
   runtime: Pick<ThreadRuntimeSummary, "status" | "activeRunId"> | null,
   sendStartedAt: string | null,
 ): string | null {
   if (runtime?.activeRunId !== null && runtime?.activeRunId !== undefined) {
     return latestRun?.runId === runtime.activeRunId
-      ? (latestRun.startedAt ?? sendStartedAt)
+      ? (latestRun.startedAt ?? latestRun.requestedAt ?? sendStartedAt)
       : sendStartedAt;
   }
   return isLatestRunSettled(latestRun, runtime)
     ? sendStartedAt
-    : (latestRun?.startedAt ?? sendStartedAt);
+    : (latestRun?.startedAt ?? latestRun?.requestedAt ?? sendStartedAt);
 }
 
 export function derivePendingApprovals(
@@ -315,9 +213,10 @@ export function deriveActivePlanState(
     createdAt: planItemTime(projection, plan.id),
     runId: plan.runId,
     explanation: plan.explanation ?? null,
-    steps: plan.steps.map(({ text, status }) => ({
+    steps: plan.steps.map(({ text, status, durationMs }) => ({
       step: text,
       status: status === "running" ? "inProgress" : status,
+      ...(durationMs === undefined ? {} : { durationMs }),
     })),
   };
 }

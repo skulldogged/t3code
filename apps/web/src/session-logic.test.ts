@@ -18,6 +18,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   deriveActivePlanState,
+  deriveActiveWorkStartedAt,
   deriveTimelineEntriesFromVisibleTurnItems,
   deriveTimelineEntriesFromVisibleTurnItemsWithState,
   deriveRevertTurnCountByUserMessageId,
@@ -62,6 +63,27 @@ describe("V2 session presentation", () => {
       ),
     ).toBe(false);
   });
+
+  it.each(["queued", "preparing"] as const)(
+    "keeps the work timer for a remote or reloaded %s run",
+    (status) => {
+      const runId = RunId.make(`run-${status}`);
+      const requestedAt = "2026-06-20T00:00:00.000Z";
+      expect(
+        deriveActiveWorkStartedAt(
+          {
+            runId,
+            status,
+            requestedAt,
+            startedAt: null,
+            completedAt: null,
+          },
+          { status, activeRunId: runId },
+          null,
+        ),
+      ).toBe(requestedAt);
+    },
+  );
 
   it("labels provider retry progress, delay, recovery, and exhaustion", () => {
     const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
@@ -478,6 +500,31 @@ describe("V2 session presentation", () => {
       });
     },
   );
+
+  it("preserves independently derived durations for repeated plan-step labels", () => {
+    const projection = makeThreadProjectionFixture();
+    const runId = RunId.make("run-timed-tasks");
+    const planId = PlanId.make("plan-timed-tasks");
+    const plan = {
+      id: planId,
+      threadId: projection.thread.id,
+      runId,
+      nodeId: NodeId.make("node-timed-tasks"),
+      kind: "todo_list" as const,
+      status: "active" as const,
+      steps: [
+        { id: "verify-a", text: "Verify", status: "completed" as const, durationMs: 3_000 },
+        { id: "verify-b", text: "Verify", status: "completed" as const, durationMs: 4_000 },
+        { id: "report", text: "Report", status: "pending" as const },
+      ],
+    };
+
+    expect(deriveActivePlanState({ ...projection, plans: [plan] }, runId)?.steps).toEqual([
+      { step: "Verify", status: "completed", durationMs: 3_000 },
+      { step: "Verify", status: "completed", durationMs: 4_000 },
+      { step: "Report", status: "pending" },
+    ]);
+  });
 
   it("keeps failed tool items tool-toned so groups still summarize", () => {
     const failedCommand = {

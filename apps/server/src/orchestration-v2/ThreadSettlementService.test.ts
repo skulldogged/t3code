@@ -25,7 +25,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
-import { GitManager } from "../git/GitManager.ts";
+import { GitManager, type GitBranchPullRequest } from "../git/GitManager.ts";
 import {
   PullRequestService,
   type PullRequestMergeEvent,
@@ -79,6 +79,7 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     deletedAt: null,
     branch: null,
     linkedPullRequest: null,
+    branchPullRequest: null,
     status: "idle",
     activityRunStatus: null,
     pendingRuntimeRequest: null,
@@ -96,7 +97,26 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     snoozedUntil: null,
     snoozedAt: null,
     pinnedAt: null,
+    activeOrderKey: null,
     ...overrides,
+  };
+}
+
+function makeBranchPullRequest(
+  state: GitBranchPullRequest["state"],
+  updatedAt: string | null = NOW,
+): GitBranchPullRequest {
+  return {
+    number: 42,
+    title: "Branch pull request",
+    url: "https://example.test/owner/repository/pull/42",
+    baseRef: "main",
+    headRef: "feature",
+    repositoryKey: "example.test/owner/repository",
+    state,
+    updatedAt,
+    closedAt: state === "closed" ? updatedAt : null,
+    mergedAt: state === "merged" ? updatedAt : null,
   };
 }
 
@@ -369,6 +389,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const snapshotReadCount = yield* Ref.make(0);
   const snapshotReads = yield* Queue.unbounded<number>();
   const settings = yield* Ref.make(options.settings ?? DEFAULT_SERVER_SETTINGS);
+  const settingsReads = yield* Queue.unbounded<ServerSettings>();
   const settingsChanges = yield* PubSub.unbounded<ServerSettings>();
   const mergedPullRequests = yield* PubSub.unbounded<PullRequestMergeEvent>();
   const commands = yield* Ref.make<ReadonlyArray<AutoSettleCommand>>([]);
@@ -428,7 +449,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const serverSettings = ServerSettingsService.of({
     start: Effect.void,
     ready: Effect.void,
-    getSettings: Ref.get(settings),
+    getSettings: Ref.get(settings).pipe(Effect.tap((value) => Queue.offer(settingsReads, value))),
     updateSettings,
     streamChanges: Stream.fromPubSub(settingsChanges),
     subscribeChanges: PubSub.subscribe(settingsChanges).pipe(
@@ -475,6 +496,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     snapshots,
     snapshotReadCount,
     snapshotReads,
+    settingsReads,
     commands,
     branchCalls,
     summaryCalls,
@@ -514,7 +536,7 @@ describe("ThreadSettlementServiceV2 worker", () => {
         const fixture = yield* makeHarness({
           snapshot: makeSnapshot([thread]),
           settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: 2 },
-          branchPullRequest: () => Effect.succeed({ state: "open", updatedAt: NOW }),
+          branchPullRequest: () => Effect.die("inactivity must settle before PR lookup"),
         });
         yield* Effect.gen(function* () {
           const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
@@ -523,6 +545,39 @@ describe("ThreadSettlementServiceV2 worker", () => {
           expect(commands).toHaveLength(1);
           expect(commands[0]?.settledAt).toEqual(thread.latestRunCompletedAt);
           expect(commands[0]?.snapshotAt).toEqual(thread.updatedAt);
+          expect(yield* Ref.get(fixture.branchCalls)).toEqual([]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("does no projection or pull request work while settlement is disabled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([
+            makeThread("disabled", { branch: "feature", linkedPullRequest: null }),
+          ]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleAfterDays: null,
+            sidebarAutoSettleOnMerge: false,
+          },
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* service.start();
+          yield* Queue.take(fixture.settingsReads);
+          yield* Deferred.succeed(fixture.activation, undefined);
+          yield* Queue.take(fixture.settingsReads);
+          yield* service.drain;
+
+          expect(yield* Ref.get(fixture.snapshotReadCount)).toBe(0);
+          expect(yield* Ref.get(fixture.commands)).toEqual([]);
+          expect(yield* Ref.get(fixture.branchCalls)).toEqual([]);
+          expect(yield* Ref.get(fixture.summaryCalls)).toEqual([]);
+          expect(yield* Ref.get(fixture.invalidatedCwds)).toEqual([]);
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),
@@ -556,10 +611,10 @@ describe("ThreadSettlementServiceV2 worker", () => {
             Ref.updateAndGet(branchLookupCount, (count) => count + 1).pipe(
               Effect.flatMap((count) =>
                 count === 1
-                  ? Effect.succeed({ state: "open" as const, updatedAt: NOW })
+                  ? Effect.succeed(makeBranchPullRequest("open"))
                   : Deferred.succeed(periodicLookupStarted, undefined).pipe(
                       Effect.andThen(Deferred.await(releasePeriodicLookup)),
-                      Effect.as({ state: "open" as const, updatedAt: NOW }),
+                      Effect.as(makeBranchPullRequest("open")),
                     ),
               ),
             ),
@@ -603,7 +658,7 @@ describe("ThreadSettlementServiceV2 worker", () => {
             ]),
             branchPullRequest: () =>
               Ref.get(state).pipe(
-                Effect.map((pullRequestState) => ({ state: pullRequestState, updatedAt: NOW })),
+                Effect.map((pullRequestState) => makeBranchPullRequest(pullRequestState)),
               ),
             onDispatch: () => Deferred.succeed(mergedThreadSettled, undefined),
           });
@@ -710,10 +765,12 @@ describe("ThreadSettlementServiceV2 worker", () => {
               makeThread("live-worktree", {
                 branch: "feature/live",
                 worktreePath: "/workspace/project-root/.worktrees/live",
+                latestUserMessageAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
               }),
               makeThread("deleted-worktree", {
                 branch: "feature/deleted",
                 worktreePath: "/workspace/project-root/.worktrees/deleted",
+                latestUserMessageAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
               }),
             ],
             [makeProject(PROJECT_ID, "/workspace/project-root")],

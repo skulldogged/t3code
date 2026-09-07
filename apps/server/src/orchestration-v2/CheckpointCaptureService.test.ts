@@ -184,6 +184,8 @@ it.layer(ProjectionStoreTestLayer)("CheckpointCaptureServiceV2", (it) => {
             interactionMode: "default",
             branch: null,
             worktreePath: null,
+            branchPullRequest: null,
+            activeOrderKey: null,
             activeProviderThreadId: null,
             lineage: {
               parentThreadId: null,

@@ -257,6 +257,7 @@ layer("OrchestrationEventStore", (it) => {
               interactionMode: "default",
               branch: null,
               worktreePath: null,
+              branchPullRequest: null,
               activeProviderThreadId: null,
               lineage: {
                 rootThreadId: threadId,
@@ -271,6 +272,7 @@ layer("OrchestrationEventStore", (it) => {
               archivedAt: null,
               settledOverride: null,
               settledAt: null,
+              activeOrderKey: null,
               lastVisitedAt: null,
               deletedAt: null,
             },

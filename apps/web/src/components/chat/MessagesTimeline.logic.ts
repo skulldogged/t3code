@@ -13,9 +13,7 @@ import {
 } from "@t3tools/client-runtime/work-log/presentation";
 export {
   normalizeCompactToolLabel,
-  summarizeToolGroup,
   toolGroupAction,
-  workLogEntryIsLocalCodeSearch,
 } from "@t3tools/client-runtime/work-log/presentation";
 import {
   formatDuration,
@@ -179,7 +177,7 @@ export interface TimelineEndState {
  * while streaming content grows under the viewport, so follow re-arms within
  * this distance of the real content bottom instead.
  */
-export const TIMELINE_FOLLOW_REARM_THRESHOLD_PX = 40;
+const TIMELINE_FOLLOW_REARM_THRESHOLD_PX = 40;
 
 export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boolean | undefined {
   if (!state) {
@@ -241,9 +239,9 @@ export function resolveTimelineMinimapHasPersistentGutter(viewportWidth: number)
   return sideGutter >= TIMELINE_MINIMAP_PERSISTENT_GUTTER;
 }
 
-export const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
-export const TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH = 40;
-export const TIMELINE_MINIMAP_EXPANDED_HIT_STRIP_WIDTH = "22rem";
+const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
+const TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH = 40;
+const TIMELINE_MINIMAP_EXPANDED_HIT_STRIP_WIDTH = "22rem";
 
 /**
  * The minimap overlays the viewport's left edge while the content column is
@@ -1351,6 +1349,8 @@ function replaceStreamingMessageRows(
     latestRun: previousRun,
     turnDiffSummaryByAssistantMessageId: previousCheckpoints,
     revertTurnCountByUserMessageId: previousReverts,
+    expandedRunIds: previousExpandedTurns,
+    expandedWorkGroupIds: previousExpandedGroups,
     ...previousContext
   } = previous.input;
   const {
@@ -1358,6 +1358,8 @@ function replaceStreamingMessageRows(
     latestRun,
     turnDiffSummaryByAssistantMessageId,
     revertTurnCountByUserMessageId,
+    expandedRunIds,
+    expandedWorkGroupIds,
     ...context
   } = input;
   // V2 shell and checkpoint selectors produce fresh summaries for each event.
@@ -1367,6 +1369,8 @@ function replaceStreamingMessageRows(
     !shallow(previousContext, context) ||
     !shallow(previousRun, latestRun) ||
     !shallow(previousReverts, revertTurnCountByUserMessageId) ||
+    !shallow(previousExpandedTurns, expandedRunIds) ||
+    !shallow(previousExpandedGroups, expandedWorkGroupIds) ||
     !sameCheckpointSummaries(previousCheckpoints, turnDiffSummaryByAssistantMessageId)
   ) {
     return null;

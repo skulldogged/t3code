@@ -68,6 +68,7 @@ export const importAgentSession = Effect.fn("importAgentSession")(function* (
     branch: null,
     worktreePath: null,
     linkedPullRequest: null,
+    branchPullRequest: null,
     activeProviderThreadId: null,
     // V2's existing imported-history marker enables runless timeline items and
     // the first-turn portable context handoff for both migrated and CLI history.
@@ -84,6 +85,7 @@ export const importAgentSession = Effect.fn("importAgentSession")(function* (
     snoozedAt: null,
     pinnedAt: null,
     pinOrderKey: null,
+    activeOrderKey: null,
     lastVisitedAt: null,
     deletedAt: null,
   };

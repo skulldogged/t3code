@@ -8,8 +8,11 @@ import type {
   ServerProviderState,
 } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
+import * as Cache from "effect/Cache";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 
@@ -21,7 +24,7 @@ import {
   providerModelsFromSettings,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
-import { CursorSdkCatalog } from "./CursorSdkCatalog.ts";
+import { CursorSdkCatalog, type CursorSdkCatalogShape } from "./CursorSdkCatalog.ts";
 
 const CURSOR_PRESENTATION = {
   displayName: "Cursor",
@@ -30,8 +33,19 @@ const CURSOR_PRESENTATION = {
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
-
 const CURSOR_SDK_CATALOG_TIMEOUT_MS = 15_000;
+
+export const makeCursorSdkCatalogDiscovery = Effect.fn("makeCursorSdkCatalogDiscovery")(
+  function* () {
+    const sdkCatalog = yield* CursorSdkCatalog;
+    const cache = yield* Cache.makeWith((apiKey: string) => sdkCatalog.read(apiKey), {
+      capacity: 1,
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) && exit.value.models.length > 0 ? Duration.minutes(30) : Duration.zero,
+    });
+    return (apiKey: string) => Cache.get(cache, apiKey);
+  },
+);
 
 export function buildInitialCursorProviderSnapshot(
   cursorSettings: CursorSettings,
@@ -243,6 +257,7 @@ export function buildCursorProviderSnapshot(input: {
 export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(function* (
   cursorSettings: CursorSettings,
   environment?: NodeJS.ProcessEnv,
+  discoverCatalog?: CursorSdkCatalogShape["read"],
 ): Effect.fn.Return<ServerProviderDraft, never, CursorSdkCatalog> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = getCursorFallbackModels(cursorSettings);
@@ -280,10 +295,11 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
     });
   }
 
-  const sdkCatalog = yield* CursorSdkCatalog;
-  const catalogResult = yield* sdkCatalog
-    .read(sdkApiKey)
-    .pipe(Effect.timeoutOption(CURSOR_SDK_CATALOG_TIMEOUT_MS), Effect.result);
+  const readCatalog = discoverCatalog ?? (yield* CursorSdkCatalog).read;
+  const catalogResult = yield* readCatalog(sdkApiKey).pipe(
+    Effect.timeoutOption(CURSOR_SDK_CATALOG_TIMEOUT_MS),
+    Effect.result,
+  );
 
   if (Result.isFailure(catalogResult)) {
     yield* Effect.logWarning("Cursor SDK catalog probe failed", {
