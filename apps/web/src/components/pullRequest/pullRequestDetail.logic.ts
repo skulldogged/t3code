@@ -238,10 +238,6 @@ export function isPullRequestConflicting(
   return detail?.state === "open" && detail.mergeability === "conflicting";
 }
 
-/**
- * One live action holds the slot. A conflicting change cannot be merged now, so the slot goes to
- * the thing that would help instead of a Merge button that only ever says no.
- */
 /** The checks as one word. Failing outranks running: a red run is already worth acting on. */
 export type PullRequestChecksState = "none" | "pending" | "failing" | "passing";
 
