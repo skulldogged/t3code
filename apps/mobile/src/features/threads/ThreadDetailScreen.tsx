@@ -3,7 +3,10 @@ import {
   appendCodexArtifactTemplateUsePrompt,
   type CodexArtifactTemplate,
 } from "@t3tools/client-runtime/codex-artifact-templates";
-import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
+import type {
+  CodexFeedbackSubmission,
+  EnvironmentThreadStatus,
+} from "@t3tools/client-runtime/state/threads";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
@@ -73,6 +76,7 @@ import type {
   ThreadFeedEntry,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import {
@@ -102,6 +106,8 @@ export interface ThreadDetailScreenProps {
   readonly screenTone: StatusTone;
   readonly connectionError: string | null;
   readonly environmentLabel: string | null;
+  readonly feedbackSubmissions: ReadonlyArray<CodexFeedbackSubmission>;
+  readonly onDismissFeedback: (id: MessageId) => void;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
   readonly activeWorkStartedAt: string | null;
   readonly isCompacting: boolean;
@@ -153,6 +159,7 @@ export interface ThreadDetailScreenProps {
     customAnswer: string,
   ) => void;
   readonly onSubmitUserInput: () => Promise<unknown>;
+  readonly onDismissUserInput: () => Promise<unknown>;
   readonly showContent?: boolean;
 }
 
@@ -860,6 +867,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 onScrollToEnd={handleScrollToEnd}
               />
               <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
+                {props.feedbackSubmissions.map((submission) => (
+                  <ComposerFeedback
+                    key={submission.id}
+                    submission={submission}
+                    onDismiss={() => props.onDismissFeedback(submission.id)}
+                  />
+                ))}
                 {usageLimitsReport && activeUserInputRequestId === null ? (
                   <Animated.View
                     className="shrink-0 px-4 pb-3"
@@ -909,6 +923,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         onSelectOption={props.onSelectUserInputOption}
                         onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
                         onSubmit={props.onSubmitUserInput}
+                        onDismiss={props.onDismissUserInput}
                       />
                     ) : null}
                   </Animated.View>
