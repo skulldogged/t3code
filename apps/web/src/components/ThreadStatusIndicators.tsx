@@ -1,5 +1,9 @@
 import { Atom } from "effect/unstable/reactivity";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopeProjectRef,
+  scopedThreadKey,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import { pullRequestDetailToVcsStatus } from "@t3tools/client-runtime/state/pull-requests";
 import {
   type EnvironmentId,
@@ -11,15 +15,18 @@ import { FolderGit2Icon, TerminalIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { useProject } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { linkedPullRequestDetailAtom, useSharedPullRequestSummary } from "../state/pullRequests";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
+import { vcsEnvironment } from "../state/vcs";
 import { useUiStateStore } from "../uiStateStore";
 import { resolveChangeRequestPresentation } from "../sourceControlPresentation";
 import {
   resolveThreadLastVisitedAt,
   resolveThreadStatusPill,
   type ThreadStatusPill,
+  useRetainedValue,
   useSidebarRowSubscriptionLease,
 } from "./Sidebar.logic";
 import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
@@ -545,6 +552,7 @@ export function ThreadStatusLabel({
  */
 export function ThreadRowLeadingStatus({
   thread,
+  snapshot,
 }: {
   thread: SidebarThreadSummary;
   snapshot?: ThreadChangeRequestSnapshot | undefined;
@@ -560,13 +568,45 @@ export function ThreadRowLeadingStatus({
     (state) => state.threadLastVisitedAtById[scopedThreadKey(threadRef)],
   );
   const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localLastVisitedAt);
-  const pullRequest = useLinkedThreadPullRequest(
+  const threadProject = useProject(
+    useMemo(
+      () => scopeProjectRef(thread.environmentId, thread.projectId),
+      [thread.environmentId, thread.projectId],
+    ),
+  );
+  const threadProjectCwd = threadProject?.workspaceRoot ?? null;
+  const gitCwd = thread.worktreePath ?? threadProjectCwd;
+  const linkedPullRequest = thread.linkedPullRequest ?? thread.branchPullRequest;
+  const linkedPullRequestStatus = useLinkedThreadPullRequest(
     thread.environmentId,
-    thread.linkedPullRequest ?? thread.branchPullRequest,
+    linkedPullRequest,
     leaseLiveStatus,
   );
-  const pr = pullRequest?.pr ?? null;
-  const prStatus = prStatusIndicator(pr, pullRequest?.sourceControlProvider);
+  const gitStatus = useEnvironmentQuery(
+    leaseLiveStatus &&
+      linkedPullRequest == null &&
+      (thread.branch != null || thread.worktreePath !== null) &&
+      gitCwd !== null
+      ? vcsEnvironment.status({
+          environmentId: thread.environmentId,
+          input: { cwd: gitCwd },
+        })
+      : null,
+  );
+  const visibleGitStatus = useRetainedValue(
+    JSON.stringify([thread.environmentId, gitCwd]),
+    gitStatus.data,
+  );
+  const displayedPrInput = {
+    threadBranch: thread.branch,
+    gitStatus: visibleGitStatus,
+    snapshot,
+    retainTerminalOnBranchMismatch: thread.worktreePath === null,
+    linkedPullRequest,
+    linkedPullRequestStatus,
+  };
+  const pr = resolveDisplayedThreadPr(displayedPrInput);
+  const prStatus = prStatusIndicator(pr, resolveDisplayedThreadPrProvider(displayedPrInput));
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,
