@@ -27,6 +27,7 @@ const clientSettings: ClientSettings = {
   confirmThreadDelete: false,
   confirmThreadUnpin: false,
   contextWindowMeterEnabled: false,
+  composerCollapseOnBlur: true,
   composerCollapseOnScroll: true,
   dismissedProviderUpdateNotificationKeys: [],
   diffIgnoreWhitespace: true,

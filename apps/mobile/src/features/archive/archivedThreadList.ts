@@ -1,7 +1,7 @@
 import type { ArchivedSnapshotEntry } from "@t3tools/client-runtime/state/threads";
 import {
+  presentThreadShell,
   scopeProject,
-  scopeThreadShell,
   type EnvironmentProject,
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
@@ -50,7 +50,7 @@ export function buildArchivedThreadGroups(input: {
         continue;
       }
       const threads = threadsByProjectId.get(thread.projectId) ?? [];
-      threads.push(scopeThreadShell(entry.environmentId, thread));
+      threads.push(presentThreadShell(entry.environmentId, thread));
       threadsByProjectId.set(thread.projectId, threads);
     }
 

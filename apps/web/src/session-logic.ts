@@ -8,7 +8,6 @@ import {
   type OrchestrationV2TurnItem,
   type PlanId,
   type RunId,
-  type ThreadId,
   type ToolActivitySurface,
   type ToolActivityIcon,
   type ToolActivitySource,
@@ -260,31 +259,6 @@ export function findLatestProposedPlan(
     )
     .at(-1);
   return plan === undefined ? null : toLatestProposedPlanState(projection, plan);
-}
-
-export function findSidebarProposedPlan(input: {
-  readonly threads: ReadonlyArray<{
-    readonly id: ThreadId;
-    readonly projection: OrchestrationV2ThreadProjection;
-  }>;
-  readonly latestRun: Pick<ThreadRunSummary, "runId" | "sourcePlanRef"> | null;
-  readonly latestRunSettled: boolean;
-  readonly threadId: ThreadId | string | null | undefined;
-}): LatestProposedPlanState | null {
-  if (!input.latestRunSettled && input.latestRun?.sourcePlanRef !== undefined) {
-    const source = input.latestRun.sourcePlanRef;
-    const sourceProjection = input.threads.find(
-      (thread) => thread.id === source.threadId,
-    )?.projection;
-    const plan = sourceProjection?.plans.find(
-      (candidate) => candidate.kind === "proposed_plan" && candidate.id === source.planId,
-    );
-    if (sourceProjection !== undefined && plan?.kind === "proposed_plan") {
-      return toLatestProposedPlanState(sourceProjection, plan);
-    }
-  }
-  const activeProjection = input.threads.find((thread) => thread.id === input.threadId)?.projection;
-  return findLatestProposedPlan(activeProjection ?? null, input.latestRun?.runId);
 }
 
 export function hasActionableProposedPlan(plan: LatestProposedPlanState | null): boolean {

@@ -1,4 +1,5 @@
 import { isMacPlatform } from "../../lib/utils";
+import { DEFAULT_TERMINAL_FONT_SIZE } from "@t3tools/contracts";
 import { SELECTION_MULTI_CLICK_INTERVAL_MS } from "../../lib/selectionActions";
 import { collectWrappedTerminalLinkLine, extractTerminalLinks } from "../../terminal-links";
 import {
@@ -17,7 +18,7 @@ import {
 import symbolsFontUrl from "./fonts/SymbolsNerdFontMono-Regular.woff2?url";
 import { isMonospaceFamily } from "../../appearanceFonts";
 
-export const DEFAULT_TERMINAL_FONT_SIZE = 12;
+export { DEFAULT_TERMINAL_FONT_SIZE };
 const MIN_TERMINAL_FONT_SIZE = 6;
 const MAX_TERMINAL_FONT_SIZE = 32;
 // The glyph fallbacks only supply symbols the text faces are missing (powerline

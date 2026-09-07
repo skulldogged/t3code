@@ -56,7 +56,7 @@ export function threadRuntimeIsActive(runtime: ThreadRuntimeSummary | null | und
   return runtime !== null && runtime !== undefined && threadRunStatusIsActive(runtime.status);
 }
 
-export function threadRunStatusIsActive(status: ThreadRuntimeSummary["status"]): boolean {
+function threadRunStatusIsActive(status: ThreadRuntimeSummary["status"]): boolean {
   return (
     status === "preparing" ||
     status === "queued" ||
@@ -242,5 +242,3 @@ export function presentThreadShell(
     source: thread,
   };
 }
-
-export const scopeThreadShell = presentThreadShell;

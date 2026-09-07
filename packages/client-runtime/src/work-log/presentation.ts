@@ -325,32 +325,6 @@ export function workLogEntryIsToolLike(entry: WorkLogPresentationEntry): boolean
   return entry.itemType !== undefined && isToolLifecycleItemType(entry.itemType);
 }
 
-/** Maps provider item and task status to the status shown on a work-log row. */
-export function extractWorkLogToolLifecycleStatus(
-  payloadValue: unknown,
-): WorkLogToolLifecycleStatus | undefined {
-  const payload = asRecord(payloadValue);
-  switch (payload?.status) {
-    case "pending":
-    case "running":
-    case "waiting":
-      return "inProgress";
-    case "cancelled":
-    case "interrupted":
-      return "stopped";
-    case "idle":
-      return payload.taskType === "subagent_batch" ? "stopped" : undefined;
-    case "inProgress":
-    case "completed":
-    case "failed":
-    case "declined":
-    case "stopped":
-      return payload.status;
-    default:
-      return undefined;
-  }
-}
-
 function toolDetailTextLooksLikeFailure(text: string): boolean {
   const normalized = text.toLowerCase();
   return (
@@ -411,7 +385,7 @@ export function workEntryIndicatesToolSuccess(entry: WorkLogPresentationEntry): 
   );
 }
 
-export function workLogEntryIsLocalCodeSearch(entry: WorkLogPresentationEntry): boolean {
+function workLogEntryIsLocalCodeSearch(entry: WorkLogPresentationEntry): boolean {
   return (
     entry.itemType === "file_search" ||
     (entry.itemType === "web_search" &&

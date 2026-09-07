@@ -805,7 +805,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   return state;
 });
 
-export function threadStateChanges(
+function threadStateChanges(
   environmentId: EnvironmentIdType,
   threadId: ThreadIdType,
   resumeCache?: ThreadResumeCache,
