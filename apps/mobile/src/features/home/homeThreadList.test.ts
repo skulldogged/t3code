@@ -729,6 +729,65 @@ describe("buildHomeThreadGroups", () => {
     expect(groups[0]?.threads.map((candidate) => candidate.id)).toEqual(["thread-content"]);
   });
 
+  it("keeps delegated child threads out of home history, search, and project activity", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const activeProject = makeProject({
+      environmentId,
+      id: ProjectId.make("project-active"),
+      title: "Active project",
+    });
+    const delegatedProject = makeProject({
+      environmentId,
+      id: ProjectId.make("project-delegated"),
+      title: "Delegated project",
+    });
+    const visible = makeThread({
+      environmentId,
+      id: ThreadId.make("visible"),
+      projectId: activeProject.id,
+      title: "Visible work",
+      updatedAt: "2026-06-02T00:00:00.000Z",
+    });
+    const delegated = makeThread({
+      environmentId,
+      id: ThreadId.make("delegated"),
+      projectId: delegatedProject.id,
+      title: "Find this delegated work",
+      updatedAt: "2026-06-03T00:00:00.000Z",
+      lineage: {
+        rootThreadId: ThreadId.make("root"),
+        parentThreadId: ThreadId.make("parent"),
+        relationshipToParent: "subagent",
+      },
+    });
+
+    expect(buildGroups([activeProject, delegatedProject], [visible, delegated])).toEqual([
+      expect.objectContaining({ threads: [visible] }),
+    ]);
+    expect(
+      buildGroups([activeProject, delegatedProject], [visible, delegated], {
+        searchQuery: "delegated work",
+        matchedThreadKeys: new Set([
+          threadSearchMatchKey({ environmentId, threadId: delegated.id }),
+        ]),
+      }),
+    ).toEqual([]);
+
+    const scopes = buildHomeProjectScopes({
+      projects: [activeProject, delegatedProject],
+      environmentId: null,
+      projectGroupingMode: "separate",
+    });
+    expect(
+      sortHomeProjectScopes({
+        scopes,
+        threads: [visible, delegated],
+        pendingTasks: [],
+        projectSortOrder: "updated_at",
+      }).map((scope) => scope.representative.id),
+    ).toEqual([activeProject.id, delegatedProject.id]);
+  });
+
   it("targets quick new threads at the group member with the newest thread", () => {
     const laptopEnv = EnvironmentId.make("environment-laptop");
     const desktopEnv = EnvironmentId.make("environment-desktop");

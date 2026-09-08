@@ -330,6 +330,73 @@ describe("sortThreadsForListV2", () => {
   });
 });
 
+describe("delegated child thread visibility", () => {
+  it("excludes child subagents from cards, shelves, counts, search, and reorder sections", () => {
+    const visible = makeThread({
+      id: ThreadId.make("visible"),
+      title: "Visible",
+      createdAt: "2026-06-02T00:00:00.000Z",
+    });
+    const fork = makeThread({
+      id: ThreadId.make("fork"),
+      title: "Ordinary fork",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      lineage: {
+        rootThreadId: ThreadId.make("root"),
+        parentThreadId: ThreadId.make("parent"),
+        relationshipToParent: "fork",
+      },
+    });
+    const child = (id: string, title: string, overrides: Partial<EnvironmentThreadShell> = {}) =>
+      makeThread({
+        id: ThreadId.make(id),
+        title,
+        lineage: {
+          rootThreadId: ThreadId.make("root"),
+          parentThreadId: ThreadId.make("parent"),
+          relationshipToParent: "subagent",
+        },
+        ...overrides,
+      });
+    const delegatedActive = child("delegated-active", "Find delegated work");
+    const delegatedSnoozed = child("delegated-snoozed", "Delegated snoozed", {
+      snoozedAt: NOW,
+      snoozedUntil: "2026-06-03T00:00:00.000Z",
+    });
+    const delegatedSettled = child("delegated-settled", "Delegated settled", {
+      settledOverride: "settled",
+    });
+    const threads = [visible, fork, delegatedActive, delegatedSnoozed, delegatedSettled];
+
+    const layout = buildThreadListV2Items({
+      threads,
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(layout.items.map((item) => item.thread.id)).toEqual([visible.id, fork.id]);
+    expect(layout.snoozedCount).toBe(0);
+    expect(layout.settledCount).toBe(0);
+    expect(
+      getThreadListV2OrderedSection({ threads, section: "active", now: NOW }).map(
+        (thread) => thread.id,
+      ),
+    ).toEqual([visible.id, fork.id]);
+
+    expect(
+      buildThreadListV2Items({
+        threads,
+        environmentId: null,
+        searchQuery: "delegated work",
+        matchedThreadKeys: new Set([
+          threadSearchMatchKey({ environmentId, threadId: delegatedActive.id }),
+        ]),
+        now: NOW,
+      }).items,
+    ).toEqual([]);
+  });
+});
+
 describe("getThreadListV2OrderedSection", () => {
   it("uses each saved order and excludes settled, snoozed, and archived rows", () => {
     const threads = [

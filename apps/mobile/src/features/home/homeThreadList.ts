@@ -97,7 +97,9 @@ export function sortHomeProjectScopes(input: {
   };
 
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null) continue;
+    if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent") {
+      continue;
+    }
     recordActivity(
       scopeKeyByProjectRef.get(scopedProjectKey(thread.environmentId, thread.projectId)),
       getThreadSortTimestamp(thread, input.projectSortOrder),
@@ -275,7 +277,7 @@ export function buildHomeThreadGroups(input: {
   }
 
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null) {
+    if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent") {
       continue;
     }
     if (input.environmentId !== null && thread.environmentId !== input.environmentId) {
