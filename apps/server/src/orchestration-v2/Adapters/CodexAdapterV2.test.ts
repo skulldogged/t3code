@@ -3850,6 +3850,83 @@ describe("CodexAdapterV2 post-settle continuation", () => {
   );
 
   const FAILED_SCENARIO = "codex-failed-mid-command";
+  it.effect("names a usage-limit failure from merged account notifications", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const transcript = makeCodexReplayTranscript({
+          scenario: "codex-usage-limit",
+          entries: [
+            ...codexReplayPreamble({
+              nativeThreadId: "limit-thread",
+              nativeTurnId: "limit-turn",
+              prompt: "Hello",
+            }),
+            {
+              type: "emit_inbound",
+              label: "limits",
+              frame: {
+                method: "account/rateLimits/updated",
+                params: {
+                  rateLimits: {
+                    limitId: "codex",
+                    planType: "business",
+                    primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 4102444800 },
+                  },
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "limits-sparse",
+              frame: {
+                method: "account/rateLimits/updated",
+                params: {
+                  rateLimits: {
+                    rateLimitReachedType: "workspace_owner_credits_depleted",
+                  },
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "completed",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: "limit-thread",
+                  turn: {
+                    ...makeCodexReplayTurn({ id: "limit-turn", status: "failed" }),
+                    error: {
+                      message: "You are out of credits",
+                      codexErrorInfo: "usageLimitExceeded",
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(transcript);
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-limit"),
+            text: "Hello",
+          }),
+        );
+        yield* awaitUntil(() => harness.terminalEvents().length === 1, "usage-limit terminal");
+        assert.equal(harness.terminalEvents()[0]?.status, "failed");
+        const encoded = encodeUnknownJson(harness.terminalEvents());
+        assert.include(encoded, "Codex usage limit reached.");
+        assert.include(encoded, "session limit resets in");
+        assert.include(encoded, "workspace has no credits");
+        assert.notInclude(encoded, "You are out of credits");
+      }).pipe(Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
+    ),
+  );
+
   const FAILED_NATIVE_THREAD = "native-codex-failed-thread";
   const FAILED_NATIVE_TURN = "native-codex-failed-turn";
   const FAILED_COMMAND_ITEM = "exec-codex-failed-command";

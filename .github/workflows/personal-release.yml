@@ -77,6 +77,7 @@ jobs:
       - name: Check orchestrator V2 integration
         run: |
           vp test run apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts apps/server/src/orchestration-v2/LegacyV1ThreadImporter.test.ts apps/server/src/persistence/Migrations.history.test.ts
+          vp test run apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts apps/server/src/orchestration-v2/AttachmentPrompt.test.ts apps/server/src/orchestration-v2/AttachmentClaims.test.ts
           vp test run apps/web/src/components/ChatView.logic.test.ts apps/web/src/components/settings/KeybindingsSettings.logic.test.ts
 
   wsl_node_pty:
