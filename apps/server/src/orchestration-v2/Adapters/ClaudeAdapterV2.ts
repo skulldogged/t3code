@@ -2003,10 +2003,13 @@ const awaitClaudeUserInputAnswers = Effect.fn("awaitClaudeUserInputAnswers")(fun
  * so they must never become the error banner (#5557).
  */
 function resultUserFacingError(result: SDKResultMessage, failureHint?: string): string | undefined {
-  const listed =
-    result.subtype === "success" || !Array.isArray(result.errors)
-      ? undefined
-      : result.errors.find((error) => !error.startsWith("[ede_diagnostic]"));
+  const errors = Reflect.get(result, "errors");
+  const listed = Array.isArray(errors)
+    ? errors.find(
+        (error): error is string =>
+          typeof error === "string" && !error.startsWith("[ede_diagnostic]"),
+      )
+    : undefined;
   if (listed) {
     return listed;
   }

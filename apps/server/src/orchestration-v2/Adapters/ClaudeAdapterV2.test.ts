@@ -2490,11 +2490,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               result: "Provider failure.",
               isError: true,
               terminalReason: interrupted ? "aborted_tools" : "api_error",
-              ...(interrupted || (ordinal === 1 && scenario.listed)
-                ? {
-                    subtype: "error_during_execution",
-                    errors: interrupted ? [] : ["Tool execution failed: EACCES"],
-                  }
+              ...(interrupted ? { subtype: "error_during_execution", errors: [] } : {}),
+              ...(ordinal === 1 && scenario.listed
+                ? { errors: ["Tool execution failed: EACCES"] }
                 : {}),
               ...(ordinal === 1 && scenario.overloaded ? { apiErrorStatus: 529 } : {}),
             }),
