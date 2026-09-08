@@ -7,7 +7,7 @@ import type {
   RelayAgentActivityAggregateState,
 } from "@t3tools/contracts/relay";
 import {
-  projectThreadAwareness,
+  projectThreadAwarenessV2,
   type AgentAwarenessPhase,
   type AgentAwarenessState,
 } from "@t3tools/shared/agentAwareness";
@@ -58,13 +58,13 @@ export function buildLocalAgentAwarenessStates(input: {
 
   for (const thread of input.threads) {
     const project = projectsByKey.get(`${thread.environmentId}:${thread.projectId}`);
-    if (!project) {
+    if (!project || thread.archivedAt !== null || thread.deletedAt !== null) {
       continue;
     }
-    const awareness = projectThreadAwareness({
+    const awareness = projectThreadAwarenessV2({
       environmentId: thread.environmentId,
       project,
-      thread,
+      thread: thread.source,
     });
     if (awareness) {
       states.push(awareness);

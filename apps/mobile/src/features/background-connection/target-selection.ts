@@ -1,4 +1,5 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
 function refKey(ref: ScopedThreadRef): string {
@@ -28,7 +29,11 @@ export function selectBackgroundConnectionThreadTargets(
     append(retainedThread);
   }
   for (const thread of threadShells) {
-    if (thread.session?.status === "starting" || thread.session?.status === "running") {
+    if (
+      thread.archivedAt === null &&
+      thread.deletedAt === null &&
+      threadRuntimeIsActive(thread.runtime)
+    ) {
       append({ environmentId: thread.environmentId, threadId: thread.id });
     }
   }

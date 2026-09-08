@@ -10,6 +10,11 @@ on:
         description: "Exact release version"
         required: true
         type: string
+      draft:
+        description: "Build a draft release without updating the production feed"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -269,8 +274,10 @@ jobs:
           tag_name: personal-v${{ needs.metadata.outputs.version }}
           name: T3 Code Personal ${{ needs.metadata.outputs.version }}
           generate_release_notes: true
+          target_commitish: ${{ github.sha }}
+          draft: ${{ inputs.draft == true }}
           prerelease: false
-          make_latest: true
+          make_latest: ${{ inputs.draft == true && 'false' || 'true' }}
           files: release-assets/*
           fail_on_unmatched_files: true
           token: ${{ github.token }}

@@ -883,6 +883,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           id: threadId,
           projectId,
           title: "Provider history",
+          branchPullRequest: null,
+          activeOrderKey: null,
           providerInstanceId,
           modelSelection,
           runtimeMode: "full-access",

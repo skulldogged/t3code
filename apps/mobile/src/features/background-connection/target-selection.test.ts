@@ -1,22 +1,35 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { EnvironmentId, ProjectId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
+import {
+  presentThreadShell,
+  type EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
+import {
+  EnvironmentId,
+  ProjectId,
+  RunId,
+  ThreadId,
+  type ScopedThreadRef,
+  type OrchestrationV2RunStatus,
+} from "@t3tools/contracts";
+import { makeRawThreadShell } from "../../test-fixtures";
 
 import { selectBackgroundConnectionThreadTargets } from "./target-selection";
 
 const environmentId = EnvironmentId.make("environment-1");
 const projectId = ProjectId.make("project-1");
 
-function shell(id: string, status: "starting" | "running" | "ready"): EnvironmentThreadShell {
-  return {
+function shell(id: string, status: OrchestrationV2RunStatus | "idle"): EnvironmentThreadShell {
+  return presentThreadShell(
     environmentId,
-    id: ThreadId.make(id),
-    projectId,
-    title: id,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    session: { status },
-  } as EnvironmentThreadShell;
+    makeRawThreadShell({
+      id: ThreadId.make(id),
+      projectId,
+      title: id,
+      status,
+      latestRunId: status === "idle" ? null : RunId.make(`run-${id}`),
+      activeRunId: status === "idle" ? null : RunId.make(`run-${id}`),
+    }),
+  );
 }
 
 describe("background connection target selection", () => {
@@ -28,7 +41,7 @@ describe("background connection target selection", () => {
 
     expect(
       selectBackgroundConnectionThreadTargets(retained, [
-        shell("settled", "ready"),
+        shell("settled", "idle"),
         shell("starting", "starting"),
         shell("running", "running"),
       ]),
@@ -53,6 +66,12 @@ describe("background connection target selection", () => {
     expect(selectBackgroundConnectionThreadTargets(null, [shell("task", "running")])).toHaveLength(
       1,
     );
-    expect(selectBackgroundConnectionThreadTargets(null, [shell("task", "ready")])).toEqual([]);
+    expect(selectBackgroundConnectionThreadTargets(null, [shell("task", "idle")])).toEqual([]);
+  });
+
+  it.each(["preparing", "queued", "waiting"] as const)("retains V2 %s runs", (status) => {
+    expect(selectBackgroundConnectionThreadTargets(null, [shell("task", status)])).toEqual([
+      { environmentId, threadId: ThreadId.make("task") },
+    ]);
   });
 });
