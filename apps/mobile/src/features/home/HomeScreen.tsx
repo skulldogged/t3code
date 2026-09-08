@@ -55,6 +55,7 @@ import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
   buildThreadListV2ListItems,
+  resolveThreadListV2ProviderDrivers,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
@@ -840,15 +841,10 @@ export function HomeScreen(props: HomeScreenProps) {
           projectTitle={v2ProjectTitleByProjectKey.get(
             scopedProjectKey(thread.environmentId, thread.projectId),
           )}
-          providerDriver={
-            serverConfigs
-              .get(thread.environmentId)
-              ?.providers.find(
-                (provider) =>
-                  provider.instanceId ===
-                  (thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId),
-              )?.driver ?? null
-          }
+          providerDrivers={resolveThreadListV2ProviderDrivers(
+            thread,
+            serverConfigs.get(thread.environmentId)?.providers,
+          )}
           environmentLabel={
             Object.keys(props.savedConnectionsById).length > 1
               ? (props.savedConnectionsById[thread.environmentId]?.environmentLabel ?? null)

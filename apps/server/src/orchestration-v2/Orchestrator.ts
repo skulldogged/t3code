@@ -983,6 +983,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           attachments: queuedMessage.attachments,
           createdBy: queuedMessage.createdBy,
           creationSource: queuedMessage.creationSource,
+          ...(queuedMessage.scheduledTaskId === undefined
+            ? {}
+            : { scheduledTaskId: queuedMessage.scheduledTaskId }),
         }),
         inputIntent: "queued_turn",
         startedAt: now,
@@ -2392,6 +2395,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly attachments: ReadonlyArray<ChatAttachment>;
     readonly createdBy: OrchestrationV2ConversationMessage["createdBy"];
     readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
+    readonly scheduledTaskId?: OrchestrationV2ConversationMessage["scheduledTaskId"];
     readonly forceRestart: boolean;
   }) =>
     Effect.gen(function* () {
@@ -2530,6 +2534,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           const message: OrchestrationV2ConversationMessage = {
             createdBy: input.createdBy,
             creationSource: input.creationSource,
+            ...(input.scheduledTaskId === undefined
+              ? {}
+              : { scheduledTaskId: input.scheduledTaskId }),
             id: input.messageId,
             threadId: input.command.threadId,
             runId: messageInput.runId,
@@ -2544,6 +2551,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           const turnItem: OrchestrationV2TurnItem = {
             createdBy: input.createdBy,
             creationSource: input.creationSource,
+            ...(input.scheduledTaskId === undefined
+              ? {}
+              : { scheduledTaskId: input.scheduledTaskId }),
             id: idAllocator.derive.userTurnItem({ messageId: input.messageId }),
             threadId: input.command.threadId,
             runId: messageInput.runId,
@@ -3116,7 +3126,27 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projection = yield* getProjectionWithPendingEvents(command.threadId, events);
       }
       const modelSelection = command.modelSelection ?? projection.thread.modelSelection;
-      const dispatchMode = command.dispatchMode;
+      let dispatchMode = command.dispatchMode;
+      if (dispatchMode.type === "steer_active") {
+        const targetRunId = dispatchMode.targetRunId;
+        const target = projection.runs.find((run) => run.id === targetRunId);
+        const turn = projection.providerTurns.find(
+          (candidate) =>
+            candidate.runAttemptId === target?.activeAttemptId &&
+            candidate.nodeId === target?.rootNodeId,
+        );
+        // The client may still show a running turn while its completion is being
+        // projected. Preserve the submission as a new turn when steering is too late.
+        if (
+          target !== undefined &&
+          (target.status === "completed" ||
+            ((target.status === "running" || target.status === "waiting") &&
+              turn !== undefined &&
+              turn.status === "completed"))
+        ) {
+          dispatchMode = { type: "start_immediately" };
+        }
+      }
       let delegatedCompletion:
         | OrchestrationV2ConversationMessage["delegatedCompletion"]
         | undefined;
@@ -3223,6 +3253,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           attachments: command.attachments,
           createdBy: command.createdBy,
           creationSource: command.creationSource,
+          ...(command.scheduledTaskId === undefined
+            ? {}
+            : { scheduledTaskId: command.scheduledTaskId }),
           forceRestart: dispatchMode.type === "restart_active",
         });
         return;
@@ -3375,6 +3408,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const message: OrchestrationV2ConversationMessage = {
           createdBy: command.createdBy,
           creationSource: command.creationSource,
+          ...(command.scheduledTaskId === undefined
+            ? {}
+            : { scheduledTaskId: command.scheduledTaskId }),
           id: command.messageId,
           threadId: command.threadId,
           runId,
@@ -3445,6 +3481,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           occurredAt: now,
           payload: message,
         });
+        const existingItem = projection.turnItems.find(
+          (item) => item.type === "user_message" && item.messageId === command.messageId,
+        );
+        if (existingItem?.type === "user_message") {
+          yield* emitEvent({
+            type: "turn-item.updated",
+            threadId: command.threadId,
+            runId,
+            nodeId: rootNodeId,
+            providerInstanceId: modelSelection.instanceId,
+            occurredAt: now,
+            payload: {
+              ...existingItem,
+              runId,
+              nodeId: rootNodeId,
+              providerThreadId: queueProviderThread.id,
+              providerTurnId: null,
+              inputIntent: "queued_turn",
+              updatedAt: now,
+            },
+          });
+        }
         return;
       }
       const pendingForkTransfer = pendingForkTransferForThread(projection);
@@ -3631,6 +3689,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const message: OrchestrationV2ConversationMessage = {
           createdBy: command.createdBy,
           creationSource: command.creationSource,
+          ...(command.scheduledTaskId === undefined
+            ? {}
+            : { scheduledTaskId: command.scheduledTaskId }),
           id: command.messageId,
           threadId: command.threadId,
           runId,
@@ -3646,6 +3707,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const turnItem: OrchestrationV2TurnItem = {
           createdBy: command.createdBy,
           creationSource: command.creationSource,
+          ...(command.scheduledTaskId === undefined
+            ? {}
+            : { scheduledTaskId: command.scheduledTaskId }),
           id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
           threadId: command.threadId,
           runId,
@@ -4293,6 +4357,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const message: OrchestrationV2ConversationMessage = {
         createdBy: command.createdBy,
         creationSource: command.creationSource,
+        ...(command.scheduledTaskId === undefined
+          ? {}
+          : { scheduledTaskId: command.scheduledTaskId }),
         id: command.messageId,
         threadId: command.threadId,
         runId,
@@ -4308,6 +4375,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const turnItem: OrchestrationV2TurnItem = {
         createdBy: command.createdBy,
         creationSource: command.creationSource,
+        ...(command.scheduledTaskId === undefined
+          ? {}
+          : { scheduledTaskId: command.scheduledTaskId }),
         id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
         threadId: command.threadId,
         runId,
@@ -5567,6 +5637,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         attachments: queuedMessage.attachments,
         createdBy: queuedMessage.createdBy,
         creationSource: queuedMessage.creationSource,
+        ...(queuedMessage.scheduledTaskId === undefined
+          ? {}
+          : { scheduledTaskId: queuedMessage.scheduledTaskId }),
         forceRestart: false,
       });
     });
