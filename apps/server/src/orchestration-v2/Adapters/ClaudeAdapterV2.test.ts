@@ -2411,6 +2411,112 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.effect.each([
+    { name: "parent rate limit", errors: ["rate_limit"], parents: [null], limited: true },
+    {
+      name: "recovered parent",
+      errors: ["rate_limit", undefined],
+      parents: [null, null],
+      limited: false,
+    },
+    {
+      name: "later server error",
+      errors: ["rate_limit", "server_error"],
+      parents: [null, null],
+      limited: false,
+    },
+    {
+      name: "subagent rate limit",
+      errors: ["rate_limit"],
+      parents: ["nested-tool"],
+      limited: false,
+    },
+    {
+      name: "subagent after parent limit",
+      errors: ["rate_limit", undefined],
+      parents: [null, "nested-tool"],
+      limited: true,
+    },
+    {
+      name: "explicit overload",
+      errors: ["rate_limit"],
+      parents: [null],
+      limited: false,
+      overloaded: true,
+    },
+    { name: "listed error", errors: ["rate_limit"], parents: [null], limited: false, listed: true },
+    {
+      name: "user interrupt",
+      errors: ["rate_limit"],
+      parents: [null],
+      limited: false,
+      interrupted: true,
+    },
+  ])("classifies V2 Claude failure after $name and clears evidence on the next turn", (scenario) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const now = yield* DateTime.now;
+        for (const ordinal of [1, 2]) {
+          yield* harness.runtime.startTurn(
+            makeClaudeTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now,
+              attemptId: RunAttemptId.make(`attempt-limit-${ordinal}`),
+              providerTurnOrdinal: ordinal,
+              text: "Continue.",
+              attachments: [],
+            }),
+          );
+          if (ordinal === 1) {
+            for (const [index, error] of scenario.errors.entries()) {
+              yield* Queue.offer(
+                harness.sdkMessages,
+                claudeSdkFrame({
+                  ...wakeAssistant,
+                  uuid: `00000000-0000-4000-8000-00000000070${index}`,
+                  error,
+                  parent_tool_use_id: scenario.parents[index],
+                }),
+              );
+            }
+          }
+          const interrupted = ordinal === 1 && scenario.interrupted === true;
+          yield* Queue.offer(
+            harness.sdkMessages,
+            makeResultFrame({
+              uuid: `00000000-0000-4000-8000-00000000080${ordinal}`,
+              result: "Provider failure.",
+              isError: true,
+              terminalReason: interrupted ? "aborted_tools" : "api_error",
+              ...(interrupted || (ordinal === 1 && scenario.listed)
+                ? {
+                    subtype: "error_during_execution",
+                    errors: interrupted ? [] : ["Tool execution failed: EACCES"],
+                  }
+                : {}),
+              ...(ordinal === 1 && scenario.overloaded ? { apiErrorStatus: 529 } : {}),
+            }),
+          );
+          const terminal = yield* Queue.take(harness.terminalReceipts);
+          assert.equal(terminal.status, interrupted ? "interrupted" : "failed");
+          if (terminal.status !== "failed") continue;
+          assert.equal(
+            terminal.failure.message,
+            ordinal === 1 && scenario.overloaded
+              ? "Claude API is overloaded (529). Try again shortly."
+              : ordinal === 1 && scenario.listed
+                ? "Tool execution failed: EACCES"
+                : ordinal === 1 && scenario.limited
+                  ? "Claude usage limit reached. Send the message again once the limit resets."
+                  : "Claude gave up after repeated API errors.",
+          );
+        }
+      }).pipe(Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
+    ),
+  );
+
   for (const terminalReason of [
     "api_error",
     "malformed_tool_use_exhausted",

@@ -211,7 +211,7 @@ import { Input } from "./ui/input";
 import {
   Combobox,
   ComboboxEmpty,
-  ComboboxInput,
+  ComboboxSearchInput,
   ComboboxItem,
   ComboboxList,
   ComboboxPopup,
@@ -286,11 +286,7 @@ function WorkingDuration(props: { startedAt: string | null }) {
     return () => window.clearInterval(id);
   }, [startedMs]);
   if (Number.isNaN(startedMs)) return null;
-  return (
-    <span className="font-mono tabular-nums">
-      {formatWorkingDurationLabel(Date.now() - startedMs)}
-    </span>
-  );
+  return <span className="tabular-nums">{formatWorkingDurationLabel(Date.now() - startedMs)}</span>;
 }
 
 function terminalProcessLabel(count: number): string {
@@ -634,7 +630,7 @@ function SidebarSectionPlaceholder(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className="relative mx-0.5 h-0"
+      className="relative mx-0.5 -mb-px h-0"
     >
       {props.showHint ? (
         <div
@@ -664,7 +660,7 @@ function SidebarDragBoundary(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className="pointer-events-none relative mx-0.5 h-0"
+      className="pointer-events-none relative mx-0.5 -mb-px h-0"
     >
       {props.visible ? (
         <div className="sidebar-drag-boundary-label absolute inset-x-2 top-1 flex h-4 items-center gap-2">
@@ -1539,9 +1535,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           // number from reflowing as PR states stream in.
           "shrink-0 text-xs tabular-nums hover:underline",
           variant === "slim" && variantAction === "unsettle"
-            ? props.isActive
-              ? "text-secondary-label"
-              : cn("text-secondary-label transition-colors", settledPrHoverClass)
+            ? cn("text-secondary-label transition-colors", settledPrHoverClass)
             : prStatus.colorClass,
         )}
         aria-label={prStatus.tooltip}
@@ -4438,49 +4432,38 @@ export default function Sidebar() {
                     </span>
                     <ChevronDownIcon className="-mr-px size-4 shrink-0" />
                   </ComboboxTrigger>
-                  <ComboboxPopup align="start" className="w-(--anchor-width)">
-                    <div className="shrink-0 px-3 pt-2.5">
-                      <div className="relative -translate-y-px border-b border-border/70 pb-1.5 transition-colors focus-within:border-ring">
-                        <SearchIcon
-                          aria-hidden="true"
-                          className="pointer-events-none absolute top-1.5 left-0 size-4 shrink-0 text-muted-foreground/55"
-                        />
-                        <ComboboxInput
-                          aria-label="Search projects"
-                          className="[&_input]:h-6.5 [&_input]:ps-5 [&_input]:font-sans [&_input]:leading-6.5"
-                          inputClassName="rounded-none bg-transparent text-sm"
-                          placeholder="Search projects..."
-                          showTrigger={false}
-                          size="sm"
-                          unstyled
-                          value={projectScopeMenuState.query}
-                          onKeyDown={(event) => {
-                            if (
-                              event.defaultPrevented ||
-                              event.nativeEvent.isComposing ||
-                              event.ctrlKey ||
-                              event.altKey ||
-                              event.metaKey ||
-                              (event.key !== "ContextMenu" &&
-                                !(event.shiftKey && event.key === "F10"))
-                            ) {
-                              return;
-                            }
-                            // Combobox items use virtual focus: keyboard events
-                            // stay on this input, not on the highlighted option.
-                            const scopeKey = highlightedProjectScopeKeyRef.current;
-                            const project = scopeKey ? projectGroupByScopeKey.get(scopeKey) : null;
-                            if (project) handleProjectSettings(event, project);
-                          }}
-                          onChange={(event) =>
-                            dispatchProjectScopeMenu({
-                              type: "query-changed",
-                              query: event.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
+                  <ComboboxPopup
+                    align="start"
+                    className="w-(--anchor-width) min-w-0 overflow-hidden"
+                  >
+                    <ComboboxSearchInput
+                      aria-label="Search projects"
+                      placeholder="Search projects..."
+                      value={projectScopeMenuState.query}
+                      onKeyDown={(event) => {
+                        if (
+                          event.defaultPrevented ||
+                          event.nativeEvent.isComposing ||
+                          event.ctrlKey ||
+                          event.altKey ||
+                          event.metaKey ||
+                          (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
+                        ) {
+                          return;
+                        }
+                        // Combobox items use virtual focus: keyboard events
+                        // stay on this input, not on the highlighted option.
+                        const scopeKey = highlightedProjectScopeKeyRef.current;
+                        const project = scopeKey ? projectGroupByScopeKey.get(scopeKey) : null;
+                        if (project) handleProjectSettings(event, project);
+                      }}
+                      onChange={(event) =>
+                        dispatchProjectScopeMenu({
+                          type: "query-changed",
+                          query: event.target.value,
+                        })
+                      }
+                    />
                     <ComboboxEmpty>No matching projects.</ComboboxEmpty>
                     <ComboboxList>
                       {(item: (typeof projectScopeItems)[number]) => {
@@ -4651,7 +4634,7 @@ export default function Sidebar() {
                   <ul
                     ref={attachListMotionRef}
                     role="list"
-                    className="relative flex flex-col gap-px pt-2"
+                    className="relative flex flex-col gap-px"
                   >
                     {(() => {
                       const renderThreadRowInner = (

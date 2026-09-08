@@ -69,7 +69,15 @@ jobs:
           vp test run apps/server/src/cloud/pinnedRuntime.test.ts
           vp test run apps/mobile/src/features/background-connection apps/mobile/src/features/agent-awareness/ongoingNotification.test.ts apps/mobile/src/lib/mobileTheme.test.ts
       - name: Typecheck changed packages
-        run: vp run --filter t3 --filter @t3tools/mobile typecheck
+        env:
+          GOMEMLIMIT: 4GiB
+        run: |
+          vp run --filter t3 typecheck
+          vp run --filter @t3tools/web --filter @t3tools/mobile typecheck
+      - name: Check orchestrator V2 integration
+        run: |
+          vp test run apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts apps/server/src/orchestration-v2/LegacyV1ThreadImporter.test.ts apps/server/src/persistence/Migrations.history.test.ts
+          vp test run apps/web/src/components/ChatView.logic.test.ts apps/web/src/components/settings/KeybindingsSettings.logic.test.ts
 
   wsl_node_pty:
     needs: [metadata, validate]

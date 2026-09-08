@@ -510,6 +510,19 @@ export function getAntigravitySendBlockReason(
   return null;
 }
 
+export function buildRunningThreadTurnInterruptInput(
+  thread: Pick<Thread, "id" | "runtime"> | null | undefined,
+  phase: SessionPhase,
+): { threadId: ThreadId } | null {
+  if (
+    phase !== "running" ||
+    (thread?.runtime?.status !== "running" && thread?.runtime?.status !== "waiting")
+  ) {
+    return null;
+  }
+  return { threadId: thread.id };
+}
+
 export function reconcileMountedTerminalThreadIds(input: {
   currentThreadIds: ReadonlyArray<string>;
   openThreadIds: ReadonlyArray<string>;

@@ -2002,7 +2002,7 @@ const awaitClaudeUserInputAnswers = Effect.fn("awaitClaudeUserInputAnswers")(fun
  * entries are CLI-internal telemetry (the CLI hides them from its own UI too),
  * so they must never become the error banner (#5557).
  */
-function resultUserFacingError(result: SDKResultMessage): string | undefined {
+function resultUserFacingError(result: SDKResultMessage, failureHint?: string): string | undefined {
   const listed =
     result.subtype === "success" || !Array.isArray(result.errors)
       ? undefined
@@ -2015,7 +2015,7 @@ function resultUserFacingError(result: SDKResultMessage): string | undefined {
   }
   switch (result.terminal_reason) {
     case "api_error":
-      return "Claude gave up after repeated API errors.";
+      return failureHint ?? "Claude gave up after repeated API errors.";
     case "malformed_tool_use_exhausted":
       return "Claude gave up after repeated malformed tool calls.";
     case "budget_exhausted":
@@ -2115,10 +2115,11 @@ function isClaudeTaskNotificationOriginResult(message: SDKMessage): message is S
 
 function providerFailureFromResult(
   message: SDKResultMessage,
+  failureHint?: string,
 ): OrchestrationV2ProviderFailure | null {
   if (message.subtype !== "success") {
     return makeProviderFailure({
-      message: resultUserFacingError(message) ?? message.errors.join("\n"),
+      message: resultUserFacingError(message, failureHint) ?? message.errors.join("\n"),
       code: message.subtype,
       class: "provider_error",
     });
@@ -2128,7 +2129,7 @@ function providerFailureFromResult(
   }
   const apiErrorStatus = message.api_error_status ?? null;
   return makeProviderFailure({
-    message: resultUserFacingError(message) ?? message.result,
+    message: resultUserFacingError(message, failureHint) ?? message.result,
     code:
       apiErrorStatus === null
         ? (message.terminal_reason ?? "sdk_result_error")
@@ -2302,6 +2303,7 @@ interface ActiveClaudeTurnContext {
   readonly toolCalls: Map<string, ActiveClaudeToolCall>;
   readonly ignoredTaskIds: Set<string>;
   readonly announcedUsageLimits: Set<string>;
+  latestAssistantRateLimited: boolean;
   readonly subagentsByTaskId: Map<string, ActiveClaudeSubagent>;
   readonly subagentsByToolUseId: Map<string, ActiveClaudeSubagent>;
   readonly subagentNodesByTaskId: Map<string, OrchestrationV2ExecutionNode["id"]>;
@@ -4521,6 +4523,9 @@ export function makeClaudeAdapterV2(
 
           if (message.type === "assistant") {
             context.nativeMessageCursor = message.uuid;
+            if (parentToolUseIdFromSdkMessage(message) === null) {
+              context.latestAssistantRateLimited = message.error === "rate_limit";
+            }
           }
 
           if (message.type === "system" && message.subtype === "compact_boundary") {
@@ -4993,7 +4998,14 @@ export function makeClaudeAdapterV2(
               next.delete(context.providerTurnId);
               return next;
             });
-            const resultFailure = interrupted ? null : providerFailureFromResult(message);
+            const resultFailure = interrupted
+              ? null
+              : providerFailureFromResult(
+                  message,
+                  context.latestAssistantRateLimited
+                    ? "Claude usage limit reached. Send the message again once the limit resets."
+                    : undefined,
+                );
             yield* finalizeActiveTurn({
               context,
               status: interrupted ? "interrupted" : terminalStatusFromResult(message),
@@ -5458,6 +5470,7 @@ export function makeClaudeAdapterV2(
               toolCalls: new Map(),
               ignoredTaskIds: new Set(),
               announcedUsageLimits: new Set(),
+              latestAssistantRateLimited: false,
               subagentsByTaskId: new Map(),
               subagentsByToolUseId: new Map(),
               subagentNodesByTaskId: new Map(),

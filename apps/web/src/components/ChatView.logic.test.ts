@@ -33,6 +33,7 @@ import {
 } from "../previewMiniPlayerStore";
 import {
   agentControlledBrowserCloseConfirmation,
+  buildRunningThreadTurnInterruptInput,
   deriveLockedProvider,
   shouldRefocusComposerOnWindowFocus,
   ENVIRONMENT_RECONNECT_WARNING_GRACE_MS,
@@ -1956,6 +1957,49 @@ describe("resolveComposerInteractionMode", () => {
         interactionMode: "plan",
       }),
     ).toEqual({ enabled: false, interactionMode: "default" });
+  });
+});
+
+describe("buildRunningThreadTurnInterruptInput", () => {
+  it("can interrupt a V2 run waiting for input or approval", () => {
+    expect(
+      buildRunningThreadTurnInterruptInput(
+        makeThread({ runtime: { ...readySession, status: "waiting" } }),
+        "running",
+      ),
+    ).toEqual({ threadId });
+  });
+
+  it("targets only a running V2 thread", () => {
+    const activeRunId = RunId.make("run-running");
+    const runningThread = makeThread({
+      runtime: {
+        ...readySession,
+        status: "running",
+        activeRunId,
+      },
+    });
+
+    expect(buildRunningThreadTurnInterruptInput(runningThread, "running")).toEqual({
+      threadId,
+    });
+    expect(buildRunningThreadTurnInterruptInput(runningThread, "ready")).toBeNull();
+    expect(
+      buildRunningThreadTurnInterruptInput(makeThread({ runtime: readySession }), "ready"),
+    ).toBeNull();
+    expect(buildRunningThreadTurnInterruptInput(null, "disconnected")).toBeNull();
+  });
+
+  it("targets a running thread before its active turn has been projected", () => {
+    const runningThread = makeThread({
+      runtime: {
+        ...readySession,
+        status: "running",
+        activeRunId: null,
+      },
+    });
+
+    expect(buildRunningThreadTurnInterruptInput(runningThread, "running")).toEqual({ threadId });
   });
 });
 
