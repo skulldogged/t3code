@@ -1,14 +1,14 @@
-type LatestTurnTiming = {
-  readonly turnId: string | null;
-  /** Set when the turn is created; `startedAt` waits for the provider. */
+type LatestRunTiming = {
+  readonly runId: string | null;
+  /** Set when the run is created; `startedAt` waits for the provider. */
   readonly requestedAt?: string | null;
   readonly startedAt: string | null;
   readonly completedAt: string | null;
 };
 
-type SessionActivityState = {
+type RuntimeActivityState = {
   readonly orchestrationStatus: string;
-  readonly activeTurnId?: string | null;
+  readonly activeRunId?: string | null;
 };
 
 export function formatDuration(durationMs: number): string {
@@ -30,37 +30,37 @@ export function formatDuration(durationMs: number): string {
   return parts.join(" ");
 }
 
-function isLatestTurnSettled(
-  latestTurn: LatestTurnTiming | null,
-  session: SessionActivityState | null,
+function isLatestRunSettled(
+  latestRun: LatestRunTiming | null,
+  runtime: RuntimeActivityState | null,
 ): boolean {
-  if (!latestTurn) return false;
-  if (!latestTurn.completedAt) return false;
-  if (!session) return true;
-  if (session.orchestrationStatus === "running") return false;
+  if (!latestRun) return false;
+  if (!latestRun.completedAt) return false;
+  if (!runtime) return true;
+  if (runtime.orchestrationStatus === "running") return false;
   return true;
 }
 
 /**
  * When the working indicator should be counting, and from when.
  *
- * `requestedAt` is the floor for an unsettled turn. The projector only stamps
- * `startedAt` in the same update that moves the session to "running", so while
- * the provider spins up (session "starting") a requested turn has no
+ * `requestedAt` is the floor for an unsettled run. The projector only stamps
+ * `startedAt` when provider work starts, so while the provider spins up a
+ * requested run has no
  * `startedAt` at all — and returning null there blinks the indicator out for
- * the whole spin-up. A settled turn still falls through to `sendStartedAt`, so
+ * the whole spin-up. A settled run still falls through to `sendStartedAt`, so
  * this cannot leave the indicator counting after the work is done.
  */
 export function deriveActiveWorkStartedAt(
-  latestTurn: LatestTurnTiming | null,
-  session: SessionActivityState | null,
+  latestRun: LatestRunTiming | null,
+  runtime: RuntimeActivityState | null,
   sendStartedAt: string | null,
 ): string | null {
-  if (session?.activeTurnId && session.activeTurnId !== latestTurn?.turnId) {
+  if (runtime?.activeRunId && runtime.activeRunId !== latestRun?.runId) {
     return sendStartedAt;
   }
-  if (!isLatestTurnSettled(latestTurn, session)) {
-    return latestTurn?.startedAt ?? latestTurn?.requestedAt ?? sendStartedAt;
+  if (!isLatestRunSettled(latestRun, runtime)) {
+    return latestRun?.startedAt ?? latestRun?.requestedAt ?? sendStartedAt;
   }
   return sendStartedAt;
 }

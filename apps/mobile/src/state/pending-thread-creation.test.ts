@@ -49,7 +49,7 @@ describe("resolvePendingThreadCreation", () => {
   const pending: PendingThreadCreation = { message: creation, outcome: null };
   const prompt = { id: creation.messageId };
 
-  it("keeps setup visible through the prompt echo and shell cleanup until detail has a turn", () => {
+  it("keeps setup visible through the prompt echo and shell cleanup until detail has a run", () => {
     let previous = resolvePendingThreadCreation({
       threadKey,
       pending,
@@ -62,26 +62,26 @@ describe("resolvePendingThreadCreation", () => {
       threadKey,
       pending,
       previous,
-      detail: { messages: [], latestTurn: null, session: null },
+      detail: { messages: [], latestRun: null, runtime: null },
     });
     expect(previous).toBe(pending);
 
-    // The user message arrives before the provider publishes a timed turn.
+    // The user message arrives before the provider publishes a timed run.
     previous = resolvePendingThreadCreation({
       threadKey,
       pending,
       previous,
-      detail: { messages: [prompt], latestTurn: null, session: { status: "starting" } },
+      detail: { messages: [prompt], latestRun: null, runtime: { status: "starting" } },
     });
     expect(previous).toBe(pending);
 
-    // The shell stream may observe the turn and collect the global outcome
+    // The shell stream may observe the run and collect the global outcome
     // before this screen's detail stream catches up.
     previous = resolvePendingThreadCreation({
       threadKey,
       pending: null,
       previous,
-      detail: { messages: [prompt], latestTurn: null, session: { status: "starting" } },
+      detail: { messages: [prompt], latestRun: null, runtime: { status: "starting" } },
     });
     expect(previous).toBe(pending);
 
@@ -92,34 +92,41 @@ describe("resolvePendingThreadCreation", () => {
         previous,
         detail: {
           messages: [prompt],
-          latestTurn: { turnId: "turn-1" },
-          session: { status: "running" },
+          latestRun: { runId: "run-1", status: "running" },
+          runtime: { status: "running" },
         },
       }),
     ).toBeNull();
   });
 
-  it("keeps the prompt until both the turn and its message have arrived", () => {
+  it("keeps the prompt until both the run and its message have arrived", () => {
     expect(
       resolvePendingThreadCreation({
         threadKey,
         pending,
         previous: null,
-        detail: { messages: [], latestTurn: { turnId: "turn-1" }, session: { status: "running" } },
+        detail: {
+          messages: [],
+          latestRun: { runId: "run-1", status: "running" },
+          runtime: { status: "running" },
+        },
       }),
     ).toBe(pending);
   });
 
-  it.each(["error", "stopped", "interrupted"])("ends setup when startup is %s", (status) => {
-    expect(
-      resolvePendingThreadCreation({
-        threadKey,
-        pending: null,
-        previous: pending,
-        detail: { messages: [prompt], latestTurn: null, session: { status } },
-      }),
-    ).toBeNull();
-  });
+  it.each(["failed", "cancelled", "interrupted", "rolled_back"])(
+    "ends setup when startup is %s",
+    (status) => {
+      expect(
+        resolvePendingThreadCreation({
+          threadKey,
+          pending: null,
+          previous: pending,
+          detail: { messages: [prompt], latestRun: null, runtime: { status } },
+        }),
+      ).toBeNull();
+    },
+  );
 
   it("preserves rejected task recovery", () => {
     const failed: PendingThreadCreation = {
@@ -131,7 +138,7 @@ describe("resolvePendingThreadCreation", () => {
         threadKey,
         pending: failed,
         previous: pending,
-        detail: { messages: [], latestTurn: null, session: { status: "error" } },
+        detail: { messages: [], latestRun: null, runtime: { status: "failed" } },
       }),
     ).toBe(failed);
   });
@@ -168,8 +175,8 @@ describe("pendingThreadCreationShell", () => {
       interactionMode: "default",
       branch: "main",
       worktreePath: null,
-      latestTurn: null,
-      session: null,
+      latestRun: null,
+      runtime: null,
       latestUserMessageAt: creation.createdAt,
     });
   });
@@ -203,7 +210,7 @@ describe("isPendingThreadCreationVisible", () => {
   });
 
   // The regression: the server creates the thread, THEN builds the worktree,
-  // then starts the turn. The shell and an empty detail arrive seconds before
+  // then starts the run. The shell and an empty detail arrive seconds before
   // the prompt, and keying on the shell left the thread empty for that whole
   // window.
   it("keeps standing in while the created thread has no messages yet", () => {
@@ -229,19 +236,30 @@ describe("isPendingThreadCreationVisible", () => {
 describe("pendingThreadCreationMessage", () => {
   it("renders the queued prompt as the first user message", () => {
     expect(pendingThreadCreationMessage(creation)).toEqual({
+      type: "message",
       id: creation.messageId,
-      role: "user",
-      text: creation.text,
-      turnId: null,
-      streaming: false,
       createdAt: creation.createdAt,
-      updatedAt: creation.createdAt,
+      message: {
+        id: creation.messageId,
+        role: "user",
+        text: creation.text,
+        attachments: [],
+        runId: null,
+        streaming: false,
+        inputIntent: "turn_start",
+        createdBy: "user",
+        creationSource: "mobile",
+        visibility: "synthetic",
+        sourceThreadId: creation.threadId,
+        createdAt: creation.createdAt,
+        updatedAt: creation.createdAt,
+      },
     });
   });
 
   // Draft attachment ids are local; the feed resolves attachment rows against
   // the server and would spin forever on them.
   it("omits the queued attachments rather than passing local draft ids to the feed", () => {
-    expect(pendingThreadCreationMessage(creation)).not.toHaveProperty("attachments");
+    expect(pendingThreadCreationMessage(creation).message.attachments).toEqual([]);
   });
 });

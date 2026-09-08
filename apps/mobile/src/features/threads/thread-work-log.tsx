@@ -34,11 +34,7 @@ import { AppText as Text } from "../../components/AppText";
 import { T3Wordmark } from "../../components/T3Wordmark";
 import { cn } from "../../lib/cn";
 import { THREAD_WORK_ROW_MIN_HEIGHT, type deriveThreadWorkLogSizing } from "../../lib/layout";
-import {
-  type AgentSpawnSummary,
-  type ThreadFeedActivity,
-  workEntryRowLabel,
-} from "../../lib/threadActivity";
+import { type AgentSpawnSummary, type ThreadFeedActivity } from "../../lib/threadActivity";
 import {
   resolveThreadWorkGroupInitialScroll,
   shouldFollowThreadWorkGroupAppend,
@@ -735,9 +731,11 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   const fullDetail = expanded ? row.getFullDetail() : null;
   const viewedImagePath = workEntryViewedImagePath(row.workEntry);
   const toolPresentation = resolveWorkEntryToolPresentation(row.workEntry);
-  const previewText = workEntryRowLabel(row.workEntry);
-  const displayText = workEntryRowLabel(row.workEntry, expanded);
-  const iconIsDestructive = row.icon === "alert" || row.icon === "warning";
+  const previewText = toolPresentation?.displayName ?? row.detail?.trim() ?? row.summary;
+  const displayText =
+    !toolPresentation && expanded && row.workEntry.command?.trim() ? "Command" : previewText;
+  const isSystemNotice = row.projectedItem.item.type === "system_notice";
+  const iconIsDestructive = !isSystemNotice && (row.icon === "alert" || row.icon === "warning");
   const failed = row.status === "failure";
   const toolIcon = row.workEntry.toolIcon ?? row.workEntry.toolSource?.icon;
   const icon = toolPresentation?.icon ?? workRowSymbolName(row.icon);
@@ -808,9 +806,9 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                   "min-w-0 flex-1 text-sm text-foreground-muted",
                   iconIsDestructive && "font-t3-medium text-adaptive-rose-600-400",
                 )}
-                numberOfLines={expanded ? undefined : 1}
+                numberOfLines={isSystemNotice || expanded ? undefined : 1}
               >
-                {displayText}
+                {isSystemNotice ? row.summary : displayText}
               </Text>
             </>
           )}

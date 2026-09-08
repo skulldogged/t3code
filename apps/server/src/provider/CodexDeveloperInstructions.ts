@@ -1,6 +1,8 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
+import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "./T3OrchestrationInstructions.ts";
+
 const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
 ## T3 Code collaborative browser
@@ -22,7 +24,7 @@ Do not switch to global browser skills, Chrome, Node REPL browser automation, st
 const browserToolInstructions = (browserToolsAvailable: boolean): string =>
   browserToolsAvailable ? T3_CODE_BROWSER_TOOL_INSTRUCTIONS : "";
 
-const codexPlanModeDeveloperInstructions = (
+export const codexPlanModeDeveloperInstructions = (
   browserToolsAvailable: boolean,
 ): string => `<collaboration_mode># Plan Mode (Conversational)
 
@@ -155,7 +157,7 @@ If the user stays in Plan mode and asks for revisions after a prior \`<proposed_
 ${browserToolInstructions(browserToolsAvailable)}
 </collaboration_mode>`;
 
-const codexDefaultModeDeveloperInstructions = (
+export const codexDefaultModeDeveloperInstructions = (
   browserToolsAvailable: boolean,
 ): string => `<collaboration_mode># Collaboration Mode: Default
 
@@ -169,6 +171,7 @@ Use the \`request_user_input\` tool only when it is listed in the available tool
 
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
 ${browserToolInstructions(browserToolsAvailable)}
+${T3_CODE_ORCHESTRATION_INSTRUCTIONS}
 </collaboration_mode>`;
 
 export interface CodexRuntimeInfo {

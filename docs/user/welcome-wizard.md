@@ -61,7 +61,9 @@ A large or malformed history can reach the scan limit. T3 Code keeps the
 projects it found and warns when projects or conversations may be missing.
 
 Imported projects include Codex and Claude conversations active within the last
-30 days. You can continue those conversations in T3 Code.
+30 days. You can continue those conversations in T3 Code. Your next message starts
+a fresh agent session with a bounded text handoff from the imported conversation.
+Previous tool state, approvals, and checkpoints are not restored.
 
 Conversation import is best effort. T3 Code keeps the first user prompt and the
 newest remaining visible user and assistant messages, with 200 messages total.

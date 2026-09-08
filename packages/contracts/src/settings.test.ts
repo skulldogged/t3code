@@ -135,6 +135,15 @@ describe("ClaudeSettings auto-compaction", () => {
   });
 });
 
+describe("ClientSettings composer context strip", () => {
+  it("defaults to draft-only and accepts a persistent strip preference", () => {
+    expect(decodeClientSettings({}).persistComposerContextStrip).toBe(false);
+    expect(
+      decodeClientSettingsPatch({ persistComposerContextStrip: true }).persistComposerContextStrip,
+    ).toBe(true);
+  });
+});
+
 describe("ClientSettings load balancing", () => {
   it("requires opt-in when settings are new or omit load balancing", () => {
     expect(decodeClientSettings({}).loadBalancingEnabled).toBe(false);
@@ -147,6 +156,62 @@ describe("ClientSettings load balancing", () => {
     expect(decodeClientSettingsPatch({ loadBalancingEnabled }).loadBalancingEnabled).toBe(
       loadBalancingEnabled,
     );
+  });
+});
+
+describe("ServerSettings project defaults", () => {
+  const script = {
+    id: "test",
+    name: "Test",
+    command: "vp test",
+    icon: "test" as const,
+    runOnWorktreeCreate: false,
+  };
+  const modelSelection = {
+    instanceId: "codex",
+    model: "gpt-5",
+    options: [],
+  };
+
+  it("provides backward-compatible defaults", () => {
+    const settings = decodeServerSettings({});
+    expect(settings.defaultAutoPull).toBe(false);
+    expect(settings.defaultModelSelection).toBeNull();
+    expect(settings.defaultProjectScripts).toEqual([]);
+    expect(settings.projectAgentBrowserAccessOverrides).toEqual({});
+    expect(settings.projectAutoPullOverrides).toEqual({});
+    expect(settings.projectScriptOverrides).toEqual({});
+  });
+
+  it("round-trips defaults and project overrides", () => {
+    const settings = decodeServerSettings({
+      defaultAutoPull: true,
+      defaultModelSelection: modelSelection,
+      defaultProjectScripts: [script],
+      projectAgentBrowserAccessOverrides: { alpha: false },
+      projectAutoPullOverrides: { alpha: true },
+      projectScriptOverrides: { alpha: [script], beta: null },
+    });
+    const encoded = encodeServerSettings(settings);
+
+    expect(encoded.defaultAutoPull).toBe(true);
+    expect(encoded.defaultModelSelection).toEqual(modelSelection);
+    expect(encoded.defaultProjectScripts).toEqual([script]);
+    expect(encoded.projectAgentBrowserAccessOverrides).toEqual({ alpha: false });
+    expect(encoded.projectAutoPullOverrides).toEqual({ alpha: true });
+    expect(encoded.projectScriptOverrides).toEqual({ alpha: [script], beta: null });
+  });
+
+  it("accepts removals in project override patches", () => {
+    const patch = decodeServerSettingsPatch({
+      projectAgentBrowserAccessOverrides: { alpha: null },
+      projectAutoPullOverrides: { alpha: null },
+      projectScriptOverrides: { alpha: null },
+    });
+
+    expect(patch.projectAgentBrowserAccessOverrides).toEqual({ alpha: null });
+    expect(patch.projectAutoPullOverrides).toEqual({ alpha: null });
+    expect(patch.projectScriptOverrides).toEqual({ alpha: null });
   });
 });
 
@@ -329,17 +394,18 @@ describe("ClientSettings context window meter", () => {
 });
 
 describe("ClientSettings composer collapse", () => {
-  it("collapses on scroll by default and accepts opting out", () => {
-    expect(decodeClientSettings({}).composerCollapseOnScroll).toBe(true);
+  it("collapses on blur and scroll by default and accepts opting out of each", () => {
+    const defaults = decodeClientSettings({});
+    expect(defaults.composerCollapseOnBlur).toBe(true);
+    expect(defaults.composerCollapseOnScroll).toBe(true);
+
+    const blurOff = decodeClientSettings({ composerCollapseOnBlur: false });
+    expect(blurOff.composerCollapseOnBlur).toBe(false);
+    expect(blurOff.composerCollapseOnScroll).toBe(true);
+
     expect(
       decodeClientSettingsPatch({ composerCollapseOnScroll: false }).composerCollapseOnScroll,
     ).toBe(false);
-  });
-
-  it("drops the retired blur trigger key", () => {
-    const decoded = decodeClientSettings({ composerCollapseOnBlur: false });
-    expect(decoded.composerCollapseOnScroll).toBe(true);
-    expect(decoded).not.toHaveProperty("composerCollapseOnBlur");
   });
 });
 
@@ -498,6 +564,40 @@ describe("ServerSettings worktree defaults", () => {
   });
 });
 
+describe("ServerSettings Cursor legacy settings", () => {
+  it("ignores obsolete Cursor CLI settings when reading server settings", () => {
+    const decoded = decodeServerSettings({
+      providers: {
+        cursor: {
+          enabled: true,
+          binaryPath: "cursor-agent",
+          apiEndpoint: "http://127.0.0.1:3774",
+        },
+      },
+    });
+
+    expect(decoded.providers.cursor.enabled).toBe(true);
+    expect(decoded.providers.cursor).not.toHaveProperty("binaryPath");
+    expect(decoded.providers.cursor).not.toHaveProperty("apiEndpoint");
+  });
+
+  it("ignores obsolete Cursor CLI settings in patches", () => {
+    const patch = decodeServerSettingsPatch({
+      providers: {
+        cursor: {
+          enabled: true,
+          binaryPath: "cursor-agent",
+          apiEndpoint: "http://127.0.0.1:3774",
+        },
+      },
+    });
+
+    expect(patch.providers?.cursor?.enabled).toBe(true);
+    expect(patch.providers?.cursor).not.toHaveProperty("binaryPath");
+    expect(patch.providers?.cursor).not.toHaveProperty("apiEndpoint");
+  });
+});
+
 describe("ServerSettings.sourceControlWritingStyle", () => {
   it("defaults all style settings for legacy configs", () => {
     const settings = decodeServerSettings({});
@@ -624,7 +724,6 @@ describe("ServerSettings environment icon", () => {
 
   it("keeps a kind this build knows", () => {
     expect(decodeServerSettings({ environmentIcon: "mac-mini" }).environmentIcon).toBe("mac-mini");
-    expect(decodeServerSettings({ environmentIcon: "linux" }).environmentIcon).toBe("linux");
   });
 
   it("decodes a kind from a newer server as null instead of failing the snapshot", () => {
@@ -634,8 +733,5 @@ describe("ServerSettings environment icon", () => {
   it("round-trips through encode", () => {
     const settings = decodeServerSettings({ environmentIcon: "laptop" });
     expect(encodeServerSettings(settings).environmentIcon).toBe("laptop");
-
-    const linuxSettings = decodeServerSettings({ environmentIcon: "linux" });
-    expect(encodeServerSettings(linuxSettings).environmentIcon).toBe("linux");
   });
 });

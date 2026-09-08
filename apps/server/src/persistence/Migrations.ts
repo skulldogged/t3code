@@ -10,6 +10,7 @@
 
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -61,6 +62,19 @@ import Migration0046 from "./Migrations/046_RepairAutomaticSettlementTimestamps.
 import Migration0047 from "./Migrations/047_ProjectionProjectIcon.ts";
 import Migration0048 from "./Migrations/048_ProjectionThreadBranchPullRequest.ts";
 import Migration0049 from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
+import Migration0050 from "./Migrations/050_OrchestrationV2.ts";
+import Migration0051 from "./Migrations/051_OrchestrationV2Subagents.ts";
+import Migration0052 from "./Migrations/052_OrchestrationV2Foundation.ts";
+import Migration0053 from "./Migrations/053_OrchestrationV2ProviderSessionBindings.ts";
+import Migration0054 from "./Migrations/054_OrchestrationV2ThreadLaunchWorkflows.ts";
+import Migration0055 from "./Migrations/055_ApplicationEventSource.ts";
+import Migration0056 from "./Migrations/056_OrchestrationV2EffectCancellation.ts";
+import Migration0057 from "./Migrations/057_ScheduledTasks.ts";
+import Migration0058 from "./Migrations/058_LegacyV1ImportState.ts";
+import Migration0059 from "./Migrations/059_ApplicationEventSequenceIndexes.ts";
+import Migration0060 from "./Migrations/060_OrchestrationV2RecoveryIndexes.ts";
+import Migration0061 from "./Migrations/061_OrchestrationV2ShellIndexes.ts";
+import Migration0062 from "./Migrations/062_AgentSessionImportSources.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -122,6 +136,19 @@ export const migrationEntries = [
   [47, "ProjectionProjectIcon", Migration0047],
   [48, "ProjectionThreadBranchPullRequest", Migration0048],
   [49, "ProjectionThreadsActiveOrderKey", Migration0049],
+  [50, "OrchestrationV2", Migration0050],
+  [51, "OrchestrationV2Subagents", Migration0051],
+  [52, "OrchestrationV2Foundation", Migration0052],
+  [53, "OrchestrationV2ProviderSessionBindings", Migration0053],
+  [54, "OrchestrationV2ThreadLaunchWorkflows", Migration0054],
+  [55, "ApplicationEventSource", Migration0055],
+  [56, "OrchestrationV2EffectCancellation", Migration0056],
+  [57, "ScheduledTasks", Migration0057],
+  [58, "LegacyV1ImportState", Migration0058],
+  [59, "ApplicationEventSequenceIndexes", Migration0059],
+  [60, "OrchestrationV2RecoveryIndexes", Migration0060],
+  [61, "OrchestrationV2ShellIndexes", Migration0061],
+  [62, "AgentSessionImportSources", Migration0062],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -141,6 +168,66 @@ export const makeMigrationLoader = (throughId?: number) =>
  */
 const run = Migrator.make({});
 
+// Early V2 builds numbered this same migration sequence from 44, 45, or 48.
+// Match the complete recorded prefix before moving IDs; names alone must not
+// cause an unknown or partially applied schema to be accepted as current.
+const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
+  toMigrationInclusive?: number,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const tables =
+    yield* sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
+  if (tables.length === 0) return [];
+
+  const rows = yield* sql<{ migration_id: number; name: string }>`
+    SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id
+  `;
+  const firstV2 = rows.find(({ name }) => name === "OrchestrationV2");
+  if (!firstV2 || firstV2.migration_id === 50) return [];
+
+  const base = firstV2.migration_id - 1;
+  const valid =
+    (base === 43 || base === 44 || base === 47) &&
+    rows.every((row, index) => {
+      const entry = migrationEntries[index < base ? index : index + 49 - base];
+      return row.migration_id === index + 1 && entry?.[1] === row.name;
+    });
+  if (!valid) {
+    return yield* new Migrator.MigrationError({
+      kind: "BadState",
+      message: "Unrecognized historical Orchestrator V2 migration manifest",
+    });
+  }
+
+  if (toMigrationInclusive !== undefined && toMigrationInclusive < 49) {
+    return yield* new Migrator.MigrationError({
+      kind: "BadState",
+      message: "Historical V2 reconciliation requires a migration ceiling of at least 49",
+    });
+  }
+
+  // Descending updates leave room for each lower ID and retain original dates.
+  for (const row of rows.slice(base).toReversed()) {
+    yield* sql`UPDATE effect_sql_migrations SET migration_id = ${row.migration_id + 49 - base}
+      WHERE migration_id = ${row.migration_id}`;
+  }
+  const executed: Array<readonly [number, string]> = [];
+  for (const [id, name, migration] of migrationEntries.filter(([id]) => id > base && id < 50)) {
+    yield* Effect.mapError(
+      migration,
+      (cause: unknown) =>
+        new Migrator.MigrationError({
+          kind: "Failed",
+          message: `Migration "${id}_${name}" failed during historical V2 reconciliation`,
+          cause,
+        }),
+    );
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
+    executed.push([id, name]);
+  }
+  return executed;
+});
+
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
 }
@@ -158,7 +245,14 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
-  const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
+  const sql = yield* SqlClient.SqlClient;
+  const executedMigrations = yield* sql.withTransaction(
+    Effect.gen(function* () {
+      const reconciled = yield* reconcileHistoricalV2(toMigrationInclusive);
+      const pending = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
+      return [...reconciled, ...pending];
+    }),
+  );
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")

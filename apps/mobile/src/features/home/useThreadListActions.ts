@@ -21,11 +21,12 @@ import {
 import { appAtomRegistry } from "../../state/atom-registry";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { environmentThreadShells, threadEnvironment } from "../../state/threads";
+import { beginPendingThreadOrder, getPendingThreadOrder } from "../../state/thread-order";
 import { queuedThreadKeysAtom } from "../../state/use-thread-outbox";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { beginPendingThreadOrder, getPendingThreadOrder } from "../../state/thread-order";
 import { createPendingThreadOrder, createThreadMovePlanner } from "../threads/threadOrder";
 import { getThreadListV2OrderedSection } from "../threads/threadListV2";
+import { threadCanArchive } from "./threadArchive";
 
 /** Version skew: never send settle/unsettle to a server that predates them
     (capability defaults false on decode for older servers). */
@@ -129,11 +130,7 @@ function useThreadActionExecutor(
         }
         // Archive keeps its original, narrower guard: never interrupt a
         // thread mid-turn.
-        if (
-          action === "archive" &&
-          thread.session?.status === "running" &&
-          thread.session.activeTurnId != null
-        ) {
+        if (action === "archive" && !threadCanArchive(thread.runtime)) {
           Alert.alert(
             actionFailureTitle(action),
             "This thread is working. Interrupt it first, then try again.",
@@ -561,7 +558,6 @@ export function useThreadListActions(): {
                 ? error.message
                 : "The thread could not be moved.",
             );
-            // Keep confirmed keys when a later environment rejects its write.
             return false;
           }
         }

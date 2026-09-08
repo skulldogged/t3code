@@ -5,10 +5,7 @@ import * as Schema from "effect/Schema";
 import { CommandId, ProjectId, ThreadId } from "./baseSchemas.ts";
 
 import {
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
   ClientOrchestrationCommand,
-  ModelSelection,
   OrchestrationCommand,
   OrchestrationDispatchCommandError,
   OrchestrationEvent,
@@ -29,9 +26,13 @@ import {
   ThreadCreatedPayload,
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
+} from "./orchestration.ts";
+import {
   isProviderSendTurnSupportedImageMimeType,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
-} from "./orchestration.ts";
+} from "./chatAttachment.ts";
+import { ModelSelection } from "./modelSelection.ts";
+import { DEFAULT_PROVIDER_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./providerPolicy.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
@@ -1229,21 +1230,6 @@ it.effect("project icon overrides accept Lucide icons, colors, and emoji", () =>
       }),
     );
     assert.strictEqual(invalid._tag, "Failure");
-  }),
-);
-
-it.effect("rejects thread history imports without messages", () =>
-  Effect.gen(function* () {
-    const result = yield* Effect.exit(
-      decodeOrchestrationCommand({
-        type: "thread.history.import",
-        commandId: "command-empty-history",
-        threadId: "thread-1",
-        messages: [],
-      }),
-    );
-
-    assert.strictEqual(result._tag, "Failure");
   }),
 );
 

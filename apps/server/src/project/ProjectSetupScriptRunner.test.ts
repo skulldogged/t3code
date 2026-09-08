@@ -1,266 +1,202 @@
-import { describe, expect, it, vi } from "@effect/vitest";
-import { type OrchestrationProject, ProjectId } from "@t3tools/contracts";
+import { assert, it, vi } from "@effect/vitest";
+import { DEFAULT_SERVER_SETTINGS, ProjectId, ServerSettingsError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
+import * as ProjectService from "./ProjectService.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 
-const isProjectSetupScriptOperationError = Schema.is(
-  ProjectSetupScriptRunner.ProjectSetupScriptOperationError,
-);
-
-const makeProject = (scripts: OrchestrationProject["scripts"]): OrchestrationProject => ({
-  id: ProjectId.make("project-1"),
-  title: "Project",
-  workspaceRoot: "/repo/project",
-  defaultModelSelection: null,
-  scripts,
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
-  deletedAt: null,
-});
-
-const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
-  Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
-    getUserInputActivity: () => Effect.die("unused"),
-    getCommandReadModel: () => Effect.die("unused"),
-    getSnapshot: () => Effect.die("unused"),
-    getShellSnapshot: () => Effect.die("unused"),
-    getArchivedShellSnapshot: () => Effect.die("unused"),
-    getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
-    getCounts: () => Effect.die("unused"),
-    getEventReplayStats: () => Effect.die("unused"),
-    getActiveProjectByWorkspaceRoot: (workspaceRoot) =>
-      Effect.succeed(
-        workspaceRoot === project.workspaceRoot ? Option.some(project) : Option.none(),
+it.effect("resolves setup scripts through the standalone project service", () => {
+  const open = vi.fn((input: Parameters<TerminalManager.TerminalManager["Service"]["open"]>[0]) =>
+    Effect.succeed({
+      threadId: input.threadId,
+      terminalId: input.terminalId,
+      cwd: input.cwd,
+      worktreePath: input.worktreePath ?? null,
+      status: "running" as const,
+      pid: 123,
+      history: "",
+      exitCode: null,
+      exitSignal: null,
+      label: "Shell",
+      updatedAt: "2026-06-20T00:00:00.000Z",
+    }),
+  );
+  const write = vi.fn(
+    (_input: Parameters<TerminalManager.TerminalManager["Service"]["write"]>[0]) => Effect.void,
+  );
+  const projectId = ProjectId.make("project:setup-runner-v2");
+  let settings = DEFAULT_SERVER_SETTINGS;
+  let project = {
+    id: projectId,
+    title: "Project",
+    workspaceRoot: "/repo",
+    repositoryIdentity: null,
+    faviconPath: null,
+    defaultModelSelection: null,
+    scripts: [
+      {
+        id: "setup",
+        name: "Setup",
+        command: "vp install",
+        icon: "configure" as const,
+        runOnWorktreeCreate: true,
+      },
+    ],
+    createdAt: "2026-06-20T00:00:00.000Z",
+    updatedAt: "2026-06-20T00:00:00.000Z",
+    deletedAt: null,
+  };
+  const layer = ProjectSetupScriptRunner.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ProjectService.ProjectService)({
+          getById: () => Effect.succeed(Option.some(project)),
+        }),
+        Layer.mock(TerminalManager.TerminalManager)({ open, write }),
+        Layer.mock(ServerSettings.ServerSettingsService)({
+          getSettings: Effect.sync(() => settings),
+        }),
       ),
-    getProjectShellById: (projectId) =>
-      Effect.succeed(projectId === project.id ? Option.some(project) : Option.none()),
-    getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
-    getImportedAgentSessionSources: () => Effect.die("unused"),
-    getThreadCheckpointContext: () => Effect.die("unused"),
-    getFullThreadDiffContext: () => Effect.die("unused"),
-    getThreadRuntimeContext: () => Effect.die("unused"),
-    getTurnStartMessage: () => Effect.die("unused"),
-    getThreadShellById: () => Effect.die("unused"),
-    getThreadDetailById: () => Effect.die("unused"),
-    getThreadDetailSnapshot: () => Effect.die("unused"),
-    searchThreads: () => Effect.succeed({ matches: [] }),
-  });
-
-const makeTerminalManagerLayer = (
-  overrides: Pick<TerminalManager.TerminalManager["Service"], "open" | "write">,
-) =>
-  Layer.succeed(TerminalManager.TerminalManager, {
-    ...overrides,
-    attachStream: () => Effect.die(new Error("unused")),
-    resize: () => Effect.void,
-    clear: () => Effect.void,
-    restart: () => Effect.die(new Error("unused")),
-    close: () => Effect.void,
-    subscribe: () => Effect.succeed(() => undefined),
-    subscribeMetadata: () => Effect.succeed(() => undefined),
-  });
-
-const testLayer = (
-  project: OrchestrationProject,
-  terminal: Pick<TerminalManager.TerminalManager["Service"], "open" | "write">,
-  settings = ServerSettings.layerTest(),
-) =>
-  ProjectSetupScriptRunner.layer.pipe(
-    Layer.provideMerge(makeProjectionSnapshotQueryLayer(project)),
-    Layer.provideMerge(makeTerminalManagerLayer(terminal)),
-    Layer.provide(settings),
+    ),
   );
 
-describe("ProjectSetupScriptRunner", () => {
-  it.effect("runs the inherited machine setup action in the checkout's worktree", () => {
-    const open = vi.fn(() =>
-      Effect.succeed({
-        threadId: "thread-1",
-        terminalId: "setup-default-setup",
-        cwd: "/repo/worktrees/a",
-        worktreePath: "/repo/worktrees/a",
-        status: "running" as const,
-        pid: 123,
-        history: "",
-        exitCode: null,
-        exitSignal: null,
-        label: "setup-default-setup",
-        updatedAt: "2026-01-01T00:00:00.000Z",
+  return Effect.gen(function* () {
+    const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+    const result = yield* runner.runForThread({
+      threadId: "thread-1",
+      projectId,
+      worktreePath: "/repo-worktree",
+    });
+    assert.deepEqual(result, {
+      status: "started",
+      scriptId: "setup",
+      scriptName: "Setup",
+      terminalId: "setup-setup",
+      cwd: "/repo-worktree",
+    });
+    assert.equal(open.mock.calls[0]?.[0].cwd, "/repo-worktree");
+    assert.equal(write.mock.calls[0]?.[0].data, "vp install\r");
+    project = { ...project, scripts: [] };
+    const defaultScript = {
+      id: "default",
+      name: "Default setup",
+      command: "vp i",
+      icon: "configure" as const,
+      runOnWorktreeCreate: true,
+    };
+    settings = { ...settings, defaultProjectScripts: [defaultScript] };
+    const inherited = yield* runner.runForThread({
+      threadId: "thread-2",
+      projectId,
+      worktreePath: "/repo-worktree",
+    });
+    assert.equal(inherited.status, "started");
+    assert.equal(write.mock.calls[1]?.[0].data, "vp i\r");
+    settings = { ...settings, projectScriptOverrides: { [projectId]: [] } };
+    assert.deepEqual(
+      yield* runner.runForThread({
+        threadId: "thread-3",
+        projectId,
+        worktreePath: "/repo-worktree",
+        project,
       }),
+      { status: "no-script" },
     );
-    const write = vi.fn(() => Effect.void);
-    return Effect.gen(function* () {
-      const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
-      const result = yield* runner.runForThread({
-        threadId: "thread-1",
-        projectId: "project-1",
-        worktreePath: "/repo/worktrees/a",
-      });
-      expect(result).toMatchObject({ status: "started", scriptId: "default-setup" });
-      expect(open).toHaveBeenCalledWith({
-        threadId: "thread-1",
-        terminalId: "setup-default-setup",
-        cwd: "/repo/worktrees/a",
-        worktreePath: "/repo/worktrees/a",
-        env: { T3CODE_PROJECT_ROOT: "/repo/project", T3CODE_WORKTREE_PATH: "/repo/worktrees/a" },
-      });
-      expect(write).toHaveBeenCalledWith({
-        threadId: "thread-1",
-        terminalId: "setup-default-setup",
-        data: "npm install\r",
-      });
-    }).pipe(
-      Effect.provide(
-        testLayer(
-          makeProject([]),
-          { open, write },
-          ServerSettings.layerTest({
-            defaultProjectScripts: [
-              {
-                id: "default-setup",
-                name: "Setup",
-                command: "npm install",
-                icon: "configure",
-                runOnWorktreeCreate: true,
-              },
-            ],
+    assert.equal(open.mock.calls.length, 2);
+    assert.equal(write.mock.calls.length, 2);
+    settings = {
+      ...settings,
+      projectScriptOverrides: { [projectId]: [{ ...defaultScript, command: "vp custom" }] },
+    };
+    yield* runner.runForThread({
+      threadId: "thread-4",
+      projectId,
+      worktreePath: "/repo-worktree",
+      project,
+    });
+    assert.equal(write.mock.calls[2]?.[0].data, "vp custom\r");
+  }).pipe(Effect.provide(layer));
+});
+
+for (const operation of ["readSettings", "openTerminal", "writeCommand"] as const) {
+  it.effect(`preserves the exact ${operation} failure and stops later setup effects`, () => {
+    const rootCause = new Error("setup dependency failed");
+    const settingsError = new ServerSettingsError({
+      settingsPath: "/test/settings.json",
+      operation: "read-file",
+      cause: rootCause,
+    });
+    const terminalError = new TerminalManager.TerminalCwdStatError({
+      cwd: "/repo-worktree",
+      cause: rootCause,
+    });
+    const open = vi.fn(() =>
+      operation === "openTerminal"
+        ? Effect.fail(terminalError)
+        : Effect.succeed({
+            threadId: "thread-failure",
+            terminalId: "setup-setup",
+            cwd: "/repo-worktree",
+            worktreePath: "/repo-worktree",
+            status: "running" as const,
+            pid: 123,
+            history: "",
+            exitCode: null,
+            exitSignal: null,
+            label: "Setup",
+            updatedAt: "2026-06-20T00:00:00.000Z",
+          }),
+    );
+    const write = vi.fn(() => Effect.fail(terminalError));
+    const projectId = ProjectId.make("project:setup-failure");
+    const layer = ProjectSetupScriptRunner.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(TerminalManager.TerminalManager)({ open, write }),
+          Layer.mock(ServerSettings.ServerSettingsService)({
+            getSettings:
+              operation === "readSettings"
+                ? Effect.fail(settingsError)
+                : Effect.succeed(DEFAULT_SERVER_SETTINGS),
           }),
         ),
       ),
     );
-  });
-
-  it.effect("returns no-script when no setup script exists", () => {
-    const open = vi.fn(() => Effect.die("unexpected open"));
-    const write = vi.fn(() => Effect.die("unexpected write"));
-    const project = makeProject([]);
-
-    return Effect.gen(function* () {
-      const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
-      const result = yield* runner.runForThread({
-        threadId: "thread-1",
-        projectId: "project-1",
-        worktreePath: "/repo/worktrees/a",
-      });
-
-      expect(result).toEqual({ status: "no-script" });
-      expect(open).not.toHaveBeenCalled();
-      expect(write).not.toHaveBeenCalled();
-    }).pipe(Effect.provide(testLayer(project, { open, write })));
-  });
-
-  it.effect(
-    "opens the deterministic setup terminal with worktree env and writes the command",
-    () => {
-      const open = vi.fn(() =>
-        Effect.succeed({
-          threadId: "thread-1",
-          terminalId: "setup-setup",
-          cwd: "/repo/worktrees/a",
-          worktreePath: "/repo/worktrees/a",
-          status: "running" as const,
-          pid: 123,
-          history: "",
-          exitCode: null,
-          exitSignal: null,
-          label: "setup-setup",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        }),
-      );
-      const write = vi.fn(() => Effect.void);
-      const project = makeProject([
-        {
-          id: "setup",
-          name: "Setup",
-          command: "bun install",
-          icon: "configure",
-          runOnWorktreeCreate: true,
-        },
-      ]);
-
-      return Effect.gen(function* () {
-        const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
-        const result = yield* runner.runForThread({
-          threadId: "thread-1",
-          projectCwd: "/repo/project",
-          worktreePath: "/repo/worktrees/a",
-        });
-
-        expect(result).toEqual({
-          status: "started",
-          scriptId: "setup",
-          scriptName: "Setup",
-          terminalId: "setup-setup",
-          cwd: "/repo/worktrees/a",
-        });
-        expect(open).toHaveBeenCalledWith({
-          threadId: "thread-1",
-          terminalId: "setup-setup",
-          cwd: "/repo/worktrees/a",
-          worktreePath: "/repo/worktrees/a",
-          env: {
-            T3CODE_PROJECT_ROOT: "/repo/project",
-            T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
-          },
-        });
-        expect(write).toHaveBeenCalledWith({
-          threadId: "thread-1",
-          terminalId: "setup-setup",
-          data: "bun install\r",
-        });
-      }).pipe(Effect.provide(testLayer(project, { open, write })));
-    },
-  );
-
-  it.effect("keeps terminal failures as the exact cause of a structured operation error", () => {
-    const rootCause = new Error("stat failed");
-    const terminalError = new TerminalManager.TerminalCwdStatError({
-      cwd: "/repo/worktrees/a",
-      cause: rootCause,
-    });
-    const project = makeProject([
-      {
-        id: "setup",
-        name: "Setup",
-        command: "bun install",
-        icon: "configure",
-        runOnWorktreeCreate: true,
-      },
-    ]);
-
     return Effect.gen(function* () {
       const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const error = yield* runner
         .runForThread({
-          threadId: "thread-1",
-          projectId: "project-1",
-          worktreePath: "/repo/worktrees/a",
+          threadId: "thread-failure",
+          projectId,
+          worktreePath: "/repo-worktree",
+          project: {
+            id: projectId,
+            workspaceRoot: "/repo",
+            scripts: [
+              {
+                id: "setup",
+                name: "Setup",
+                command: "vp i",
+                icon: "configure",
+                runOnWorktreeCreate: true,
+              },
+            ],
+          },
         })
         .pipe(Effect.flip);
-
-      expect(isProjectSetupScriptOperationError(error)).toBe(true);
-      if (isProjectSetupScriptOperationError(error)) {
-        expect(error.operation).toBe("openTerminal");
-        expect(error.threadId).toBe("thread-1");
-        expect(error.projectId).toBe("project-1");
-        expect(error.worktreePath).toBe("/repo/worktrees/a");
-        expect(error.cause).toBe(terminalError);
-        expect(terminalError.cause).toBe(rootCause);
-      }
-    }).pipe(
-      Effect.provide(
-        testLayer(project, {
-          open: () => Effect.fail(terminalError),
-          write: () => Effect.die("unexpected write"),
-        }),
-      ),
-    );
+      assert.equal(error._tag, "ProjectSetupScriptOperationError");
+      if (error._tag !== "ProjectSetupScriptOperationError") return;
+      assert.equal(error.operation, operation);
+      assert.strictEqual(error.cause, operation === "readSettings" ? settingsError : terminalError);
+      assert.equal(error.threadId, "thread-failure");
+      assert.equal(error.worktreePath, "/repo-worktree");
+      assert.equal(open.mock.calls.length, operation === "readSettings" ? 0 : 1);
+      assert.equal(write.mock.calls.length, operation === "writeCommand" ? 1 : 0);
+    }).pipe(Effect.provide(layer));
   });
-});
+}
