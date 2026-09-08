@@ -23,6 +23,22 @@ function trimmed(value: string | null | undefined): string | undefined {
   return result && result.length > 0 ? result : undefined;
 }
 
+export function restoreDelegatedCompletionMetadata(
+  projection: Pick<OrchestrationV2ThreadProjection, "messages" | "turnItems">,
+): ReadonlyArray<OrchestrationV2TurnItem> {
+  const completions = new Map(
+    projection.messages
+      .filter((message) => message.role === "user" && message.delegatedCompletion !== undefined)
+      .map((message) => [message.id, message.delegatedCompletion] as const),
+  );
+  if (completions.size === 0) return projection.turnItems;
+  return projection.turnItems.map((item) => {
+    if (item.type !== "user_message" || item.delegatedCompletion !== undefined) return item;
+    const delegatedCompletion = completions.get(item.messageId);
+    return delegatedCompletion === undefined ? item : { ...item, delegatedCompletion };
+  });
+}
+
 export function subagentThreadTitle(input: {
   readonly parentTitle: string;
   readonly title?: string | null;
@@ -148,25 +164,13 @@ export function makeSubagentConversationArtifacts(input: {
 }
 
 export function subagentResultForRun(
-  projection: OrchestrationV2ThreadProjection,
-  run: OrchestrationV2Run,
+  projection: Pick<OrchestrationV2ThreadProjection, "messages" | "turnItems">,
+  run: Pick<OrchestrationV2Run, "id" | "status">,
 ): {
   readonly text: string;
   readonly messageId: OrchestrationV2ConversationMessage["id"] | null;
   readonly turnItemId: OrchestrationV2TurnItem["id"] | null;
 } {
-  const message =
-    projection.messages
-      .filter(
-        (candidate) =>
-          candidate.runId === run.id &&
-          candidate.role === "assistant" &&
-          candidate.text.trim().length > 0,
-      )
-      .toSorted(
-        (left, right) =>
-          DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
-      )[0] ?? null;
   const turnItem =
     projection.turnItems
       .filter(
@@ -178,15 +182,43 @@ export function subagentResultForRun(
           candidate.text.trim().length > 0,
       )
       .toSorted((left, right) => right.ordinal - left.ordinal)[0] ?? null;
+  // Providers can refresh every message at settlement with the same updatedAt.
+  // The final assistant turn item's ordinal preserves conversation order.
+  const message =
+    (turnItem === null
+      ? undefined
+      : projection.messages.find(
+          (candidate) =>
+            candidate.id === turnItem.messageId &&
+            candidate.runId === run.id &&
+            candidate.role === "assistant" &&
+            candidate.text.trim().length > 0,
+        )) ?? null;
+  const fallbackMessage =
+    turnItem !== null
+      ? null
+      : (projection.messages
+          .filter(
+            (candidate) =>
+              candidate.runId === run.id &&
+              candidate.role === "assistant" &&
+              candidate.text.trim().length > 0,
+          )
+          .toSorted(
+            (left, right) =>
+              DateTime.toEpochMillis(right.createdAt) - DateTime.toEpochMillis(left.createdAt) ||
+              DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
+          )[0] ?? null);
   const text =
     message?.text ??
     turnItem?.text ??
+    fallbackMessage?.text ??
     (run.status === "completed"
       ? "Child task completed without an assistant result."
       : `Child task ended with status ${run.status}.`);
   return {
     text,
-    messageId: message?.id ?? turnItem?.messageId ?? null,
+    messageId: message?.id ?? turnItem?.messageId ?? fallbackMessage?.id ?? null,
     turnItemId: turnItem?.id ?? null,
   };
 }

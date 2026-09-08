@@ -67,4 +67,46 @@ describe("resolveUserMessagePresentation", () => {
       });
     }
   });
+
+  it("presents delegated completions from structured task metadata", () => {
+    expect(
+      resolveUserMessagePresentation({
+        role: "user",
+        text: "Delegated task node:internal reached a terminal state.",
+        delegatedCompletion: { taskIds: ["node:internal"] },
+        delegatedTasks: [
+          {
+            id: "node:internal",
+            title: "Fix mobile child-agent list clutter",
+            status: "completed",
+          },
+        ],
+      }),
+    ).toEqual({
+      text: "Delegated task completed: Fix mobile child-agent list clutter",
+      isAutomation: false,
+      scheduledTaskId: undefined,
+    });
+  });
+
+  it("keeps multiple delegated task titles and their individual terminal states", () => {
+    expect(
+      resolveUserMessagePresentation({
+        role: "user",
+        text: "provider continuation instructions",
+        delegatedCompletion: { taskIds: ["one", "two", "missing"] },
+        delegatedTasks: [
+          { id: "one", title: "Collect logs", status: "failed" },
+          { id: "two", title: "Update release notes", status: "cancelled" },
+        ],
+      }),
+    ).toMatchObject({
+      text: "Delegated task updates: failed: Collect logs; cancelled: Update release notes; another task finished",
+    });
+  });
+
+  it("does not rewrite matching text without delegated-completion provenance", () => {
+    const text = "Delegated task node:internal reached a terminal state.";
+    expect(resolveUserMessagePresentation({ role: "user", text })).toMatchObject({ text });
+  });
 });

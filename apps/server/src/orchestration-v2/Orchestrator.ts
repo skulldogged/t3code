@@ -986,6 +986,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(queuedMessage.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: queuedMessage.scheduledTaskId }),
+          ...(queuedMessage.delegatedCompletion === undefined
+            ? {}
+            : { delegatedCompletion: queuedMessage.delegatedCompletion }),
         }),
         inputIntent: "queued_turn",
         startedAt: now,
@@ -2396,6 +2399,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly createdBy: OrchestrationV2ConversationMessage["createdBy"];
     readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
     readonly scheduledTaskId?: OrchestrationV2ConversationMessage["scheduledTaskId"];
+    readonly delegatedCompletion?: OrchestrationV2ConversationMessage["delegatedCompletion"];
     readonly forceRestart: boolean;
   }) =>
     Effect.gen(function* () {
@@ -2537,6 +2541,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(input.scheduledTaskId === undefined
               ? {}
               : { scheduledTaskId: input.scheduledTaskId }),
+            ...(input.delegatedCompletion === undefined
+              ? {}
+              : { delegatedCompletion: input.delegatedCompletion }),
             id: input.messageId,
             threadId: input.command.threadId,
             runId: messageInput.runId,
@@ -2554,6 +2561,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(input.scheduledTaskId === undefined
               ? {}
               : { scheduledTaskId: input.scheduledTaskId }),
+            ...(input.delegatedCompletion === undefined
+              ? {}
+              : { delegatedCompletion: input.delegatedCompletion }),
             id: idAllocator.derive.userTurnItem({ messageId: input.messageId }),
             threadId: input.command.threadId,
             runId: messageInput.runId,
@@ -3256,6 +3266,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(command.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: command.scheduledTaskId }),
+          ...(delegatedCompletion === undefined ? {} : { delegatedCompletion }),
           forceRestart: dispatchMode.type === "restart_active",
         });
         return;
@@ -3499,6 +3510,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               providerThreadId: queueProviderThread.id,
               providerTurnId: null,
               inputIntent: "queued_turn",
+              ...(delegatedCompletion === undefined ? {} : { delegatedCompletion }),
               updatedAt: now,
             },
           });
@@ -3710,6 +3722,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(command.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: command.scheduledTaskId }),
+          ...(delegatedCompletion === undefined ? {} : { delegatedCompletion }),
           id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
           threadId: command.threadId,
           runId,
@@ -4378,6 +4391,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
+        ...(delegatedCompletion === undefined ? {} : { delegatedCompletion }),
         id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
         threadId: command.threadId,
         runId,
@@ -5640,6 +5654,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(queuedMessage.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: queuedMessage.scheduledTaskId }),
+        ...(queuedMessage.delegatedCompletion === undefined
+          ? {}
+          : { delegatedCompletion: queuedMessage.delegatedCompletion }),
         forceRestart: false,
       });
     });

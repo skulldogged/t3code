@@ -2,6 +2,7 @@ import {
   type AssistantCitation,
   type EnvironmentId,
   type MessageId,
+  type OrchestrationV2Subagent,
   type OrchestrationV2TurnItem,
   type RunAttemptId,
   type ScopedThreadRef,
@@ -220,6 +221,7 @@ interface TimelineRowSharedState {
   providerStatuses: ReadonlyArray<ServerProvider>;
   /** Projection runs, for recovering handoff models on legacy items. */
   runs: ReadonlyArray<HandoffTimelineRun>;
+  delegatedTasks: ReadonlyArray<OrchestrationV2Subagent>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
@@ -291,6 +293,7 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
 } as const satisfies MaintainScrollAtEndOptions;
 const EMPTY_TIMELINE_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 const EMPTY_TIMELINE_RUNS: ReadonlyArray<HandoffTimelineRun> = [];
+const EMPTY_TIMELINE_DELEGATED_TASKS: ReadonlyArray<OrchestrationV2Subagent> = [];
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -350,6 +353,7 @@ interface MessagesTimelineProps {
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   providerStatuses?: ReadonlyArray<ServerProvider>;
   runs?: ReadonlyArray<HandoffTimelineRun>;
+  delegatedTasks?: ReadonlyArray<OrchestrationV2Subagent>;
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
@@ -415,6 +419,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   skills = EMPTY_TIMELINE_SKILLS,
   providerStatuses = EMPTY_TIMELINE_PROVIDERS,
   runs: runsProp = EMPTY_TIMELINE_RUNS,
+  delegatedTasks = EMPTY_TIMELINE_DELEGATED_TASKS,
   anchorMessageId,
   onAnchorReady,
   onAnchorSizeChanged,
@@ -797,6 +802,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       providerStatuses,
       runs,
+      delegatedTasks,
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onUseArtifactTemplate,
@@ -825,6 +831,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       providerStatuses,
       runs,
+      delegatedTasks,
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onUseArtifactTemplate,
@@ -1472,7 +1479,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const unknownAttachments = (row.message.attachments ?? []).filter(
     (attachment) => !isImageAttachment(attachment) && !isFileAttachment(attachment),
   );
-  const userMessage = resolveUserMessagePresentation(row.message);
+  const userMessage = resolveUserMessagePresentation({
+    ...row.message,
+    delegatedTasks: ctx.delegatedTasks,
+  });
   const displayedUserMessage = deriveDisplayedUserMessageState(userMessage.text);
   const terminalContexts = displayedUserMessage.contexts;
   const previewAnnotations: ParsedPreviewAnnotation[] = [];

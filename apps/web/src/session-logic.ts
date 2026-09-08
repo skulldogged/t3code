@@ -551,6 +551,9 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
               ...(item.scheduledTaskId !== undefined
                 ? { scheduledTaskId: item.scheduledTaskId }
                 : {}),
+              ...(item.delegatedCompletion === undefined
+                ? {}
+                : { delegatedCompletion: item.delegatedCompletion }),
             }
           : {}),
         createdAt,

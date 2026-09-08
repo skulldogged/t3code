@@ -52,6 +52,7 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { restoreDelegatedCompletionMetadata } from "./SubagentProjection.ts";
 
 export class ProjectionStoreApplyEventError extends Schema.TaggedErrorClass<ProjectionStoreApplyEventError>()(
   "ProjectionStoreApplyEventError",
@@ -2667,7 +2668,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           runtimeRequests,
           messages: orderedMessages,
           plans,
-          turnItems,
+          // Older stored turn items omitted metadata already present on messages.
+          turnItems: restoreDelegatedCompletionMetadata({ messages, turnItems }),
           checkpointScopes,
           checkpoints,
           contextHandoffs,

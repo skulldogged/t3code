@@ -141,6 +141,36 @@ describe("buildThreadFeed", () => {
     });
   });
 
+  it("preserves delegated completion metadata through projected user messages", () => {
+    const taskId = NodeId.make("task-mobile-completion");
+    const feed = buildThreadFeed([
+      projected(
+        {
+          ...userMessage(),
+          delegatedCompletion: { parentRunId: runId, generation: 1, taskIds: [taskId] },
+        },
+        0,
+      ),
+    ]);
+    const messageEntry = feed.find((entry) => entry.type === "message");
+
+    expect(messageEntry?.type).toBe("message");
+    if (messageEntry?.type !== "message") return;
+    expect(messageEntry.message.delegatedCompletion).toEqual({
+      parentRunId: runId,
+      generation: 1,
+      taskIds: [taskId],
+    });
+    expect(
+      resolveUserMessagePresentation({
+        ...messageEntry.message,
+        delegatedTasks: [
+          { id: taskId, title: "Fix mobile child-agent list clutter", status: "completed" },
+        ],
+      }).text,
+    ).toBe("Delegated task completed: Fix mobile child-agent list clutter");
+  });
+
   it("adds local feedback messages to an otherwise server-authored feed", () => {
     const feed = buildThreadFeed([], {
       localMessages: [

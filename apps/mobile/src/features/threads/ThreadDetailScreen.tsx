@@ -13,6 +13,7 @@ import type {
   EnvironmentId,
   MessageId,
   ModelSelection,
+  OrchestrationV2Subagent,
   ProviderApprovalDecision,
   ProviderInteractionMode,
   RuntimeMode,
@@ -118,6 +119,7 @@ export interface ThreadDetailScreenProps {
   readonly feedbackSubmissions: ReadonlyArray<CodexFeedbackSubmission>;
   readonly onDismissFeedback: (id: MessageId) => void;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
+  readonly delegatedTasks: ReadonlyArray<OrchestrationV2Subagent>;
   readonly activityRun: ThreadFeedLatestRun | null;
   readonly activeWorkStartedAt: string | null;
   readonly isCompacting: boolean;
@@ -899,6 +901,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             threadId={props.selectedThread.id}
             workspaceRoot={props.threadCwd}
             feed={props.selectedThreadFeed}
+            delegatedTasks={props.delegatedTasks}
             queuedMessages={props.queuedMessages}
             dispatchingMessageId={props.dispatchingMessageId}
             onEditPendingMessage={handleEditPendingMessage}

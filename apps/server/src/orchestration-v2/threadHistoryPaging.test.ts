@@ -227,6 +227,51 @@ describe("threadHistoryPaging", () => {
     expect(older.nextCursor).toBeNull();
   });
 
+  it("retains delegated completion metadata in bounded snapshots and history pages", () => {
+    const taskId = NodeId.make("task-history-completion");
+    const item = {
+      id: TurnItemId.make("item-history-completion"),
+      type: "user_message" as const,
+      threadId: THREAD,
+      runId: RUN,
+      nodeId: NODE,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 1,
+      status: "completed" as const,
+      title: null,
+      startedAt: NOW,
+      completedAt: NOW,
+      updatedAt: NOW,
+      messageId: MessageId.make("message-history-completion"),
+      inputIntent: "turn_start" as const,
+      text: "provider continuation text",
+      attachments: [],
+      createdBy: "agent" as const,
+      creationSource: "server" as const,
+      delegatedCompletion: { parentRunId: RUN, generation: 1, taskIds: [taskId] },
+    } satisfies OrchestrationV2TurnItem;
+    const row: OrchestrationV2ProjectedTurnItem = {
+      position: 0,
+      visibility: "local",
+      sourceThreadId: THREAD,
+      sourceItemId: item.id,
+      item,
+    };
+    const bounded = buildBoundedThreadProjection({
+      projection: makeProjection([row]),
+      snapshotSequence: 1,
+    });
+    const page = selectRecentTimelineWindow({ items: [row], snapshotSequence: 1 });
+
+    expect(bounded.projection.visibleTurnItems[0]?.item).toMatchObject({
+      delegatedCompletion: { taskIds: [taskId] },
+    });
+    expect(page.items[0]?.item).toMatchObject({ delegatedCompletion: { taskIds: [taskId] } });
+  });
+
   it("recovers identity-miss cursors when position is past a shrunken timeline", () => {
     const items = Array.from({ length: 5 }, (_, index) => makeRow(index));
     const cursor = encodeThreadHistoryCursor({

@@ -4,6 +4,7 @@ import type {
   ChatUnknownAttachment as ContractChatUnknownAttachment,
   MessageId,
   OrchestrationV2Actor,
+  OrchestrationV2ConversationMessage,
   OrchestrationV2CreationSource,
   OrchestrationV2PlanArtifact,
   OrchestrationV2UserMessageInputIntent,
@@ -89,6 +90,7 @@ export interface ChatMessage {
   readonly createdBy?: OrchestrationV2Actor;
   readonly creationSource?: OrchestrationV2CreationSource;
   readonly scheduledTaskId?: ScheduledTaskId;
+  readonly delegatedCompletion?: OrchestrationV2ConversationMessage["delegatedCompletion"];
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly inputIntent?: OrchestrationV2UserMessageInputIntent | undefined;

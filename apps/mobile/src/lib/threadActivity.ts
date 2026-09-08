@@ -29,6 +29,7 @@ import type {
   ChatAttachment,
   MessageId,
   OrchestrationV2Actor,
+  OrchestrationV2ConversationMessage,
   OrchestrationV2CreationSource,
   OrchestrationV2ExecutionNode,
   OrchestrationMessage,
@@ -100,6 +101,7 @@ export interface ThreadFeedMessage {
   readonly createdBy?: OrchestrationV2Actor;
   readonly creationSource?: OrchestrationV2CreationSource;
   readonly scheduledTaskId?: ScheduledTaskId;
+  readonly delegatedCompletion?: OrchestrationV2ConversationMessage["delegatedCompletion"];
   readonly visibility: OrchestrationV2ProjectedTurnItem["visibility"];
   readonly sourceThreadId: ThreadId;
   readonly createdAt: string;
@@ -1441,6 +1443,9 @@ export function buildThreadFeed(
                 createdBy: item.createdBy,
                 creationSource: item.creationSource,
                 ...(item.scheduledTaskId ? { scheduledTaskId: item.scheduledTaskId } : {}),
+                ...(item.delegatedCompletion === undefined
+                  ? {}
+                  : { delegatedCompletion: item.delegatedCompletion }),
               }
             : {}),
           visibility: row.visibility,

@@ -939,6 +939,13 @@ export const OrchestrationV2TurnItem = Schema.Union([
     type: Schema.Literal("user_message"),
     messageId: MessageId,
     scheduledTaskId: Schema.optional(ScheduledTaskId),
+    delegatedCompletion: Schema.optional(
+      Schema.Struct({
+        parentRunId: RunId,
+        generation: PositiveInt,
+        taskIds: Schema.Array(NodeId),
+      }),
+    ),
     inputIntent: OrchestrationV2UserMessageInputIntent,
     text: Schema.String,
     attachments: Schema.Array(ChatAttachment),
@@ -1639,6 +1646,13 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     type: Schema.Literal("user_message"),
     messageId: MessageId,
     scheduledTaskId: Schema.optional(ScheduledTaskId),
+    delegatedCompletion: Schema.optional(
+      Schema.Struct({
+        parentRunId: RunId,
+        generation: PositiveInt,
+        taskIds: Schema.Array(NodeId),
+      }),
+    ),
     inputIntent: OrchestrationV2UserMessageInputIntent,
     text: Schema.String,
     attachments: Schema.Array(ChatAttachment),
