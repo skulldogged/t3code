@@ -870,9 +870,13 @@ function deriveThreadFeedRunFolds(
     const duration = elapsedMs === null ? null : formatDuration(elapsedMs);
     const interrupted =
       latestRunMatches && (latestRun.status === "interrupted" || latestRun.status === "cancelled");
-    foldsByAnchorId.set(firstHiddenEntry.id, {
+    // Keep leading resource cards in place, but never put the fold below an answer.
+    const anchorEntry =
+      group.entries.find((entry) => entry.type === "message" || hiddenEntryIds.has(entry.id)) ??
+      firstHiddenEntry;
+    foldsByAnchorId.set(anchorEntry.id, {
       runId,
-      createdAt: firstHiddenEntry.createdAt,
+      createdAt: anchorEntry.createdAt,
       hiddenEntryIds,
       label: interrupted
         ? duration
