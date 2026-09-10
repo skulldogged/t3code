@@ -6,6 +6,8 @@ import type {
 } from "@t3tools/contracts";
 import { copySorted } from "@t3tools/shared/Array";
 
+import { isInternalThreadMessage } from "../userMessage.ts";
+
 type Projection = OrchestrationV2ThreadProjection;
 type Run = Projection["runs"][number];
 type ProviderSession = Projection["providerSessions"][number];
@@ -93,9 +95,7 @@ export function deriveThreadQueueWorkflowState(projection: Projection): ThreadQu
       (turn) => turn.runAttemptId === activeRun.activeAttemptId && turn.status === "running",
     );
   const automaticCompletionMessageIds = new Set(
-    projection.messages
-      .filter((message) => message.delegatedCompletion !== undefined)
-      .map((message) => message.id),
+    projection.messages.filter(isInternalThreadMessage).map((message) => message.id),
   );
   const queuedRuns = copySorted(
     projection.runs.filter(

@@ -1,4 +1,8 @@
-import { type OrchestrationV2Actor, ScheduledTaskId } from "@t3tools/contracts";
+import {
+  type OrchestrationV2Actor,
+  type OrchestrationV2CreationSource,
+  ScheduledTaskId,
+} from "@t3tools/contracts";
 
 const LEGACY_AUTOMATION_PREFIX = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
 const LEGACY_AUTOMATION_MESSAGE_ID = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
@@ -47,16 +51,19 @@ function delegatedCompletionPresentation(input: {
     : `Delegated task updates: ${tasks.map(describe).join("; ")}`;
 }
 
-/** Older scheduled messages stored their attribution in the prompt itself. */
-export function resolveUserMessagePresentation(message: {
+interface UserMessagePresentationInput {
   readonly id?: string;
   readonly role: string;
   readonly text: string;
   readonly createdBy?: OrchestrationV2Actor;
-  readonly scheduledTaskId?: ScheduledTaskId;
+  readonly creationSource?: OrchestrationV2CreationSource;
+  readonly scheduledTaskId?: ScheduledTaskId | undefined;
   readonly delegatedCompletion?: { readonly taskIds: ReadonlyArray<string> } | undefined;
   readonly delegatedTasks?: ReadonlyArray<DelegatedTaskPresentation>;
-}) {
+}
+
+/** Older scheduled messages stored their attribution in the prompt itself. */
+export function resolveUserMessagePresentation(message: UserMessagePresentationInput) {
   if (message.role !== "user") {
     return { text: message.text, isAutomation: false, scheduledTaskId: undefined };
   }
@@ -84,4 +91,15 @@ export function resolveUserMessagePresentation(message: {
     isAutomation,
     scheduledTaskId: legacyTaskId === undefined ? undefined : ScheduledTaskId.make(legacyTaskId),
   };
+}
+
+/** Internal wake-ups still enter provider history as prompts, but are not user submissions. */
+export function isInternalThreadMessage(message: UserMessagePresentationInput): boolean {
+  return (
+    message.role === "user" &&
+    (message.delegatedCompletion !== undefined ||
+      (message.createdBy === "agent" &&
+        (message.creationSource === "server" || message.creationSource === "provider"))) &&
+    !resolveUserMessagePresentation(message).isAutomation
+  );
 }

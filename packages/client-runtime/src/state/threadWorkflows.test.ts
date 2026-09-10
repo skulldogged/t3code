@@ -123,6 +123,7 @@ describe("thread workflows", () => {
       messages: [
         {
           id: "message-automatic",
+          role: "user",
           text: "A delegated task reached a terminal state.",
           delegatedCompletion: {
             generation: 1,
@@ -140,6 +141,68 @@ describe("thread workflows", () => {
     expect(state.queuedRuns.map(({ run, text }) => [run.id, text])).toEqual([
       ["visible", "Visible queued message"],
     ]);
+  });
+
+  it("excludes background wake-ups while retaining real submissions in queue order", () => {
+    const messages = [
+      {
+        id: "user",
+        role: "user",
+        text: "Background command completed: my actual prompt",
+        createdBy: "user",
+        creationSource: "web",
+      },
+      {
+        id: "background",
+        role: "user",
+        text: "Background command completed (exit 143): bash",
+        createdBy: "agent",
+        creationSource: "server",
+      },
+      {
+        id: "provider",
+        role: "user",
+        text: "Background task completed.",
+        createdBy: "agent",
+        creationSource: "provider",
+      },
+      {
+        id: "agent",
+        role: "user",
+        text: "Please review this",
+        createdBy: "agent",
+        creationSource: "mcp",
+      },
+      {
+        id: "schedule",
+        role: "user",
+        text: "Run audit",
+        createdBy: "agent",
+        creationSource: "server",
+        scheduledTaskId: "schedule:daily",
+      },
+    ];
+    const projection = {
+      thread: { id: "thread", activeProviderThreadId: null },
+      messages,
+      runs: messages.map((message, ordinal) => ({
+        id: `run:${message.id}`,
+        userMessageId: message.id,
+        status: "queued",
+        ordinal,
+      })),
+      providerTurns: [],
+      providerThreads: [],
+      providerSessions: [],
+    };
+    const state = deriveThreadQueueWorkflowState(projection as never);
+    expect(state.queuedRuns.map(({ run }) => run.userMessageId)).toEqual([
+      "user",
+      "agent",
+      "schedule",
+    ]);
+    // Filtering the composer must leave automatic delivery available to the server.
+    expect(projection.runs).toHaveLength(5);
   });
 
   it("removes only the promoted head from the visible queue", () => {

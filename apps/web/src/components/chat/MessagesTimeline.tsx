@@ -14,7 +14,10 @@ import {
   type ToolActivityIcon,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
+import {
+  isInternalThreadMessage,
+  resolveUserMessagePresentation,
+} from "@t3tools/client-runtime/user-message";
 import { Link } from "@tanstack/react-router";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import {
@@ -1073,7 +1076,11 @@ function deriveTimelineMinimapItems(
   const items: TimelineMinimapItem[] = [];
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
-    if (row?.kind !== "message" || row.message.role !== "user") {
+    if (
+      row?.kind !== "message" ||
+      row.message.role !== "user" ||
+      isInternalThreadMessage(row.message)
+    ) {
       continue;
     }
 
@@ -1597,6 +1604,17 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const regularImages = userImages.filter((image) => !image.name.startsWith("preview-annotation-"));
   const revertTurnCount = row.revertTurnCount;
+
+  if (isInternalThreadMessage(row.message)) {
+    return (
+      <details className="my-2 text-xs text-muted-foreground" data-message-attribution="system">
+        <summary className="cursor-pointer">
+          Agent update: {userMessage.text.split("\n", 1)[0]}
+        </summary>
+        <p className="mt-2 whitespace-pre-wrap break-words pl-4">{userMessage.text}</p>
+      </details>
+    );
+  }
 
   return (
     <div className="group flex flex-col items-end gap-1">
