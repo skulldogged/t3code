@@ -282,8 +282,60 @@ jobs:
           path: release-publish/*
           if-no-files-found: error
 
+  ios:
+    needs: [metadata, validate]
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      APP_VARIANT: preview
+      EXPO_NO_GIT_STATUS: "1"
+      T3CODE_IOS_VERSION: 1.1.${{ github.run_number }}
+      T3CODE_IOS_BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+      - name: Select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+      - name: Generate iOS project
+        run: vp exec --filter @t3tools/mobile -- expo prebuild --clean --platform ios
+      - name: Archive unsigned iPhone app
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace=(apps/mobile/ios/*.xcworkspace)
+          scheme="$(basename "${workspace[0]}" .xcworkspace)"
+          xcodebuild archive \
+            -workspace "${workspace[0]}" -scheme "$scheme" \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/T3Code.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' DEVELOPMENT_TEAM='' \
+            > "$RUNNER_TEMP/ios-build.log" 2>&1 || {
+              tail -200 "$RUNNER_TEMP/ios-build.log"
+              exit 1
+            }
+      - name: Package IPA and Feather repository
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: python3 scripts/package-personal-ios.py "$RUNNER_TEMP/T3Code.xcarchive" release-publish
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios
+          path: release-publish/*
+          if-no-files-found: error
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-build-log
+          path: ${{ runner.temp }}/ios-build.log
+
   release:
-    needs: [metadata, desktop, server_android]
+    needs: [metadata, desktop, server_android, ios]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -297,6 +349,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: server-android
+          path: release-assets
+      - uses: actions/download-artifact@v8
+        with:
+          name: ios
           path: release-assets
       - uses: actions/download-artifact@v8
         with:

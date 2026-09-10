@@ -175,7 +175,7 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
-  version: "1.1.1",
+  version: repoEnv.T3CODE_IOS_VERSION ?? "1.1.1",
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
     // expensive native-project calculation there. Preview and production stay
@@ -194,6 +194,7 @@ const config: ExpoConfig = {
   ios: {
     icon: variant.assets.iosIcon,
     supportsTablet: true,
+    ...(repoEnv.T3CODE_IOS_BUILD_NUMBER ? { buildNumber: repoEnv.T3CODE_IOS_BUILD_NUMBER } : {}),
     // Multitasking-capable iPad apps cannot rotate programmatically, so the
     // showcase capture build requires full screen (see infoPlist below).
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
