@@ -77,3 +77,26 @@ index 12d6248b1dc4b4779b252c9954c2f89145907310..d838283b7adcf49fec2a63bff53251b9
        : nil
  
      return ClerkNativeBridge.shared.makeUserProfileViewController(
+diff --git a/ios/ClerkNativeBridge.swift b/ios/ClerkNativeBridge.swift
+--- a/ios/ClerkNativeBridge.swift
++++ b/ios/ClerkNativeBridge.swift
+@@ -235,7 +235,16 @@
+   private static func makeClerkOptions() -> Clerk.Options {
+     let middleware = Clerk.Options.MiddlewareConfig(request: [ClerkExpoHeaderMiddleware()])
++    // Signing tools may change the bundle identifier. Keep OAuth callbacks tied
++    // to the scheme registered at build time and allowlisted by the auth service.
++    let redirectConfig: Clerk.Options.RedirectConfig
++    if let scheme = Bundle.main.object(forInfoDictionaryKey: "ClerkCallbackScheme") as? String,
++       !scheme.isEmpty {
++      redirectConfig = .init(redirectUrl: "\(scheme)://callback", callbackUrlScheme: scheme)
++    } else {
++      redirectConfig = .init()
++    }
+     guard let service = keychainService else {
+-      return .init(middleware: middleware)
+-    }
+-    return .init(keychainConfig: .init(service: service), middleware: middleware)
++      return .init(redirectConfig: redirectConfig, middleware: middleware)
++    }
++    return .init(keychainConfig: .init(service: service), redirectConfig: redirectConfig, middleware: middleware)
+   }

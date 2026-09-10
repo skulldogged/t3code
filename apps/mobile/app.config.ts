@@ -174,7 +174,7 @@ const config: ExpoConfig = {
   name: variant.appName,
   slug: "t3-code",
   platforms: ["ios", "android"],
-  scheme: variant.scheme,
+  scheme: [variant.scheme, variant.iosBundleIdentifier],
   version: repoEnv.T3CODE_IOS_VERSION ?? "1.1.1",
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
@@ -211,6 +211,8 @@ const config: ExpoConfig = {
       "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
     },
     infoPlist: {
+      // Preserve the authorized callback when a signing tool randomizes the bundle ID.
+      ClerkCallbackScheme: variant.iosBundleIdentifier,
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
