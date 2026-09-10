@@ -431,6 +431,7 @@ class AgentNotificationsTest {
   @Test
   fun localDirectActivityWorksWithoutRelayRegistrationAndClearsIndependently() {
     AgentNotifications.clear(context)
+    AgentNotifications.configureLocalActivity(context, "t3code-preview", true)
     AgentNotifications.publishLocalActivity(
       context, "Working: direct thread", "Direct project · Working", "/threads/direct/thread", true
     )
@@ -439,7 +440,18 @@ class AgentNotificationsTest {
       manager.activeNotifications.single().tag
     )
 
+    assertEquals(
+      "t3code-preview://threads/direct/thread",
+      shadowOf(manager.activeNotifications.single().notification.contentIntent).savedIntent.dataString
+    )
+    // Relay pushes require an authenticated registration. Configuring that
+    // identity clears existing cards, after which both sources can publish.
+    AgentNotifications.configure(context, "device", "user", "t3code-preview", true)
     AgentNotifications.receive(context, update("relay-work", true))
+    AgentNotifications.publishLocalActivity(
+      context, "Working: direct thread", "Direct project · Working", "/threads/direct/thread", true
+    )
+    assertTrue(manager.activeNotifications.any { it.tag == "t3-agent-local-activity" })
     AgentNotifications.publishLocalActivity(context, "", "", "/", false)
 
     assertTrue(manager.activeNotifications.any { it.tag == "t3-agent-activity" })
