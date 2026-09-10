@@ -90,7 +90,7 @@ jobs:
       - name: Check personal mobile and update behavior
         run: |
           vp test run apps/server/src/cloud/pinnedRuntime.test.ts
-          vp test run apps/mobile/src/features/background-connection apps/mobile/src/features/agent-awareness/androidNotifications.test.ts apps/mobile/src/features/agent-awareness/localAgentActivityTransitions.test.ts apps/mobile/src/lib/mobileTheme.test.ts
+          vp test run apps/mobile/src/features/background-connection apps/mobile/src/features/agent-awareness/androidNotifications.test.ts apps/mobile/src/lib/mobileTheme.test.ts
       - name: Typecheck changed packages
         env:
           GOMEMLIMIT: 4GiB

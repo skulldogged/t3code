@@ -427,45 +427,4 @@ class AgentNotificationsTest {
     AgentNotifications.receive(context, message)
     assertEquals(2, manager.activeNotifications.size)
   }
-
-  @Test
-  fun localDirectActivityWorksWithoutRelayRegistrationAndClearsIndependently() {
-    AgentNotifications.clear(context)
-    AgentNotifications.configureLocalActivity(context, "t3code-preview", true)
-    AgentNotifications.publishLocalActivity(
-      context, "Working: direct thread", "Direct project · Working", "/threads/direct/thread", true
-    )
-    assertEquals(
-      "t3-agent-local-activity",
-      manager.activeNotifications.single().tag
-    )
-
-    assertEquals(
-      "t3code-preview://threads/direct/thread",
-      shadowOf(manager.activeNotifications.single().notification.contentIntent).savedIntent.dataString
-    )
-    // Relay pushes require an authenticated registration. Configuring that
-    // identity clears existing cards, after which both sources can publish.
-    AgentNotifications.configure(context, "device", "user", "t3code-preview", true)
-    AgentNotifications.receive(context, update("relay-work", true))
-    AgentNotifications.publishLocalActivity(
-      context, "Working: direct thread", "Direct project · Working", "/threads/direct/thread", true
-    )
-    assertTrue(manager.activeNotifications.any { it.tag == "t3-agent-local-activity" })
-    AgentNotifications.publishLocalActivity(context, "", "", "/", false)
-
-    assertTrue(manager.activeNotifications.any { it.tag == "t3-agent-activity" })
-    assertFalse(manager.activeNotifications.any { it.tag == "t3-agent-local-activity" })
-  }
-
-  @Test
-  fun disabledLocalActivityCancelsExistingCardAndSuppressesNewLocalAlerts() {
-    AgentNotifications.publishLocalActivity(context, "Working", "Project · Working", "/threads/a", true)
-    AgentNotifications.configureLocalActivity(context, "t3code-dev", false)
-    assertFalse(manager.activeNotifications.any { it.tag == "t3-agent-local-activity" })
-
-    AgentNotifications.publishLocalActivity(context, "Working", "Project · Working", "/threads/a", true)
-    AgentNotifications.publishLocalAlert(context, "Input required", "Project · Model", "/threads/a", "a")
-    assertTrue(manager.activeNotifications.isEmpty())
-  }
 }

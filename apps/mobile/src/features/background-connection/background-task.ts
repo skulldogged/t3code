@@ -6,7 +6,6 @@ import {
   setBackgroundConnectionRuntimeReady,
 } from "../../native/backgroundConnection";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { acquireLocalDirectAgentActivity } from "../agent-awareness/useLocalDirectAgentActivity";
 import { acquireBackgroundConnectionRoot } from "./background-root";
 
 let activeTask: Promise<void> | null = null;
@@ -42,7 +41,6 @@ async function runTask(): Promise<void> {
   }
   let relayAuth: ReturnType<typeof startBackgroundManagedRelayAuth> | null = null;
   let releaseRoot: (() => void) | null = null;
-  let releaseLocalActivity: (() => void) | null = null;
 
   try {
     if (hasStopBeenRequested) {
@@ -50,10 +48,9 @@ async function runTask(): Promise<void> {
     }
     relayAuth = startBackgroundManagedRelayAuth();
     releaseRoot = acquireBackgroundConnectionRoot(appAtomRegistry);
-    releaseLocalActivity = acquireLocalDirectAgentActivity(appAtomRegistry);
     // Relay authentication owns its own retry loop. Direct/Tailscale
-    // connections and agent notifications are fully operational once these
-    // leases are mounted, even if Clerk is slow or temporarily unavailable.
+    // connections are operational once these leases are mounted, even if
+    // Clerk is slow or temporarily unavailable.
     // Queued-message dispatch remains owned by the foreground React tree.
     setBackgroundConnectionRuntimeReady(true);
     await stopRequested;
@@ -63,7 +60,6 @@ async function runTask(): Promise<void> {
     // its bounded exponential restart ladder for bootstrap defects.
   } finally {
     bestEffortCleanup("root", releaseRoot);
-    bestEffortCleanup("local agent activity", releaseLocalActivity);
     bestEffortCleanup("relay authentication", () => relayAuth?.stop());
     bestEffortCleanup("stop listener", () => stopSubscription.remove());
     setBackgroundConnectionRuntimeReady(false);
