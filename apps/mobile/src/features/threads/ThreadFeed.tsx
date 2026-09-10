@@ -2,7 +2,10 @@ import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
+import {
+  isInternalThreadMessage,
+  resolveUserMessagePresentation,
+} from "@t3tools/client-runtime/user-message";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import {
   ThreadId,
@@ -1591,6 +1594,17 @@ function renderFeedEntry(
       props.terminalAssistantMessageIds.has(message.id) &&
       !assistantTurnStillInProgress &&
       !message.streaming;
+
+    if (isInternalThreadMessage(message)) {
+      return (
+        <View className="mb-3 gap-1 px-1 py-1">
+          <Text className="font-t3-medium text-xs text-foreground-muted">Agent update</Text>
+          <Text selectable className="text-xs text-foreground-muted">
+            {presentation.text}
+          </Text>
+        </View>
+      );
+    }
 
     if (isUser) {
       const enterAnimated = isFreshTimestamp(message.createdAt);
