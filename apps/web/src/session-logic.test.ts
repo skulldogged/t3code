@@ -939,6 +939,24 @@ describe("native provider presentation in the v2 timeline", () => {
     expect(workEntryIndicatesToolSuccess(entry.entry)).toBe(false);
   });
 
+  it("retains Claude Read image previews without tool output", () => {
+    const item = {
+      ...base,
+      type: "dynamic_tool" as const,
+      toolName: "Read",
+      input: { file_path: "/workspace/reference.png" },
+      viewedImagePath: "/workspace/reference.png",
+    } satisfies OrchestrationV2TurnItem;
+    const [entry] = deriveTimelineEntriesFromVisibleTurnItems({
+      visibleTurnItems: [visible(item)],
+      optimisticMessages: [],
+    });
+    expect(entry).toMatchObject({
+      kind: "work",
+      entry: { viewedImagePath: "/workspace/reference.png" },
+    });
+  });
+
   it("keeps browser identity and its source on a completed tool row", () => {
     const item = {
       ...base,
@@ -1408,4 +1426,64 @@ describe("image asset requests", () => {
     expect(displayed.attachments?.[0]).toMatchObject({ previewUrl: "https://server.test/image" });
     expect(row(released, () => undefined)).toBe(message);
   });
+});
+
+it("renders automatic completion as a work entry instead of a user bubble", () => {
+  const now = DateTime.makeUnsafe("2026-09-09T00:00:00Z");
+  const item = {
+    id: TurnItemId.make("wake-item"),
+    threadId: ThreadId.make("parent"),
+    runId: RunId.make("wake-run"),
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 0,
+    status: "completed" as const,
+    title: null,
+    startedAt: now,
+    completedAt: now,
+    updatedAt: now,
+    type: "notification" as const,
+    source: { kind: "delegated_task" as const, taskIds: [NodeId.make("task-1")] },
+    outcome: "unknown" as const,
+    summary: "Delegated task finished",
+  };
+  const row = {
+    item,
+    position: 0,
+    visibility: "local" as const,
+    sourceThreadId: item.threadId,
+    sourceItemId: item.id,
+  };
+  const entries = deriveTimelineEntriesFromVisibleTurnItems({
+    optimisticMessages: [],
+    visibleTurnItems: [row],
+  });
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({
+    kind: "work",
+    entry: { label: "Delegated task finished", tone: "info", projectedItem: row },
+  });
+  expect(
+    deriveTimelineEntriesFromVisibleTurnItems({
+      optimisticMessages: [],
+      visibleTurnItems: [
+        {
+          ...row,
+          item: {
+            ...item,
+            type: "user_message",
+            messageId: MessageId.make("wake-message"),
+            createdBy: "agent" as const,
+            creationSource: "server" as const,
+            inputIntent: "turn_start" as const,
+            attachments: [],
+            text: "Delegated task node:task-1 reached a terminal state. Use task_status with taskId node:task-1 to read the result.",
+          },
+        },
+      ],
+    })[0]?.kind,
+  ).toBe("message");
 });

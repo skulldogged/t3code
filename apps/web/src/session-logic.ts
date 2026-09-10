@@ -433,8 +433,12 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
     case "file_change": {
       return {
         ...common,
-        label: title ?? `Changed ${item.fileName}`,
-        changedFiles: [item.fileName],
+        label:
+          title ??
+          (item.changes !== undefined && item.changes.length > 1
+            ? `Changed ${item.changes.length} files`
+            : `Changed ${item.fileName}`),
+        changedFiles: item.changes?.map((change) => change.path) ?? [item.fileName],
         toolTitle: title ?? "File change",
         toolData: item,
       };
@@ -565,6 +569,25 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
     const createdAt = projectedItemCreatedAt(row);
     const attempt = resolveAttempt(item);
     const attemptMetadata = attempt === undefined ? {} : { attempt };
+    if (item.type === "notification") {
+      entries.push({
+        id: item.id,
+        kind: "work",
+        createdAt,
+        entry: {
+          id: item.id,
+          createdAt,
+          runId: item.runId,
+          label: item.summary,
+          tone: "info",
+          itemType: item.type,
+          structuredPayload: item,
+          projectedItem: row,
+        },
+        ...attemptMetadata,
+      });
+      continue;
+    }
     if (item.type === "user_message" || item.type === "assistant_message") {
       const message: ChatMessage = {
         id: item.messageId,

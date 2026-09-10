@@ -156,7 +156,7 @@ export const make = Effect.gen(function* () {
     const groups = new Map<string, Array<LinkEntry>>();
     for (const thread of snapshot.threads) {
       if (thread.archivedAt !== null) continue;
-      for (const link of visibleThreadPullRequests(thread.pullRequests)) {
+      for (const link of visibleThreadPullRequests(thread.pullRequests ?? [])) {
         const key = threadPullRequestKeyOf(link);
         const entries = groups.get(key) ?? [];
         entries.push({ thread, link });
@@ -203,7 +203,9 @@ export const make = Effect.gen(function* () {
         if (linkedThisSweep.has(dedupeKey)) continue;
         // Tombstones count as present: a dismissed layer is never re-added.
         if (
-          thread.pullRequests.some((existing) => threadPullRequestKeysEqual(existing, layerKey))
+          (thread.pullRequests ?? []).some((existing) =>
+            threadPullRequestKeysEqual(existing, layerKey),
+          )
         ) {
           continue;
         }

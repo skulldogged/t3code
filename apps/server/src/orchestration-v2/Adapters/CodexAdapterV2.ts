@@ -284,6 +284,9 @@ export const CodexProviderCapabilitiesV2 = {
     nativeItemIds: "strong",
     nativeRequestIds: "strong",
   },
+  runtimePolicy: {
+    enforcement: "native",
+  },
 } satisfies OrchestrationV2ProviderCapabilities;
 
 function toProtocolError(detail: string, payload?: unknown): ProviderAdapterProtocolError {
@@ -643,6 +646,7 @@ export function buildCodexTurnStartParams(input: {
   readonly modelSelection: ModelSelection;
   readonly hasT3Mcp?: boolean;
   readonly browserToolsAvailable?: boolean;
+  readonly deviceToolsAvailable?: boolean;
 }) {
   return Effect.gen(function* () {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
@@ -670,7 +674,10 @@ export function buildCodexTurnStartParams(input: {
               model: input.modelSelection.model,
               reasoningEffort: effort ?? "medium",
             },
-            input.browserToolsAvailable ?? true,
+            {
+              browser: input.browserToolsAvailable ?? true,
+              device: input.deviceToolsAvailable ?? false,
+            },
           );
     const collaborationMode: CodexSchema.ClientRequest__CollaborationMode | undefined =
       input.runtimePolicy.interactionMode !== "plan" && developerInstructions === undefined
@@ -857,7 +864,7 @@ export const resolveCodexRollbackTurnCount = Effect.fn("CodexAdapterV2.resolveRo
   },
 );
 
-export function parseCodexRetryProgress(
+function parseCodexRetryProgress(
   message: string,
 ): Pick<OrchestrationV2ProviderRetry, "attempt" | "maxAttempts"> | null {
   const match = /\b(\d+)\s*\/\s*(\d+)\b/u.exec(message);
@@ -1231,7 +1238,7 @@ export const makeCodexAppServerSpawnCommand = Effect.fn(
   });
 });
 
-export const makeCodexAppServerClientFactoryCommandLayer = (
+const makeCodexAppServerClientFactoryCommandLayer = (
   options: CodexClient.CodexAppServerClientOptions & {
     readonly command: string;
     readonly args?: ReadonlyArray<string>;
@@ -1300,7 +1307,7 @@ export function makeCodexAppServerProtocolLogger(input: {
   };
 }
 
-export function redactCodexProtocolValue(value: unknown): unknown {
+function redactCodexProtocolValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(redactCodexProtocolValue);
   }
@@ -1461,7 +1468,7 @@ export const CodexAdapterV2Driver: ProviderAdapterDriver<CodexSettings, CodexAda
   create: createCodexAdapterV2,
 };
 
-export const layer: Layer.Layer<
+const layer: Layer.Layer<
   ProviderAdapterV2,
   never,
   CodexAppServerClientFactory | FileSystem.FileSystem | IdAllocatorV2 | ServerConfig
@@ -3829,6 +3836,20 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                       providerThreadId: context.providerThread.id,
                       driver: CODEX_PROVIDER,
                       detail: codexBackgroundCommandDetail(payload.item),
+                      notification: {
+                        source: { kind: "background_command" },
+                        outcome:
+                          payload.item.exitCode === 0
+                            ? "completed"
+                            : payload.item.exitCode == null
+                              ? "unknown"
+                              : "failed",
+                        summary:
+                          payload.item.exitCode == null || payload.item.exitCode === 0
+                            ? "Background command finished"
+                            : `Background command exited with code ${payload.item.exitCode}`,
+                        detail: payload.item.command,
+                      },
                     });
                   }
                 }
@@ -4991,6 +5012,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 modelSelection: turnInput.modelSelection,
                 hasT3Mcp: mcpSession !== undefined,
                 browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
+                deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
               });
               yield* Ref.update(pendingRootTurns, (current) => {
                 const updated = new Map(current);

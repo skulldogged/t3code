@@ -1,3 +1,4 @@
+import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { normalizeClaudeTurnTokenUsage } from "../../provider/ClaudeTurnTokenUsage.ts";
 import {
   type CanUseTool,
@@ -184,8 +185,7 @@ export function claudeProviderTurnTokenUsage(
     updatedAt,
   };
 }
-export const CLAUDE_DRIVER_KIND = CLAUDE_PROVIDER;
-export const CLAUDE_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(CLAUDE_DRIVER_KIND);
+export const CLAUDE_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(CLAUDE_PROVIDER);
 const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
 
 export const ClaudeProviderCapabilitiesV2 = {
@@ -276,6 +276,9 @@ export const ClaudeProviderCapabilitiesV2 = {
     nativeTurnIds: "weak",
     nativeItemIds: "strong",
     nativeRequestIds: "strong",
+  },
+  runtimePolicy: {
+    enforcement: "native",
   },
 } satisfies OrchestrationV2ProviderCapabilities;
 
@@ -3129,6 +3132,16 @@ export function makeClaudeAdapterV2(
             | "completedAt"
             | "updatedAt"
           >;
+          const readPath = ["read", "read file"].includes(input.classification.normalizedName)
+            ? firstStringInputField(input.toolInput, ["file_path", "path"])?.trim()
+            : undefined;
+          const viewedImagePath =
+            readPath &&
+            readPath.length <= 4096 &&
+            !/[\r\n]/.test(readPath) &&
+            isWorkspaceImagePreviewPath(readPath)
+              ? readPath
+              : undefined;
           const itemType = input.classification.itemType;
           const webSearchPatterns = webSearchPatternsFromClaudeTool({
             toolInput: input.toolInput,
@@ -3165,6 +3178,7 @@ export function makeClaudeAdapterV2(
                       ...itemBase,
                       type: "dynamic_tool",
                       toolName: input.toolName,
+                      ...(viewedImagePath === undefined ? {} : { viewedImagePath }),
                       input: claudeNativeToolInputValue(input.toolInput),
                       ...(outputValue === undefined ? {} : { output: outputValue }),
                     };
@@ -6088,7 +6102,7 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       Effect.mapError(
         (cause) =>
           new ProviderAdapterDriverCreateError({
-            driver: CLAUDE_DRIVER_KIND,
+            driver: CLAUDE_PROVIDER,
             instanceId: input.instanceId,
             detail: "Failed to create Claude Agent SDK adapter.",
             cause,
@@ -6101,7 +6115,7 @@ export const ClaudeAdapterV2Driver: ProviderAdapterDriver<
   ClaudeSettings,
   ClaudeAdapterV2DriverEnv
 > = {
-  driverKind: CLAUDE_DRIVER_KIND,
+  driverKind: CLAUDE_PROVIDER,
   configSchema: ClaudeSettings,
   defaultConfig: (): ClaudeSettings => DEFAULT_CLAUDE_SETTINGS,
   create: (input) => createClaudeAdapterV2(input, {}),
@@ -6129,7 +6143,7 @@ const makeDefaultClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2.layer")(function* 
   });
 });
 
-export const layer: Layer.Layer<
+const layer: Layer.Layer<
   ProviderAdapterV2,
   never,
   ClaudeAgentSdkQueryRunner | FileSystem.FileSystem | IdAllocatorV2 | Path.Path | ServerConfig

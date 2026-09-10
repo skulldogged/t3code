@@ -64,10 +64,15 @@ export const linkCreatedPullRequest = <E>(input: {
 }): Effect.Effect<void, never, OrchestratorV2 | ProjectionSnapshotQuery.ProjectionSnapshotQuery> =>
   Effect.gen(function* () {
     const engine = yield* OrchestratorV2;
+
     const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-    const thread = yield* engine.getThreadShell(input.threadId);
-    if (thread === null) return;
-    const project = Option.getOrUndefined(yield* snapshots.getProjectShellById(thread.projectId));
+    const thread = yield* engine
+      .getThreadShell(input.threadId)
+      .pipe(Effect.map(Option.fromNullishOr));
+    if (Option.isNone(thread)) return;
+    const project = Option.getOrUndefined(
+      yield* snapshots.getProjectShellById(thread.value.projectId),
+    );
     const key = createdPullRequestKey(input.result, project);
     if (key === null) return;
     const commandId = yield* input.commandId;
@@ -83,6 +88,7 @@ export const linkCreatedPullRequest = <E>(input: {
         Effect.catchTag("OrchestratorDispatchError", (error) =>
           error.reason === "pull-request-already-linked" ? Effect.void : Effect.fail(error),
         ),
+        Effect.asVoid,
       );
   }).pipe(
     Effect.withSpan("linkCreatedPullRequest"),

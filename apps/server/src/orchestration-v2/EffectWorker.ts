@@ -182,9 +182,28 @@ export const executorLayer: Layer.Layer<
                 messageId: effect.request.messageId,
               })
               .pipe(
+                Effect.tap(() =>
+                  Effect.gen(function* () {
+                    if (effect.request.type !== "provider-turn.steer") return;
+                    const messageId = effect.request.messageId;
+                    const projection = yield* threads.getThreadProjection(effect.threadId);
+                    const message = projection.messages.find((row) => row.id === messageId);
+                    if (message?.delegatedCompletion === undefined) return;
+                    yield* threads.dispatch({
+                      type: "notification.delivery.accept",
+                      commandId: CommandId.make(`command:mailbox-accepted:${effect.id}`),
+                      threadId: effect.threadId,
+                      messageId: message.id,
+                    });
+                  }),
+                ),
                 Effect.catch((error) =>
                   Effect.gen(function* () {
-                    if (!error.turnCompleted || effect.request.type !== "provider-turn.steer") {
+                    if (
+                      !("turnCompleted" in error) ||
+                      !error.turnCompleted ||
+                      effect.request.type !== "provider-turn.steer"
+                    ) {
                       return yield* error;
                     }
                     const projection = yield* threads.getThreadProjection(effect.threadId);
@@ -202,9 +221,20 @@ export const executorLayer: Layer.Layer<
                       text: message.text,
                       attachments: message.attachments,
                       modelSelection: run.modelSelection,
-                      dispatchMode: { type: "start_immediately" },
+                      dispatchMode: {
+                        type:
+                          message.delegatedCompletion === undefined
+                            ? "start_immediately"
+                            : "queue_after_active",
+                      },
                       createdBy: message.createdBy,
                       creationSource: message.creationSource,
+                      ...(message.delegatedCompletion === undefined
+                        ? {}
+                        : { delegatedCompletion: message.delegatedCompletion }),
+                      ...(message.notification === undefined
+                        ? {}
+                        : { notification: message.notification }),
                       ...(message.scheduledTaskId === undefined
                         ? {}
                         : { scheduledTaskId: message.scheduledTaskId }),
@@ -649,8 +679,8 @@ export interface OrchestrationEffectDaemonOptions {
   readonly livenessPollIntervalMs?: number;
 }
 
-export const DEFAULT_EFFECT_WORKER_CONCURRENCY = 4;
-export const DEFAULT_EFFECT_WORKER_LIVENESS_POLL_INTERVAL_MS = 30_000;
+const DEFAULT_EFFECT_WORKER_CONCURRENCY = 4;
+const DEFAULT_EFFECT_WORKER_LIVENESS_POLL_INTERVAL_MS = 30_000;
 
 export const runDaemonWithOptions = (options: OrchestrationEffectDaemonOptions = {}) =>
   Effect.scoped(
@@ -725,5 +755,6 @@ export const runDaemonWithOptions = (options: OrchestrationEffectDaemonOptions =
 
 export const runDaemon = runDaemonWithOptions();
 
-export const daemonLayer: Layer.Layer<never, never, OrchestrationEffectWorkerV2> =
-  Layer.effectDiscard(runDaemon.pipe(Effect.forkScoped));
+const daemonLayer: Layer.Layer<never, never, OrchestrationEffectWorkerV2> = Layer.effectDiscard(
+  runDaemon.pipe(Effect.forkScoped),
+);

@@ -1,3 +1,4 @@
+import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import {
   ChatAttachment,
   DEFAULT_MODEL,
@@ -51,6 +52,7 @@ interface LegacyThreadRow {
   readonly snoozed_at: string | null;
   readonly pinned_at: string | null;
   readonly pin_order_key: string | null;
+  readonly pull_requests_json: string;
   readonly linked_pull_request_json: string | null;
   readonly branch_pull_request_json: string | null;
   readonly active_order_key: string | null;
@@ -125,6 +127,7 @@ export class LegacyV1ThreadImporter extends Context.Service<
 
 const decodeModelSelection = Schema.decodeUnknownOption(ModelSelection);
 const decodeAttachments = Schema.decodeUnknownOption(Schema.Array(ChatAttachment));
+const decodePullRequests = Schema.decodeUnknownOption(Schema.Array(ThreadPullRequestLink));
 const decodeLinkedPullRequest = Schema.decodeUnknownOption(ThreadLinkedPullRequest);
 const decodePullRequestLink = Schema.decodeUnknownOption(ThreadPullRequestLink);
 const decodeStoredThread = Schema.decodeUnknownOption(
@@ -210,12 +213,15 @@ function nullableDateTime(value: string | null): DateTime.Utc | null {
 
 function importedThread(
   row: LegacyThreadRow,
-  pullRequests: OrchestrationV2AppThread["pullRequests"] = [],
+  suppliedPullRequests?: OrchestrationV2AppThread["pullRequests"],
 ): OrchestrationV2AppThread {
   const threadId = ThreadId.make(row.thread_id);
   const modelSelection = modelSelectionFor(row);
   const branch = row.branch?.trim() || null;
   const worktreePath = row.worktree_path?.trim() || null;
+  const pullRequests =
+    suppliedPullRequests ??
+    Option.getOrElse(decodePullRequests(parseJson(row.pull_requests_json)), () => []);
   return {
     createdBy: "system",
     creationSource: "server",
@@ -228,8 +234,11 @@ function importedThread(
     interactionMode: interactionModeFor(row.interaction_mode),
     branch,
     worktreePath,
-    pullRequests,
     linkedPullRequest: linkedPullRequestFor(row),
+    pullRequests:
+      pullRequests.length > 0
+        ? pullRequests
+        : threadPullRequestsOf({ linkedPullRequest: linkedPullRequestFor(row) }),
     branchPullRequest: branchPullRequestFor(row),
     activeOrderKey: row.active_order_key?.trim() || null,
     activeProviderThreadId: null,
@@ -460,6 +469,7 @@ const make = Effect.gen(function* () {
         thread.snoozed_at,
         thread.pinned_at,
         thread.pin_order_key,
+        (SELECT json_group_array(json_object('host', pr.host, 'repository', pr.repository, 'number', pr.number, 'url', pr.url, 'source', pr.source, 'linkedAt', pr.linked_at, 'snapshot', json(pr.snapshot_json), 'stack', json(pr.stack_json))) FROM projection_thread_pull_requests pr WHERE pr.thread_id = thread.thread_id) AS pull_requests_json,
         thread.linked_pull_request_json,
         thread.branch_pull_request_json,
         thread.active_order_key,
@@ -543,6 +553,7 @@ const make = Effect.gen(function* () {
         thread.snoozed_at,
         thread.pinned_at,
         thread.pin_order_key,
+        (SELECT json_group_array(json_object('host', pr.host, 'repository', pr.repository, 'number', pr.number, 'url', pr.url, 'source', pr.source, 'linkedAt', pr.linked_at, 'snapshot', json(pr.snapshot_json), 'stack', json(pr.stack_json))) FROM projection_thread_pull_requests pr WHERE pr.thread_id = thread.thread_id) AS pull_requests_json,
         thread.linked_pull_request_json,
         thread.branch_pull_request_json,
         thread.active_order_key,

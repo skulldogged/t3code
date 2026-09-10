@@ -6,16 +6,14 @@ import {
   ThreadLinkedPullRequest,
   UserInputRequestedPayload,
   isImportedAgentSessionMessageId,
+  type OrchestrationCommand,
+  type OrchestrationEvent,
+  type OrchestrationReadModel,
+  type OrchestrationThread,
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
+  type OrchestrationThreadActivity,
 } from "@t3tools/contracts";
-import type {
-  OrchestrationCommand,
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  OrchestrationThread,
-  OrchestrationThreadActivity,
-} from "@t3tools/contracts/legacy-orchestration";
 import {
   legacyLinkedPullRequestOf,
   legacyThreadPullRequestKey,

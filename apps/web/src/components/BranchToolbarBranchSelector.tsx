@@ -770,20 +770,19 @@ export function BranchToolbarBranchSelector({
           className,
         )}
       >
-        <ThreadPullRequestBadgeControl
-          variant="ghost"
-          badge={prBadge}
-          number={prNumber}
-          url={prUrl}
-          status={displayedPrStatus}
-          onOpenStack={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
-          onOpenPullRequest={(event) => {
-            if (prUrl) openPrLink(event, prUrl);
-          }}
-        />
-        {/* Context menu lives on the wrapper: the disabled Button has
-            pointer-events-none, so the trigger itself never sees right-clicks
-            while refs are loading or a branch action is pending. */}
+        {displayMode !== "panel" ? (
+          <ThreadPullRequestBadgeControl
+            variant="ghost"
+            badge={prBadge}
+            number={prNumber}
+            url={prUrl}
+            status={displayedPrStatus}
+            onOpenStack={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
+            onOpenPullRequest={(event) => {
+              if (prUrl) openPrLink(event, prUrl);
+            }}
+          />
+        ) : null}
         <span
           className="flex min-w-0"
           onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
@@ -827,15 +826,15 @@ export function BranchToolbarBranchSelector({
             )}
           </ComboboxTrigger>
         </span>
-        {displayMode === "panel" && branchPr && branchPrStatus ? (
+        {displayMode === "panel" && branchPr && displayedPrStatus ? (
           <ThreadDetailsPrRow
             environmentId={environmentId}
             pr={branchPr}
-            status={branchPrStatus}
+            status={displayedPrStatus}
             project={activeProject}
             label={panelPrLabel}
-            openAriaLabel={branchPrTooltip}
-            onOpen={(event) => openPrLink(event, branchPrStatus.url)}
+            openAriaLabel={prUrl ?? "Open pull request"}
+            onOpen={(event) => openPrLink(event, displayedPrStatus.url)}
             onActed={() => branchStatusQuery.refresh()}
           />
         ) : null}

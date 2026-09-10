@@ -21,6 +21,16 @@ import {
 } from "./serverSettings.ts";
 
 describe("serverSettings helpers", () => {
+  it("replaces SSH host lists when saving, editing, and removing hosts", () => {
+    const host = { id: "mini", label: "Mac mini", target: "mini" };
+    const saved = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, { deviceHosts: [host] });
+    expect(saved.deviceHosts).toEqual([host]);
+    const replacement = { ...host, target: "other-mini" };
+    const edited = applyServerSettingsPatch(saved, { deviceHosts: [replacement] });
+    expect(edited.deviceHosts).toEqual([replacement]);
+    expect(applyServerSettingsPatch(edited, { deviceHosts: [] }).deviceHosts).toEqual([]);
+  });
+
   it("inherits actions, preserves existing actions, and supports empty overrides and reset", () => {
     const project = { id: ProjectId.make("project-actions"), scripts: [] };
     const action = {
@@ -419,6 +429,41 @@ describe("serverSettings helpers", () => {
     } satisfies ServerProvider;
 
     expect(resolveSourceControlWriterModelSelection(settings, [unavailableProvider])).toBe(
+      settings.textGenerationModelSelection,
+    );
+    expect(settings.sourceControlWriterModelSelection).toBe(sourceControlWriterModelSelection);
+  });
+
+  it("falls back from a writer provider that cannot generate application text", () => {
+    const instanceId = ProviderInstanceId.make("acp_writer");
+    const sourceControlWriterModelSelection = createModelSelection(instanceId, "default");
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [instanceId]: {
+          driver: ProviderDriverKind.make("acpRegistry"),
+          enabled: true,
+          config: {},
+        },
+      },
+      sourceControlWriterModelSelection,
+    };
+    const incapableProvider = {
+      instanceId,
+      driver: ProviderDriverKind.make("acpRegistry"),
+      supportsTextGeneration: false,
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-07-27T00:00:00.000Z",
+      models: [],
+      slashCommands: [],
+      skills: [],
+    } satisfies ServerProvider;
+
+    expect(resolveSourceControlWriterModelSelection(settings, [incapableProvider])).toBe(
       settings.textGenerationModelSelection,
     );
     expect(settings.sourceControlWriterModelSelection).toBe(sourceControlWriterModelSelection);

@@ -597,6 +597,7 @@ describe("vcsActionState", () => {
           targetKey,
           interruptedActionId,
         );
+        const rpcInputs = new Array<GitRunStackedActionInput>();
         const client = {
           [WS_METHODS.gitRunStackedAction]: (input: GitRunStackedActionInput) =>
             (rpcInputs.push(input), input.actionId === successfulTransportActionId)

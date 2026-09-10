@@ -1,12 +1,11 @@
-import * as Stream from "effect/Stream";
 import {
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type OrchestrationV2Command,
+  type OrchestrationV2Command as OrchestrationCommand,
   type OrchestrationProjectShell,
-  type OrchestrationV2ThreadShell,
+  type OrchestrationThreadShell,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
@@ -15,14 +14,16 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import * as DateTime from "effect/DateTime";
+import * as Stream from "effect/Stream";
 import type { Tool } from "effect/unstable/ai";
 
-import { OrchestratorDispatchError } from "../../../orchestration-v2/Orchestrator.ts";
+import { OrchestrationCommandInvariantError } from "../../../orchestration/Errors.ts";
 import {
   OrchestratorV2,
   type OrchestratorV2Shape,
+  OrchestratorDispatchError,
 } from "../../../orchestration-v2/Orchestrator.ts";
+import { v2PullRequestThread } from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { listThreadPullRequests, PullRequestsToolkitHandlersLive } from "./handlers.ts";
@@ -73,41 +74,27 @@ function makeProject(
   };
 }
 
-function makeThread(
-  pullRequests: ReadonlyArray<ThreadPullRequestLink>,
-): OrchestrationV2ThreadShell {
+function makeThread(pullRequests: ReadonlyArray<ThreadPullRequestLink>): OrchestrationThreadShell {
   return {
     id: THREAD_ID,
     projectId: PROJECT_ID,
     title: "Thread",
-    providerInstanceId: ProviderInstanceId.make("codex"),
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: null,
     worktreePath: null,
     pullRequests,
-    lineage: { rootThreadId: THREAD_ID, parentThreadId: null, relationshipToParent: null },
-    forkedFrom: null,
-    createdBy: "user",
-    creationSource: "web",
-    activeProviderThreadId: null,
-    latestRunId: null,
-    activeRunId: null,
-    status: "idle",
-    pendingRuntimeRequest: null,
-    latestVisibleMessage: null,
-    itemCount: 0,
-    visibleItemCount: 0,
-    deletedAt: null,
-    createdAt: DateTime.makeUnsafe("2026-08-01T00:00:00.000Z"),
-    updatedAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
+    latestTurn: null,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-20T00:00:00.000Z",
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
-
-    latestUserMessageAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
-
+    session: null,
+    latestUserMessageAt: "2026-08-20T00:00:00.000Z",
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
     hasActionableProposedPlan: false,
   };
 }
@@ -145,30 +132,38 @@ function makeLink(
 }
 
 interface HarnessOptions {
-  readonly thread?: OrchestrationV2ThreadShell | null;
+  readonly thread?: OrchestrationThreadShell | null;
   readonly project?: OrchestrationProjectShell | null;
-  readonly reject?: (command: OrchestrationV2Command) => OrchestratorDispatchError | null;
+  readonly reject?: (command: OrchestrationCommand) => OrchestrationCommandInvariantError | null;
 }
 
 const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
   options: HarnessOptions = {},
 ) {
-  const commands = yield* Ref.make<ReadonlyArray<OrchestrationV2Command>>([]);
+  const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
   const thread = options.thread === undefined ? makeThread([]) : options.thread;
   const project = options.project === undefined ? makeProject() : options.project;
   const dispatch: OrchestratorV2Shape["dispatch"] = (command) =>
     Effect.gen(function* () {
       const rejection = options.reject?.(command) ?? null;
-      if (rejection !== null) return yield* rejection;
+      if (rejection !== null)
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: rejection,
+        });
       yield* Ref.update(commands, (recorded) => [...recorded, command]);
       return { sequence: 1, storedEvents: [] };
     });
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
+      getThreadShellById: (threadId) =>
+        Effect.succeed(threadId === THREAD_ID ? Option.fromNullishOr(thread) : Option.none()),
       getProjectShellById: () => Effect.succeed(Option.fromNullishOr(project)),
     }),
     Layer.mock(OrchestratorV2)({
-      getThreadShell: () => Effect.succeed(thread),
+      getThreadShell: (id) =>
+        Effect.succeed(id === THREAD_ID && thread ? v2PullRequestThread(thread) : null),
       dispatch,
     }),
     Layer.succeed(Crypto.Crypto, testCrypto),
@@ -300,10 +295,9 @@ describe("pull request toolkit handlers", () => {
         thread: makeThread([makeLink(123)]),
         reject: (command) =>
           command.type === "thread.pull-request.link"
-            ? new OrchestratorDispatchError({
+            ? new OrchestrationCommandInvariantError({
                 commandType: command.type,
-                commandId: command.commandId,
-                reason: "pull-request-already-linked",
+                detail: "already linked",
               })
             : null,
       });
@@ -320,10 +314,9 @@ describe("pull request toolkit handlers", () => {
         thread: makeThread([makeLink(5)]),
         reject: (command) =>
           command.type === "thread.pull-request.unlink" && command.number !== 5
-            ? new OrchestratorDispatchError({
+            ? new OrchestrationCommandInvariantError({
                 commandType: command.type,
-                commandId: command.commandId,
-                reason: "pull-request-not-linked",
+                detail: "not linked",
               })
             : null,
       });

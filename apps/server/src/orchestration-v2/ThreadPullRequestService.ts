@@ -29,7 +29,7 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import { forkParked } from "../serverActivation.ts";
 import { OrchestratorV2 } from "./Orchestrator.ts";
 
-export class ThreadPullRequestServiceV2 extends Context.Service<
+class ThreadPullRequestServiceV2 extends Context.Service<
   ThreadPullRequestServiceV2,
   {
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
@@ -37,7 +37,7 @@ export class ThreadPullRequestServiceV2 extends Context.Service<
   }
 >()("t3/orchestration-v2/ThreadPullRequestService/ThreadPullRequestServiceV2") {}
 
-export function samePullRequest(
+function samePullRequest(
   left: ThreadLinkedPullRequest | null | undefined,
   right: ThreadLinkedPullRequest | null,
 ): boolean {
@@ -71,7 +71,7 @@ export function projectWorkspaceMatchesSnapshot(
   );
 }
 
-export const BACKFILL_ATTEMPTS = 5;
+const BACKFILL_ATTEMPTS = 5;
 
 interface RefreshRequest {
   readonly threadId: ThreadId | null;
@@ -190,7 +190,7 @@ export const make = Effect.gen(function* () {
 
               let replacement: ThreadLinkedPullRequest | undefined;
               if (
-                thread.pullRequests.length === 0 &&
+                (thread.pullRequests ?? []).length === 0 &&
                 thread.linkedPullRequest != null &&
                 detected?.state === "open" &&
                 detectedReference !== null &&
@@ -357,4 +357,4 @@ export const make = Effect.gen(function* () {
   return { start, drain: worker.drain } satisfies ThreadPullRequestServiceV2["Service"];
 });
 
-export const layer = Layer.effect(ThreadPullRequestServiceV2, make);
+const layer = Layer.effect(ThreadPullRequestServiceV2, make);

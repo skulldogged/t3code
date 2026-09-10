@@ -3,10 +3,10 @@ import {
   ProviderInstanceId,
   PullRequestOperationError,
   ThreadId,
-  type OrchestrationV2Command,
+  type OrchestrationV2Command as OrchestrationCommand,
   type OrchestrationProjectShell,
-  type OrchestrationV2ShellSnapshot,
-  type OrchestrationV2ThreadShell,
+  type OrchestrationShellSnapshot,
+  type OrchestrationThreadShell,
   type PullRequestRef,
   type PullRequestStack,
   type PullRequestSummary,
@@ -15,7 +15,6 @@ import {
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
-import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -26,16 +25,18 @@ import { TestClock } from "effect/testing";
 import { PullRequestService } from "../pullRequest/PullRequestService.ts";
 import { ServerActivation } from "../serverActivation.ts";
 import { OrchestratorV2, type OrchestratorV2Shape } from "../orchestration-v2/Orchestrator.ts";
+import { v2PullRequestThread } from "../orchestration-v2/testkit/pullRequestFixtures.ts";
+import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 import * as PullRequestSyncReactor from "./PullRequestSyncReactor.ts";
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("sync-project");
 
 type SyncCommand = Extract<
-  OrchestrationV2Command,
+  OrchestrationCommand,
   { readonly type: "thread.pull-request-link.sync" }
 >;
-type LinkCommand = Extract<OrchestrationV2Command, { readonly type: "thread.pull-request.link" }>;
+type LinkCommand = Extract<OrchestrationCommand, { readonly type: "thread.pull-request.link" }>;
 
 const testCrypto = Crypto.make({
   randomBytes: (size) => new Uint8Array(size).fill(1),
@@ -56,13 +57,12 @@ function makeProject(id: ProjectId = PROJECT_ID): OrchestrationProjectShell {
 
 function makeThread(
   id: string,
-  overrides: Partial<OrchestrationV2ThreadShell> = {},
-): OrchestrationV2ThreadShell {
+  overrides: Partial<OrchestrationThreadShell> = {},
+): OrchestrationThreadShell {
   return {
     id: ThreadId.make(id),
     projectId: PROJECT_ID,
     title: id,
-    providerInstanceId: ProviderInstanceId.make("codex"),
     modelSelection: {
       instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5",
@@ -71,27 +71,18 @@ function makeThread(
     interactionMode: "default",
     branch: null,
     worktreePath: null,
-    lineage: { rootThreadId: ThreadId.make(id), parentThreadId: null, relationshipToParent: null },
-    forkedFrom: null,
-    createdBy: "user",
-    creationSource: "web",
-    activeProviderThreadId: null,
     pullRequests: [],
-    latestRunId: null,
-    activeRunId: null,
-    status: "idle",
-    pendingRuntimeRequest: null,
-    latestVisibleMessage: null,
-    latestUserMessageAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
-    hasActionableProposedPlan: false,
-    itemCount: 0,
-    visibleItemCount: 0,
-    createdAt: DateTime.makeUnsafe("2026-08-01T00:00:00.000Z"),
-    updatedAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
+    latestTurn: null,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-20T00:00:00.000Z",
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
-    deletedAt: null,
+    session: null,
+    latestUserMessageAt: "2026-08-20T00:00:00.000Z",
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
     ...overrides,
   };
 }
@@ -127,15 +118,14 @@ function makeLink(
 }
 
 function makeSnapshot(
-  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  threads: ReadonlyArray<OrchestrationThreadShell>,
   snapshotSequence = 1,
-): OrchestrationV2ShellSnapshot {
+): OrchestrationShellSnapshot {
   return {
-    schemaVersion: 1,
     snapshotSequence,
     projects: [makeProject()],
     threads,
-    archivedThreads: [],
+    updatedAt: NOW,
   };
 }
 
@@ -160,7 +150,7 @@ function makeSummary(
 
 interface HarnessOptions {
   readonly invalidate?: PullRequestService["Service"]["invalidate"];
-  readonly snapshot: OrchestrationV2ShellSnapshot;
+  readonly snapshot: OrchestrationShellSnapshot;
   readonly summary?: (
     input: PullRequestRef,
   ) => Effect.Effect<PullRequestSummary, PullRequestOperationError>;
@@ -207,6 +197,7 @@ const makeHarness = Effect.fn("makePullRequestSyncHarness")(function* (options: 
   };
 
   const dependencies = Layer.mergeAll(
+    Layer.mock(ProjectionSnapshotQuery)({}),
     Layer.mock(PullRequestService)({
       summary,
       stack,
@@ -214,7 +205,15 @@ const makeHarness = Effect.fn("makePullRequestSyncHarness")(function* (options: 
     }),
     Layer.mock(OrchestratorV2)({
       getShellSnapshot: () =>
-        Queue.offer(snapshotReads, undefined).pipe(Effect.andThen(Ref.get(snapshots))),
+        Queue.offer(snapshotReads, undefined).pipe(
+          Effect.andThen(Ref.get(snapshots)),
+          Effect.map((snapshot) => ({
+            schemaVersion: 2,
+            snapshotSequence: snapshot.snapshotSequence,
+            threads: snapshot.threads.map(v2PullRequestThread),
+            archivedThreads: [],
+          })),
+        ),
       dispatch,
     }),
     Layer.succeed(ServerActivation, Deferred.await(activation)),
@@ -255,9 +254,9 @@ const sweepAgain = Effect.fn("sweepPullRequestSyncHarness")(function* (
 
 /** What the reactor would have persisted, so the next sweep sees its own writes. */
 function applySync(
-  snapshot: OrchestrationV2ShellSnapshot,
+  snapshot: OrchestrationShellSnapshot,
   commands: ReadonlyArray<SyncCommand>,
-): OrchestrationV2ShellSnapshot {
+): OrchestrationShellSnapshot {
   return {
     ...snapshot,
     snapshotSequence: snapshot.snapshotSequence + 1,
@@ -599,7 +598,7 @@ describe("PullRequestSyncReactor", () => {
           snapshot: makeSnapshot([
             makeThread("settled", {
               settledOverride: "settled",
-              settledAt: DateTime.makeUnsafe("2026-08-21T00:00:00.000Z"),
+              settledAt: "2026-08-21T00:00:00.000Z",
               pullRequests: [makeLink(5, { state: "open" })],
             }),
           ]),

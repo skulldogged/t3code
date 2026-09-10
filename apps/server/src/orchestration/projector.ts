@@ -1,16 +1,14 @@
 import type {
+  OrchestrationEvent,
+  OrchestrationProject,
+  OrchestrationReadModel,
   ThreadId,
   ThreadLinkedPullRequest,
   ThreadPullRequestKey,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { isImportedAgentSessionMessageId } from "@t3tools/contracts";
-import type {
-  OrchestrationEvent,
-  OrchestrationProject,
-  OrchestrationReadModel,
-} from "@t3tools/contracts/legacy-orchestration";
 import {
+  isImportedAgentSessionMessageId,
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,

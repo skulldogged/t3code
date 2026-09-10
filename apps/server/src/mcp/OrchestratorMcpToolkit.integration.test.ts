@@ -481,7 +481,12 @@ describe("orchestrator MCP toolkit", () => {
             makeDeterministicAdapter({
               instanceId: codexInstanceId,
               driver: ProviderDriverKind.make("codex"),
-              capabilities: CodexProviderCapabilitiesV2,
+              // Exercise queued completion ownership on a session without native steering.
+              // Native mailbox delivery and its completion races have dedicated integration tests.
+              capabilities: {
+                ...CodexProviderCapabilitiesV2,
+                turns: { ...CodexProviderCapabilitiesV2.turns, supportsActiveSteering: false },
+              },
               capturedTurns,
               shouldComplete: (turn) =>
                 turn.threadId !== parentThreadId && turn.message.text !== cancellationPrompt,
@@ -1106,7 +1111,7 @@ describe("orchestrator MCP toolkit", () => {
               runId: queuedUserRun.id,
             });
 
-            // A native in-place Steer keeps the parent active. Once the
+            // A user Steer keeps the parent run active. Once the
             // parent observes the child result, its queued delivery is stale.
             const steerRace = yield* queueAutomaticCompletion(
               "steer-race",
@@ -2733,6 +2738,22 @@ describe("orchestrator MCP toolkit", () => {
             if (activeSuccessorRun === undefined) {
               return yield* Effect.die(new Error("Late completion successor did not start."));
             }
+            expect(activeSuccessor.turnItems).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({
+                  type: "notification",
+                  runId: activeSuccessorRun.id,
+                  source: { kind: "delegated_task", taskIds: successorDelivery.taskIds },
+                  outcome: "cancelled",
+                }),
+              ]),
+            );
+            expect(
+              activeSuccessor.turnItems.some(
+                (item) =>
+                  item.type === "user_message" && item.messageId === successorDelivery.messageId,
+              ),
+            ).toBe(false);
             const thirdLateChildProjection = yield* waitForProjection(
               orchestrator,
               thirdLateTask.childThreadId,

@@ -4,6 +4,7 @@ import {
   scopedThreadKey,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
+
 import { pullRequestDetailToVcsStatus } from "@t3tools/client-runtime/state/pull-requests";
 import {
   resolveEnvironmentMachineKind,
@@ -28,6 +29,7 @@ import { parseChangeRequestUrl } from "../lib/openPullRequestLink";
 import { Atom } from "effect/unstable/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useProject } from "../state/entities";
+
 import { useEnvironmentQuery } from "../state/query";
 import { linkedPullRequestDetailAtom, useSharedPullRequestSummary } from "../state/pullRequests";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
@@ -41,11 +43,12 @@ import {
   useRetainedValue,
   useSidebarRowSubscriptionLease,
 } from "./Sidebar.logic";
+import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
+
 import type { SidebarThreadSummary } from "../types";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { pullRequestListLines } from "./pullRequest/pullRequestListLines";
-import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 
 export interface PrStatusIndicator {
   label: string;
@@ -168,6 +171,7 @@ export function ThreadPullRequestBadgeControl({
   onOpenPullRequest: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const isStack = badge?.kind === "stack";
+  const linkedCount = badge?.kind === "pull-request" && badge.others > 0 ? badge.others + 1 : null;
   if (!isStack && (number === undefined || url === undefined)) return null;
   const label = isStack
     ? `Stack of ${badge.layers} pull requests, ${badge.state}`
@@ -183,15 +187,16 @@ export function ThreadPullRequestBadgeControl({
     "text-xs tabular-nums",
     variant === "ghost" &&
       "font-normal text-xs! active:scale-100 [--control-icon-color:currentColor]",
-    isStack ? PR_STATE_COLOR_CLASS[badge.state] : (status?.colorClass ?? "text-muted-foreground"),
+    linkedCount !== null
+      ? "text-secondary-label"
+      : isStack
+        ? PR_STATE_COLOR_CLASS[badge.state]
+        : (status?.colorClass ?? "text-muted-foreground"),
   );
   const content = (
     <>
       <ThreadPullRequestBadgeIcon icon={badge?.kind ?? "pull-request"} />
-      {isStack ? badge.layers : number}
-      {badge?.kind === "pull-request" && badge.others > 0 ? (
-        <span className="opacity-70">+{badge.others}</span>
-      ) : null}
+      {isStack ? badge.layers : linkedCount !== null ? `+${linkedCount}` : number}
     </>
   );
   return (
@@ -841,9 +846,6 @@ export function ThreadRowLeadingStatus({
     pr === null && supportsMultiplePullRequests
       ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
       : null;
-  if (!prStatus && !threadStatus && !pendingLink) {
-    return null;
-  }
 
   return (
     <span

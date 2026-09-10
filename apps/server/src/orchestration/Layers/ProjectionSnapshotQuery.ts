@@ -2100,6 +2100,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   projects.find((project) => project.id === row.projectId)?.repositoryIdentity,
                 ),
                 branchPullRequest: row.branchPullRequest,
+                pullRequests: [],
+                ...(row.linkedPullRequest === null
+                  ? {}
+                  : { linkedPullRequest: row.linkedPullRequest }),
                 latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
@@ -2313,6 +2317,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   worktreePath: row.worktreePath,
                   pullRequests: [],
                   branchPullRequest: row.branchPullRequest,
+
                   ...(row.linkedPullRequest === null
                     ? {}
                     : { linkedPullRequest: row.linkedPullRequest }),
@@ -2454,6 +2459,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         worktreePath: row.worktreePath,
                         pullRequests: [],
                         branchPullRequest: row.branchPullRequest,
+
                         ...(row.linkedPullRequest === null
                           ? {}
                           : { linkedPullRequest: row.linkedPullRequest }),
@@ -2952,6 +2958,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         worktreePath: threadRow.value.worktreePath,
         pullRequests: [],
         branchPullRequest: threadRow.value.branchPullRequest,
+
         ...(threadRow.value.linkedPullRequest === null
           ? {}
           : { linkedPullRequest: threadRow.value.linkedPullRequest }),
@@ -3170,6 +3177,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         worktreePath: threadRow.value.worktreePath,
         ...mapThreadPullRequests(pullRequestRows.map(mapPullRequestRow), threadRow.value.projectId),
         branchPullRequest: threadRow.value.branchPullRequest,
+        pullRequests: [],
+        ...(threadRow.value.linkedPullRequest === null
+          ? {}
+          : { linkedPullRequest: threadRow.value.linkedPullRequest }),
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,

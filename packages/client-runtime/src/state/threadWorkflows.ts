@@ -95,7 +95,9 @@ export function deriveThreadQueueWorkflowState(projection: Projection): ThreadQu
       (turn) => turn.runAttemptId === activeRun.activeAttemptId && turn.status === "running",
     );
   const automaticCompletionMessageIds = new Set(
-    projection.messages.filter(isInternalThreadMessage).map((message) => message.id),
+    projection.messages
+      .filter((message) => message.notification !== undefined || isInternalThreadMessage(message))
+      .map((message) => message.id),
   );
   const queuedRuns = copySorted(
     projection.runs.filter(

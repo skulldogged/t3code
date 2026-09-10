@@ -4,19 +4,22 @@ import {
   ProviderInstanceId,
   ThreadId,
   type GitRunStackedActionResult,
-  type OrchestrationV2Command,
+  type OrchestrationV2Command as OrchestrationCommand,
   type OrchestrationProjectShell,
-  type OrchestrationV2ThreadShell,
+  type OrchestrationThreadShell,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import * as DateTime from "effect/DateTime";
 
-import { OrchestratorDispatchError } from "../orchestration-v2/Orchestrator.ts";
-import { OrchestratorV2, type OrchestratorV2Shape } from "../orchestration-v2/Orchestrator.ts";
+import {
+  OrchestratorV2,
+  type OrchestratorV2Shape,
+  OrchestratorDispatchError,
+} from "../orchestration-v2/Orchestrator.ts";
+import { v2PullRequestThread } from "../orchestration-v2/testkit/pullRequestFixtures.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { createdPullRequestKey, linkCreatedPullRequest } from "./linkCreatedPullRequest.ts";
 
@@ -46,38 +49,26 @@ const project: OrchestrationProjectShell = {
   updatedAt: "2026-08-01T00:00:00.000Z",
 };
 
-const thread: OrchestrationV2ThreadShell = {
+const thread: OrchestrationThreadShell = {
   id: THREAD_ID,
   projectId: PROJECT_ID,
   title: "Thread",
-  providerInstanceId: ProviderInstanceId.make("codex"),
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
   runtimeMode: "full-access",
   interactionMode: "default",
   branch: null,
   worktreePath: null,
   pullRequests: [],
-  lineage: { rootThreadId: THREAD_ID, parentThreadId: null, relationshipToParent: null },
-  forkedFrom: null,
-  createdBy: "user",
-  creationSource: "web",
-  activeProviderThreadId: null,
-  latestRunId: null,
-  activeRunId: null,
-  status: "idle",
-  pendingRuntimeRequest: null,
-  latestVisibleMessage: null,
-  itemCount: 0,
-  visibleItemCount: 0,
-  deletedAt: null,
-  createdAt: DateTime.makeUnsafe("2026-08-01T00:00:00.000Z"),
-  updatedAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
+  latestTurn: null,
+  createdAt: "2026-08-01T00:00:00.000Z",
+  updatedAt: "2026-08-20T00:00:00.000Z",
   archivedAt: null,
   settledOverride: null,
   settledAt: null,
-
-  latestUserMessageAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
-
+  session: null,
+  latestUserMessageAt: "2026-08-20T00:00:00.000Z",
+  hasPendingApprovals: false,
+  hasPendingUserInput: false,
   hasActionableProposedPlan: false,
 };
 
@@ -87,20 +78,21 @@ function prResult(pr: GitRunStackedActionResult["pr"]): Pick<GitRunStackedAction
 
 const makeDependencies = (
   dispatch: OrchestratorV2Shape["dispatch"],
-  threadShell: OrchestrationV2ThreadShell | null = thread,
+  threadShell: OrchestrationThreadShell | null = thread,
 ) =>
   Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
+      getThreadShellById: () => Effect.succeed(Option.fromNullishOr(threadShell)),
       getProjectShellById: () => Effect.succeed(Option.some(project)),
     }),
     Layer.mock(OrchestratorV2)({
-      getThreadShell: () => Effect.succeed(threadShell),
+      getThreadShell: () => Effect.succeed(threadShell ? v2PullRequestThread(threadShell) : null),
       dispatch,
     }),
   );
 
 const recordingDispatch = Effect.fn("recordingDispatch")(function* () {
-  const commands = yield* Ref.make<ReadonlyArray<OrchestrationV2Command>>([]);
+  const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
   const dispatch: OrchestratorV2Shape["dispatch"] = (command) =>
     Ref.update(commands, (recorded) => [...recorded, command]).pipe(
       Effect.as({ sequence: 1, storedEvents: [] }),
@@ -214,9 +206,9 @@ describe("linkCreatedPullRequest", () => {
       const rejecting: OrchestratorV2Shape["dispatch"] = (command) =>
         Effect.fail(
           new OrchestratorDispatchError({
-            commandType: command.type,
             commandId: command.commandId,
-            reason: "pull-request-already-linked",
+            commandType: command.type,
+            cause: "already linked",
           }),
         );
       const result = prResult({
