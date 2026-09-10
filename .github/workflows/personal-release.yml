@@ -299,7 +299,21 @@ jobs:
           cache: true
           run-install: true
       - name: Select Xcode
-        run: sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+        id: xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          echo "build=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Restore iOS native caches
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/CompilationCache.noindex
+            ~/Library/Caches/CocoaPods
+            ~/.cache/t3-ios-source-packages
+          key: ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-
       - name: Generate iOS project
         run: vp exec --filter @t3tools/mobile -- expo prebuild --clean --platform ios
       - name: Archive unsigned iPhone app
@@ -312,12 +326,20 @@ jobs:
             -workspace "${workspace[0]}" -scheme "$scheme" \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/T3Code.xcarchive" \
+            -clonedSourcePackagesDirPath "$HOME/.cache/t3-ios-source-packages" \
+            -showBuildTimingSummary \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES \
+            COMPILATION_CACHE_CAS_PATH="$HOME/Library/Developer/Xcode/DerivedData/CompilationCache.noindex" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' DEVELOPMENT_TEAM='' \
             > "$RUNNER_TEMP/ios-build.log" 2>&1 || {
               tail -200 "$RUNNER_TEMP/ios-build.log"
               exit 1
             }
+      - name: Record native cache size
+        run: du -sh "$HOME/Library/Developer/Xcode/DerivedData/CompilationCache.noindex" "$HOME/.cache/t3-ios-source-packages" >> "$GITHUB_STEP_SUMMARY"
       - name: Package IPA and Feather repository
         env:
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
