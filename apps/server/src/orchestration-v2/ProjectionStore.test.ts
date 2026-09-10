@@ -95,6 +95,7 @@ const addRolledBackRecoveryCandidate = Effect.fn("addRolledBackRecoveryCandidate
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      pullRequests: [],
       activeProviderThreadId: null,
       lineage: {
         parentThreadId: null,
@@ -189,6 +190,7 @@ const addOrphanedRecoveryCandidate = Effect.fn("addOrphanedRecoveryCandidate")(f
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      pullRequests: [],
       activeProviderThreadId: null,
       lineage: {
         parentThreadId: null,
@@ -1498,6 +1500,7 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         interactionMode: "default" as const,
         branch: null,
         worktreePath: null,
+        pullRequests: [],
         activeProviderThreadId: null,
         lineage: {
           parentThreadId: null,
