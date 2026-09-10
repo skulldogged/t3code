@@ -1431,6 +1431,50 @@ function useMarkdownStyles(
   ]);
 }
 
+function AgentUpdateRow({ text, iconColor }: { text: string; iconColor: ColorValue }) {
+  const [expanded, setExpanded] = useState(false);
+  const [summary, ...lines] = text.trim().split("\n");
+  const detail = lines.join("\n").trim();
+  const content = (
+    <>
+      <SymbolView name="person.2" size={16} tintColor={iconColor} type="monochrome" />
+      <Text className="min-w-0 flex-1 text-sm leading-5 text-foreground-muted">
+        {summary || "Agent update"}
+      </Text>
+      {detail ? (
+        <SymbolView
+          name={expanded ? "chevron.down" : "chevron.right"}
+          size={12}
+          tintColor={iconColor}
+        />
+      ) : null}
+    </>
+  );
+  return (
+    <View className="mb-3 rounded-lg border border-adaptive-neutral-200-a80-white-a8">
+      {detail ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          onPress={() => setExpanded((value) => !value)}
+          className="min-h-11 flex-row items-center gap-2.5 px-3 py-2"
+        >
+          {content}
+        </Pressable>
+      ) : (
+        <View className="flex-row items-center gap-2.5 px-3 py-2">{content}</View>
+      )}
+      {detail && expanded ? (
+        <View className="border-t border-adaptive-neutral-200-a80-white-a8 px-3 py-2">
+          <Text selectable className="text-xs leading-5 text-foreground-muted">
+            {detail}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function renderFeedEntry(
   info: { item: PendingThreadFeedEntry; index: number },
   props: Pick<
@@ -1596,14 +1640,7 @@ function renderFeedEntry(
       !message.streaming;
 
     if (isInternalThreadMessage(message)) {
-      return (
-        <View className="mb-3 gap-1 px-1 py-1">
-          <Text className="font-t3-medium text-xs text-foreground-muted">Agent update</Text>
-          <Text selectable className="text-xs text-foreground-muted">
-            {presentation.text}
-          </Text>
-        </View>
-      );
+      return <AgentUpdateRow text={presentation.text} iconColor={iconSubtleColor} />;
     }
 
     if (isUser) {

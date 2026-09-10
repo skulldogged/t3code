@@ -1556,6 +1556,51 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
   );
 }
 
+function AgentUpdateRow({ text }: { text: string }) {
+  const [summary, ...lines] = text.trim().split("\n");
+  const detail = lines.join("\n").trim();
+  const content = (
+    <>
+      <BotIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground/70" aria-hidden />
+      <span className="min-w-0 flex-1 break-words">{summary || "Agent update"}</span>
+    </>
+  );
+  const rowClassName =
+    "flex items-start gap-2.5 px-3 py-2 text-sm leading-relaxed text-muted-foreground";
+
+  return detail ? (
+    <details
+      className="group rounded-lg border border-border/50 bg-muted/15"
+      data-message-attribution="system"
+    >
+      <summary
+        className={cn(
+          rowClassName,
+          "cursor-pointer list-none rounded-lg transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 [&::-webkit-details-marker]:hidden",
+        )}
+      >
+        {content}
+        <ChevronRightIcon
+          className="mt-1 size-3.5 shrink-0 text-muted-foreground/60 group-open:rotate-90"
+          aria-hidden
+        />
+      </summary>
+      <div className="border-t border-border/40 px-3 py-2 ps-9.5">
+        <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+          {detail}
+        </p>
+      </div>
+    </details>
+  ) : (
+    <div
+      className={cn(rowClassName, "rounded-lg border border-border/50 bg-muted/15")}
+      data-message-attribution="system"
+    >
+      {content}
+    </div>
+  );
+}
+
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const resources = useMemo(
@@ -1606,14 +1651,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const revertTurnCount = row.revertTurnCount;
 
   if (isInternalThreadMessage(row.message)) {
-    return (
-      <details className="my-2 text-xs text-muted-foreground" data-message-attribution="system">
-        <summary className="cursor-pointer">
-          Agent update: {userMessage.text.split("\n", 1)[0]}
-        </summary>
-        <p className="mt-2 whitespace-pre-wrap break-words pl-4">{userMessage.text}</p>
-      </details>
-    );
+    return <AgentUpdateRow text={userMessage.text} />;
   }
 
   return (
