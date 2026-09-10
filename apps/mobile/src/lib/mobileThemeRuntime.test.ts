@@ -20,6 +20,7 @@ describe("mobileThemeRuntime", () => {
 
   it("maps custom palettes and appearances to registered themes", () => {
     expect(getMobileUniwindThemeName("t3-chat", "dark")).toBe("t3-chat-dark");
+    expect(getMobileUniwindThemeName("catppuccin-mocha", "dark")).toBe("catppuccin-mocha-dark");
   });
 
   it("hydrates text variables and clears the native appearance override", () => {
@@ -28,8 +29,8 @@ describe("mobileThemeRuntime", () => {
       (operation) => operation.kind === "update-text-variables",
     );
 
-    expect(variableOperations).toHaveLength(12);
-    expect(variableOperations.at(-1)?.themeName).toBe("iris-dark");
+    expect(variableOperations).toHaveLength(14);
+    expect(variableOperations.at(-1)?.themeName).toBe("catppuccin-mocha-dark");
     expect(operations.at(-1)).toEqual({
       kind: "set-appearance-mode",
       appearance: "light",
@@ -68,11 +69,11 @@ describe("mobileThemeRuntime", () => {
       baseFontSize: 18,
     });
 
-    expect(operations).toHaveLength(12);
+    expect(operations).toHaveLength(14);
     expect(operations.every((operation) => operation.kind === "update-text-variables")).toBe(true);
     expect(operations.at(-1)).toMatchObject({
       kind: "update-text-variables",
-      themeName: "iris-dark",
+      themeName: "catppuccin-mocha-dark",
     });
   });
 

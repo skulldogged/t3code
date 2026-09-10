@@ -17,6 +17,15 @@ import * as ProcessRunner from "../processRunner.ts";
  * registry fetch at boot would make startup depend on the network.
  */
 
+const PERSONAL_RELEASE_REPOSITORY = "skulldogged/t3code";
+const PERSONAL_VERSION_PATTERN =
+  /^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+\.personal\.[1-9][0-9]*$/;
+
+export function pinnedRuntimePackageSpec(version: string): string {
+  if (!PERSONAL_VERSION_PATTERN.test(version)) return `t3@${version}`;
+  return `https://github.com/${PERSONAL_RELEASE_REPOSITORY}/releases/download/personal-v${version}/t3-${version}.tgz`;
+}
+
 const PINNED_RUNTIME_DIR = "runtime";
 const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);
 // Boot-service setup and remote update can construct separate layers. Serialize
@@ -159,7 +168,7 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
       stagingDir,
       "--no-fund",
       "--no-audit",
-      `t3@${input.version}`,
+      pinnedRuntimePackageSpec(input.version),
     ];
     yield* runner
       .run({

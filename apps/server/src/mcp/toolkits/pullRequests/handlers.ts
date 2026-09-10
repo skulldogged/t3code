@@ -2,7 +2,7 @@ import {
   CommandId,
   pullRequestHostOf,
   type OrchestrationProjectShell,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
   type SourceControlProviderKind,
   type ThreadId,
   type ThreadPullRequestLink,
@@ -18,7 +18,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
+import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
@@ -124,7 +124,7 @@ function entryOf(
 
 /** What the tools report from a thread shell; exported so the shape is testable without a layer. */
 export function listThreadPullRequests(
-  thread: Pick<OrchestrationThreadShell, "pullRequests">,
+  thread: Pick<OrchestrationV2ThreadShell, "pullRequests">,
 ): ListThreadPullRequestsResult {
   const chains = resolveThreadPullRequestChains(thread.pullRequests);
   return {
@@ -139,7 +139,7 @@ export function listThreadPullRequests(
 }
 
 const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+  const engine = yield* OrchestratorV2;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const crypto = yield* Crypto.Crypto;
 
@@ -156,17 +156,17 @@ const make = Effect.gen(function* () {
       | typeof PullRequestListFailedError,
   ) {
     const scope = yield* McpInvocationContext.requireMcpCapability("pull-requests");
-    const thread = yield* snapshots
-      .getThreadShellById(scope.threadId)
+    const thread = yield* engine
+      .getThreadShell(scope.threadId)
       .pipe(Effect.mapError((cause) => new Failure({ cause })));
-    if (Option.isNone(thread)) {
+    if (thread === null) {
       return yield* new PullRequestThreadNotFoundError({ threadId: scope.threadId });
     }
-    return thread.value;
+    return thread;
   });
 
   const projectOf = (
-    thread: OrchestrationThreadShell,
+    thread: OrchestrationV2ThreadShell,
     Failure: typeof PullRequestLinkFailedError | typeof PullRequestUnlinkFailedError,
   ) =>
     snapshots.getProjectShellById(thread.projectId).pipe(
@@ -204,7 +204,11 @@ const make = Effect.gen(function* () {
             Effect.as(false),
             // The decider rejects a second link of the same PR; for the agent that is
             // the outcome it asked for, not an error.
-            Effect.catchTags({ OrchestrationCommandInvariantError: () => Effect.succeed(true) }),
+            Effect.catchTag("OrchestratorDispatchError", (error) =>
+              error.reason === "pull-request-already-linked"
+                ? Effect.succeed(true)
+                : Effect.fail(error),
+            ),
             Effect.catchCause(dispatchFailure(PullRequestLinkFailedError)),
           );
         return { ...target, alreadyLinked };
@@ -225,7 +229,11 @@ const make = Effect.gen(function* () {
           })
           .pipe(
             Effect.as(true),
-            Effect.catchTags({ OrchestrationCommandInvariantError: () => Effect.succeed(false) }),
+            Effect.catchTag("OrchestratorDispatchError", (error) =>
+              error.reason === "pull-request-not-linked"
+                ? Effect.succeed(false)
+                : Effect.fail(error),
+            ),
             Effect.catchCause(dispatchFailure(PullRequestUnlinkFailedError)),
           );
         return {

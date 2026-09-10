@@ -6,14 +6,16 @@ import {
   ThreadLinkedPullRequest,
   UserInputRequestedPayload,
   isImportedAgentSessionMessageId,
-  type OrchestrationCommand,
-  type OrchestrationEvent,
-  type OrchestrationReadModel,
-  type OrchestrationThread,
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
-  type OrchestrationThreadActivity,
 } from "@t3tools/contracts";
+import type {
+  OrchestrationCommand,
+  OrchestrationEvent,
+  OrchestrationReadModel,
+  OrchestrationThread,
+  OrchestrationThreadActivity,
+} from "@t3tools/contracts/legacy-orchestration";
 import {
   legacyLinkedPullRequestOf,
   legacyThreadPullRequestKey,
@@ -381,7 +383,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           aggregateId: command.threadId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
-          ...(command.historyImport === true ? { metadata: { historyImport: true } } : {}),
         })),
         type: "thread.created",
         payload: {
@@ -1856,7 +1857,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             aggregateId: command.threadId,
             occurredAt: message.createdAt,
             commandId: command.commandId,
-            metadata: { historyImport: true },
           })),
           type: "thread.message-sent",
           payload: {
@@ -1882,7 +1882,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           aggregateId: command.threadId,
           occurredAt: settledAt,
           commandId: command.commandId,
-          metadata: { historyImport: true },
         })),
         type: "thread.settled",
         payload: {

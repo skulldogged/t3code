@@ -48,8 +48,11 @@ object AgentNotifications {
   private const val ACTIVITY_CHANNEL = "agent-activity"
   private const val ALERT_CHANNEL = "agent-alerts"
   private const val ACTIVITY_TAG = "t3-agent-activity"
+  private const val LOCAL_ACTIVITY_TAG = "t3-agent-local-activity"
   private const val ALERT_TAG = "t3-agent-alert"
   private const val ACTIVITY_ID = 73001
+  private const val LOCAL_ACTIVITY_ID = 73002
+  private const val LOCAL_ACTIVITY_ENABLED = "localActivityEnabled"
   private const val MAX_MESSAGE_AGE_MS = 10 * 60 * 1000L
   private const val RUNNING_LIFETIME_MS = 2 * 60 * 60 * 1000L
   private const val MAX_LIFETIME_MS = 24 * 60 * 60 * 1000L
@@ -86,8 +89,66 @@ object AgentNotifications {
     cancelActivity(context)
     context.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit().clear().apply()
     val manager = manager(context)
-    manager.activeNotifications.filter { it.tag == ACTIVITY_TAG || it.tag == ALERT_TAG }
+    manager.activeNotifications.filter {
+      it.tag == ACTIVITY_TAG || it.tag == LOCAL_ACTIVITY_TAG || it.tag == ALERT_TAG
+    }
       .forEach { manager.cancel(it.tag, it.id) }
+  }
+
+  /** Local direct/Tailscale sessions have no relay push path. Reuse the same
+   * ongoing notification, channel, and lifecycle as relay-delivered activity. */
+  @Synchronized
+  fun publishLocalActivity(
+    context: Context,
+    title: String,
+    body: String,
+    path: String,
+    active: Boolean
+  ) {
+    if (!active) {
+      manager(context).cancel(LOCAL_ACTIVITY_TAG, LOCAL_ACTIVITY_ID)
+      return
+    }
+    val prefs = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    if (!prefs.getBoolean(LOCAL_ACTIVITY_ENABLED, true) ||
+      !NotificationManagerCompat.from(context).areNotificationsEnabled()
+    ) return
+    channels(context)
+    val scheme = prefs.getString("scheme", "t3code") ?: "t3code"
+    val notification = base(context, ACTIVITY_CHANNEL)
+      .setContentTitle(title.take(120))
+      .setContentText(body.take(240))
+      .setStyle(NotificationCompat.BigTextStyle().bigText(body.take(608)))
+      .setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
+      .setColorized(false).setRequestPromotedOngoing(true)
+      .setContentIntent(contentIntent(context, scheme, path, LOCAL_ACTIVITY_ID))
+      .build()
+    manager(context).notify(LOCAL_ACTIVITY_TAG, LOCAL_ACTIVITY_ID, notification)
+  }
+
+  @Synchronized
+  fun configureLocalActivity(context: Context, scheme: String, enabled: Boolean) {
+    context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+      .edit().putString("scheme", scheme).putBoolean(LOCAL_ACTIVITY_ENABLED, enabled).apply()
+    if (!enabled) manager(context).cancel(LOCAL_ACTIVITY_TAG, LOCAL_ACTIVITY_ID)
+  }
+
+  @Synchronized
+  fun publishLocalAlert(context: Context, title: String, body: String, path: String, id: String) {
+    val prefs = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    if (!prefs.getBoolean(LOCAL_ACTIVITY_ENABLED, true) ||
+      !NotificationManagerCompat.from(context).areNotificationsEnabled()
+    ) return
+    channels(context)
+    val notificationId = ("local:" + id).hashCode()
+    val scheme = prefs.getString("scheme", "t3code") ?: "t3code"
+    val notification = base(context, ALERT_CHANNEL)
+      .setContentTitle(title.take(120)).setContentText(body.take(608))
+      .setStyle(NotificationCompat.BigTextStyle().bigText(body.take(608)))
+      .setAutoCancel(true)
+      .setContentIntent(contentIntent(context, scheme, path, notificationId))
+      .build()
+    manager(context).notify(ALERT_TAG, notificationId, notification)
   }
 
   @Synchronized

@@ -9,6 +9,12 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 
+/** Wire version for orchestration snapshots, streams, commands, and RPC payloads. */
+export const ORCHESTRATION_PROTOCOL_VERSION = 2;
+export const ORCHESTRATION_PROTOCOL_VERSION_TEXT = "2";
+export const ORCHESTRATION_PROTOCOL_QUERY_PARAM = "orchestrationProtocol";
+export const ORCHESTRATION_PROTOCOL_HEADER = "x-t3-orchestration-protocol";
+
 export const ExecutionEnvironmentPlatformOs = Schema.Literals([
   "darwin",
   "linux",
@@ -131,6 +137,15 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       version-skew contract as threadSettlement. */
   threadPullRequests: Schema.optionalKey(Schema.Boolean),
   pullRequestStackActions: Schema.optionalKey(Schema.Boolean),
+  /** Server understands thread.visit / thread.mark-unread commands and
+      projects lastVisitedAt on thread shells. Same version-skew contract as
+      threadSettlement: clients keep their local visited state against
+      servers that lack this. */
+  threadVisitedTracking: Schema.optionalKey(Schema.Boolean),
+  /** Server resolves message delivery and model-selection context and validates
+      identified rollback readiness. Clients retain projection-based command
+      shaping and validation when this is absent. */
+  serverResolvedCommandContext: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows
       foreground runs, pre-update servers). */
@@ -164,6 +179,8 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   label: TrimmedNonEmptyString,
   platform: ExecutionEnvironmentPlatform,
   serverVersion: TrimmedNonEmptyString,
+  /** Absent on hosts from before explicit orchestration protocol negotiation. */
+  orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,
 });
 export type ExecutionEnvironmentDescriptor = typeof ExecutionEnvironmentDescriptor.Type;

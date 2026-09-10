@@ -1,4 +1,3 @@
-import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
 import { useServerConfigs } from "./entities";
 import { Alert } from "react-native";
 import {
@@ -15,11 +14,11 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { type ProviderApprovalDecision, type RuntimeRequestId } from "@t3tools/contracts";
 import {
-  ApprovalRequestId,
-  type ProviderApprovalDecision,
-  type UserInputQuestion,
-} from "@t3tools/contracts";
+  derivePendingThreadRequests,
+  type ThreadUserInputQuestion,
+} from "@t3tools/client-runtime/state/thread-requests";
 import { Atom } from "effect/unstable/reactivity";
 
 import { threadEnvironment } from "../state/threads";
@@ -31,7 +30,7 @@ import {
   type PendingUserInputDraftAnswer,
 } from "../lib/threadActivity";
 import { appAtomRegistry } from "./atom-registry";
-import { useSelectedThreadDetail } from "./use-thread-detail";
+import { useSelectedThreadProjection } from "./use-thread-detail";
 import { useThreadSelection } from "./use-thread-selection";
 import { useAtomCommand } from "./use-atom-command";
 
@@ -41,7 +40,7 @@ const userInputDraftsByRequestKeyAtom = Atom.make<
 
 function setUserInputDraftOption(
   requestKey: string,
-  question: UserInputQuestion,
+  question: ThreadUserInputQuestion,
   value: string,
 ): void {
   const current = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
@@ -60,7 +59,7 @@ function setUserInputDraftOption(
 
 function setUserInputDraftCustomAnswer(
   requestKey: string,
-  question: UserInputQuestion,
+  question: ThreadUserInputQuestion,
   customAnswer: string,
 ): void {
   const current = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
@@ -91,19 +90,22 @@ export function useSelectedThreadRequests() {
     "thread user input dismissal",
   );
   const { selectedThread: selectedThreadShell } = useThreadSelection();
-  const selectedThread = useSelectedThreadDetail();
+  const selectedThread = useSelectedThreadProjection();
   const userInputDraftsByRequestKey = useAtomValue(userInputDraftsByRequestKeyAtom);
-  const [respondingApprovalId, setRespondingApprovalId] = useState<ApprovalRequestId | null>(null);
   const userInputResponsesInFlight = useRef(new Set<string>());
-  const [respondingUserInputId, setRespondingUserInputId] = useState<ApprovalRequestId | null>(
-    null,
-  );
+  const [respondingApprovalId, setRespondingApprovalId] = useState<RuntimeRequestId | null>(null);
+  const [respondingUserInputId, setRespondingUserInputId] = useState<RuntimeRequestId | null>(null);
 
-  const { approvals: activePendingApprovals, userInputs: activePendingUserInputs } = useMemo(
-    () => derivePendingRequests(selectedThread?.activities ?? []),
-    [selectedThread?.activities],
+  const pendingRequests = useMemo(
+    () =>
+      selectedThread === null
+        ? { approvals: [], userInputs: [] }
+        : derivePendingThreadRequests(selectedThread.projection),
+    [selectedThread],
   );
+  const activePendingApprovals = pendingRequests.approvals;
   const activePendingApproval = activePendingApprovals[0] ?? null;
+  const activePendingUserInputs = pendingRequests.userInputs;
   const activePendingUserInput = activePendingUserInputs[0] ?? null;
   const questionServerConfigs = useServerConfigs();
   const attachmentDrafts = useAtomValue(composerDraftsAtom);
@@ -186,7 +188,7 @@ export function useSelectedThreadRequests() {
     : null;
 
   const onSelectUserInputOption = useCallback(
-    (requestId: ApprovalRequestId, question: UserInputQuestion, value: string) => {
+    (requestId: RuntimeRequestId, question: ThreadUserInputQuestion, value: string) => {
       if (!selectedThreadShell) {
         return;
       }
@@ -198,7 +200,7 @@ export function useSelectedThreadRequests() {
   );
 
   const onChangeUserInputCustomAnswer = useCallback(
-    (requestId: ApprovalRequestId, questionId: string, customAnswer: string) => {
+    (requestId: RuntimeRequestId, questionId: string, customAnswer: string) => {
       const question = activePendingUserInputs
         .find((request) => request.requestId === requestId)
         ?.questions.find((entry) => entry.id === questionId);
@@ -213,8 +215,14 @@ export function useSelectedThreadRequests() {
   );
 
   const onRespondToApproval = useCallback(
-    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
+    async (requestId: RuntimeRequestId, decision: ProviderApprovalDecision) => {
       if (!selectedThreadShell) {
+        return;
+      }
+      if (
+        activePendingApprovals.find((approval) => approval.requestId === requestId)
+          ?.responseCapability !== "live"
+      ) {
         return;
       }
 
@@ -230,11 +238,16 @@ export function useSelectedThreadRequests() {
       setRespondingApprovalId((current) => (current === requestId ? null : current));
       return result;
     },
-    [respondToApproval, selectedThreadShell],
+    [activePendingApprovals, respondToApproval, selectedThreadShell],
   );
 
   const onSubmitUserInput = useCallback(async () => {
-    if (!selectedThreadShell || !activePendingUserInput || !activePendingUserInputAnswers) {
+    if (
+      !selectedThreadShell ||
+      !activePendingUserInput ||
+      activePendingUserInput.responseCapability === "not_resumable" ||
+      !activePendingUserInputAnswers
+    ) {
       return;
     }
 

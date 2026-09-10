@@ -1,5 +1,5 @@
 import { resolveTextScaleVariables } from "./appearancePreferences";
-import { BUILT_IN_THEME_IDS, type BuiltInThemeId } from "@t3tools/shared/themePalettes";
+import { MOBILE_THEME_IDS } from "@t3tools/shared/themePalettes";
 import {
   DEFAULT_MOBILE_THEME_ID,
   type MobileThemeAppearance,
@@ -9,7 +9,7 @@ import {
 
 export type MobileUniwindThemeName =
   | MobileThemeAppearance
-  | `${BuiltInThemeId}-${MobileThemeAppearance}`;
+  | `${Exclude<MobileThemeId, typeof DEFAULT_MOBILE_THEME_ID | "material-you">}-${MobileThemeAppearance}`;
 
 export interface MobileThemeRuntimeState {
   readonly baseFontSize: number;
@@ -32,10 +32,9 @@ export type MobileThemeRuntimeOperation =
 const UNIWIND_THEME_NAMES: ReadonlyArray<"light" | "dark" | MobileUniwindThemeName> = [
   "light",
   "dark",
-  ...BUILT_IN_THEME_IDS.flatMap((themeId) => [
-    `${themeId}-light` as const,
-    `${themeId}-dark` as const,
-  ]),
+  ...MOBILE_THEME_IDS.filter((themeId) => themeId !== DEFAULT_MOBILE_THEME_ID).flatMap(
+    (themeId) => [`${themeId}-light` as const, `${themeId}-dark` as const],
+  ),
 ];
 
 export function getMobileUniwindThemeName(

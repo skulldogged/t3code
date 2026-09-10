@@ -3,10 +3,10 @@ import {
   ProviderInstanceId,
   PullRequestOperationError,
   ThreadId,
-  type OrchestrationCommand,
+  type OrchestrationV2Command,
   type OrchestrationProjectShell,
-  type OrchestrationShellSnapshot,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ShellSnapshot,
+  type OrchestrationV2ThreadShell,
   type PullRequestRef,
   type PullRequestStack,
   type PullRequestSummary,
@@ -15,31 +15,27 @@ import {
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
-import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
 import { PullRequestService } from "../pullRequest/PullRequestService.ts";
 import { ServerActivation } from "../serverActivation.ts";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "./Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+import { OrchestratorV2, type OrchestratorV2Shape } from "../orchestration-v2/Orchestrator.ts";
 import * as PullRequestSyncReactor from "./PullRequestSyncReactor.ts";
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("sync-project");
 
 type SyncCommand = Extract<
-  OrchestrationCommand,
+  OrchestrationV2Command,
   { readonly type: "thread.pull-request-link.sync" }
 >;
-type LinkCommand = Extract<OrchestrationCommand, { readonly type: "thread.pull-request.link" }>;
+type LinkCommand = Extract<OrchestrationV2Command, { readonly type: "thread.pull-request.link" }>;
 
 const testCrypto = Crypto.make({
   randomBytes: (size) => new Uint8Array(size).fill(1),
@@ -60,12 +56,13 @@ function makeProject(id: ProjectId = PROJECT_ID): OrchestrationProjectShell {
 
 function makeThread(
   id: string,
-  overrides: Partial<OrchestrationThreadShell> = {},
-): OrchestrationThreadShell {
+  overrides: Partial<OrchestrationV2ThreadShell> = {},
+): OrchestrationV2ThreadShell {
   return {
     id: ThreadId.make(id),
     projectId: PROJECT_ID,
     title: id,
+    providerInstanceId: ProviderInstanceId.make("codex"),
     modelSelection: {
       instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5",
@@ -74,18 +71,27 @@ function makeThread(
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+    lineage: { rootThreadId: ThreadId.make(id), parentThreadId: null, relationshipToParent: null },
+    forkedFrom: null,
+    createdBy: "user",
+    creationSource: "web",
+    activeProviderThreadId: null,
     pullRequests: [],
-    latestTurn: null,
-    createdAt: "2026-08-01T00:00:00.000Z",
-    updatedAt: "2026-08-20T00:00:00.000Z",
+    latestRunId: null,
+    activeRunId: null,
+    status: "idle",
+    pendingRuntimeRequest: null,
+    latestVisibleMessage: null,
+    latestUserMessageAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
+    hasActionableProposedPlan: false,
+    itemCount: 0,
+    visibleItemCount: 0,
+    createdAt: DateTime.makeUnsafe("2026-08-01T00:00:00.000Z"),
+    updatedAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
-    session: null,
-    latestUserMessageAt: "2026-08-20T00:00:00.000Z",
-    hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
+    deletedAt: null,
     ...overrides,
   };
 }
@@ -121,14 +127,15 @@ function makeLink(
 }
 
 function makeSnapshot(
-  threads: ReadonlyArray<OrchestrationThreadShell>,
+  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
   snapshotSequence = 1,
-): OrchestrationShellSnapshot {
+): OrchestrationV2ShellSnapshot {
   return {
+    schemaVersion: 1,
     snapshotSequence,
     projects: [makeProject()],
     threads,
-    updatedAt: NOW,
+    archivedThreads: [],
   };
 }
 
@@ -153,7 +160,7 @@ function makeSummary(
 
 interface HarnessOptions {
   readonly invalidate?: PullRequestService["Service"]["invalidate"];
-  readonly snapshot: OrchestrationShellSnapshot;
+  readonly snapshot: OrchestrationV2ShellSnapshot;
   readonly summary?: (
     input: PullRequestRef,
   ) => Effect.Effect<PullRequestSummary, PullRequestOperationError>;
@@ -185,35 +192,30 @@ const makeHarness = Effect.fn("makePullRequestSyncHarness")(function* (options: 
       return yield* options.stack?.(input) ?? Effect.succeed(null);
     });
 
-  const dispatch: OrchestrationEngineShape["dispatch"] = (command) => {
+  const dispatch: OrchestratorV2Shape["dispatch"] = (command) => {
     if (command.type === "thread.pull-request-link.sync") {
       return Ref.update(syncCommands, (recorded) => [...recorded, command]).pipe(
-        Effect.as({ sequence: 1 }),
+        Effect.as({ sequence: 1, storedEvents: [] }),
       );
     }
     if (command.type === "thread.pull-request.link") {
       return Ref.update(linkCommands, (recorded) => [...recorded, command]).pipe(
-        Effect.as({ sequence: 1 }),
+        Effect.as({ sequence: 1, storedEvents: [] }),
       );
     }
     return Effect.die(new Error(`Unexpected command: ${command.type}`));
   };
 
   const dependencies = Layer.mergeAll(
-    Layer.mock(ProjectionSnapshotQuery)({
-      getShellSnapshot: () =>
-        Queue.offer(snapshotReads, undefined).pipe(Effect.andThen(Ref.get(snapshots))),
-    }),
     Layer.mock(PullRequestService)({
       summary,
       stack,
       invalidate: options.invalidate ?? (() => Effect.void),
     }),
-    Layer.mock(OrchestrationEngineService)({
-      readEvents: () => Stream.empty,
+    Layer.mock(OrchestratorV2)({
+      getShellSnapshot: () =>
+        Queue.offer(snapshotReads, undefined).pipe(Effect.andThen(Ref.get(snapshots))),
       dispatch,
-      streamDomainEvents: Stream.empty,
-      latestSequence: Effect.succeed(0),
     }),
     Layer.succeed(ServerActivation, Deferred.await(activation)),
     Layer.succeed(Crypto.Crypto, testCrypto),
@@ -253,9 +255,9 @@ const sweepAgain = Effect.fn("sweepPullRequestSyncHarness")(function* (
 
 /** What the reactor would have persisted, so the next sweep sees its own writes. */
 function applySync(
-  snapshot: OrchestrationShellSnapshot,
+  snapshot: OrchestrationV2ShellSnapshot,
   commands: ReadonlyArray<SyncCommand>,
-): OrchestrationShellSnapshot {
+): OrchestrationV2ShellSnapshot {
   return {
     ...snapshot,
     snapshotSequence: snapshot.snapshotSequence + 1,
@@ -597,7 +599,7 @@ describe("PullRequestSyncReactor", () => {
           snapshot: makeSnapshot([
             makeThread("settled", {
               settledOverride: "settled",
-              settledAt: "2026-08-21T00:00:00.000Z",
+              settledAt: DateTime.makeUnsafe("2026-08-21T00:00:00.000Z"),
               pullRequests: [makeLink(5, { state: "open" })],
             }),
           ]),

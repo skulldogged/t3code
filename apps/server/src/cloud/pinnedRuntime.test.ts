@@ -11,9 +11,26 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import * as ProcessRunner from "../processRunner.ts";
 import {
   ensurePinnedRuntimeInstalled,
+  pinnedRuntimePackageSpec,
   pinnedRuntimePaths,
   PinnedRuntimeInstallError,
 } from "./pinnedRuntime.ts";
+
+it("installs personal nightly versions from their GitHub release archive", () => {
+  for (const version of [
+    "0.0.39-nightly.20260905.1289.personal.1",
+    "0.0.39-nightly.20260905.1289.personal.10",
+    "1.2.3-nightly.20260906.1290.personal.1",
+  ]) {
+    assert.equal(
+      pinnedRuntimePackageSpec(version),
+      `https://github.com/skulldogged/t3code/releases/download/personal-v${version}/t3-${version}.tgz`,
+    );
+  }
+  assert.equal(pinnedRuntimePackageSpec("0.0.34"), "t3@0.0.34");
+  const officialNightly = "0.0.39-nightly.20260905.1289";
+  assert.equal(pinnedRuntimePackageSpec(officialNightly), `t3@${officialNightly}`);
+});
 
 const successfulRunner = (fs: FileSystem.FileSystem, path: Path.Path) =>
   ProcessRunner.ProcessRunner.of({
@@ -39,50 +56,58 @@ const successfulRunner = (fs: FileSystem.FileSystem, path: Path.Path) =>
   });
 
 it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
-  it.effect("installs through pnpm when its Node runtime has no npm executable", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-pnpm-" });
-      const commands: Array<ProcessRunner.ProcessRunInput> = [];
-      const install = successfulRunner(fs, path);
-      const paths = yield* ensurePinnedRuntimeInstalled({
-        baseDir,
-        version: "1.2.3",
-        fs,
-        path,
-        runner: ProcessRunner.ProcessRunner.of({
-          run: (input) => {
-            commands.push(input);
-            return input.command === "npm"
-              ? Effect.fail(
-                  new ProcessRunner.ProcessSpawnError({
-                    command: "npm",
-                    argumentCount: input.args.length,
-                    cause: PlatformError.systemError({
-                      _tag: "NotFound",
-                      module: "ChildProcess",
-                      method: "spawn",
+  for (const version of ["1.2.3", "0.0.39-nightly.20260905.1289.personal.1"]) {
+    it.effect(`installs ${version} through pnpm when its Node runtime has no npm executable`, () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-pnpm-" });
+        const commands: Array<ProcessRunner.ProcessRunInput> = [];
+        const install = successfulRunner(fs, path);
+        const paths = yield* ensurePinnedRuntimeInstalled({
+          baseDir,
+          version,
+          fs,
+          path,
+          runner: ProcessRunner.ProcessRunner.of({
+            run: (input) => {
+              commands.push(input);
+              return input.command === "npm"
+                ? Effect.fail(
+                    new ProcessRunner.ProcessSpawnError({
+                      command: "npm",
+                      argumentCount: input.args.length,
+                      cause: PlatformError.systemError({
+                        _tag: "NotFound",
+                        module: "ChildProcess",
+                        method: "spawn",
+                      }),
                     }),
-                  }),
-                )
-              : install.run(input);
-          },
-        }),
-        validate: (staging) =>
-          fs.exists(staging.entryPath).pipe(
-            Effect.flatMap((exists) => (exists ? Effect.void : Effect.die("missing runtime"))),
-            Effect.orDie,
-          ),
-      });
-      assert.deepEqual(
-        commands.map((command) => command.command),
-        ["npm", "pnpm"],
-      );
-      assert.deepEqual(commands[1]!.args, ["--package=npm@11", "dlx", "npm", ...commands[0]!.args]);
-      assert.equal(yield* fs.readFileString(paths.sentinelPath), "1.2.3\n");
-    }),
-  );
+                  )
+                : install.run(input);
+            },
+          }),
+          validate: (staging) =>
+            fs.exists(staging.entryPath).pipe(
+              Effect.flatMap((exists) => (exists ? Effect.void : Effect.die("missing runtime"))),
+              Effect.orDie,
+            ),
+        });
+        assert.deepEqual(
+          commands.map((command) => command.command),
+          ["npm", "pnpm"],
+        );
+        assert.deepEqual(commands[1]!.args, [
+          "--package=npm@11",
+          "dlx",
+          "npm",
+          ...commands[0]!.args,
+        ]);
+        assert.equal(commands[0]!.args.at(-1), pinnedRuntimePackageSpec(version));
+        assert.equal(yield* fs.readFileString(paths.sentinelPath), `${version}\n`);
+      }),
+    );
+  }
 
   it.effect("does not try a different installer for npm permission failures", () =>
     Effect.gen(function* () {

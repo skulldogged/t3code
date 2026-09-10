@@ -21,6 +21,7 @@ import {
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { supportsAgentAwarenessPush } from "../agent-awareness/capabilities";
+import { BackgroundConnectionSettingsSection } from "../background-connection/BackgroundConnectionSettingsSection";
 import { setLiveActivityUpdatesEnabled } from "../agent-awareness/liveActivityPreferences";
 import { requestAgentNotificationPermission } from "../agent-awareness/notificationPermissions";
 import {
@@ -140,6 +141,8 @@ function LocalSettingsRouteScreen() {
         </SettingsSection>
 
         <GeneralSettingsSection />
+
+        <BackgroundConnectionSettingsSection />
 
         <SettingsSection title="Appearance">
           <SettingsRow icon="paintbrush" label="Appearance" target="SettingsAppearance" />
@@ -560,6 +563,8 @@ function ConfiguredSettingsRouteScreen() {
         </SettingsSection>
 
         <GeneralSettingsSection />
+
+        <BackgroundConnectionSettingsSection />
 
         <SettingsSection title="Appearance">
           <SettingsRow icon="paintbrush" label="Appearance" target="SettingsAppearance" />

@@ -13,7 +13,7 @@ import * as Stream from "effect/Stream";
 import { McpProtocol, McpSchema, McpServer } from "effect/unstable/ai";
 import { HttpBody, HttpClient, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
@@ -58,7 +58,7 @@ const PullRequestsTestLayer = McpHttpServer.PullRequestsToolkitRegistrationLive.
       Layer.mock(ProjectionSnapshotQuery)({
         getThreadShellById: () => Effect.succeed(Option.none()),
       }),
-      Layer.mock(OrchestrationEngineService)({}),
+      Layer.mock(OrchestratorV2)({}),
       NodeServices.layer,
     ),
   ),

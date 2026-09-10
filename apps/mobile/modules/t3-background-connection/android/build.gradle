@@ -1,0 +1,24 @@
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+group = 'com.t3tools.backgroundconnection'
+version = '0.0.0'
+
+android {
+  namespace 'expo.modules.t3backgroundconnection'
+  compileSdk rootProject.ext.compileSdkVersion
+
+  defaultConfig {
+    minSdkVersion rootProject.ext.minSdkVersion
+    targetSdkVersion rootProject.ext.targetSdkVersion
+  }
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+  implementation 'com.facebook.react:react-android'
+  implementation 'androidx.core:core-ktx:1.18.0'
+  testImplementation 'junit:junit:4.13.2'
+}
+
+

@@ -222,7 +222,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "id"
   | "modelSelection"
   | "projectId"
-  | "session"
+  | "runtime"
   | "title"
   | "worktreePath"
 > & {

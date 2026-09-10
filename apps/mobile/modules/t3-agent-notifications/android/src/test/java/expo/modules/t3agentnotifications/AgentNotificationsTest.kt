@@ -427,4 +427,33 @@ class AgentNotificationsTest {
     AgentNotifications.receive(context, message)
     assertEquals(2, manager.activeNotifications.size)
   }
+
+  @Test
+  fun localDirectActivityWorksWithoutRelayRegistrationAndClearsIndependently() {
+    AgentNotifications.clear(context)
+    AgentNotifications.publishLocalActivity(
+      context, "Working: direct thread", "Direct project · Working", "/threads/direct/thread", true
+    )
+    assertEquals(
+      "t3-agent-local-activity",
+      manager.activeNotifications.single().tag
+    )
+
+    AgentNotifications.receive(context, update("relay-work", true))
+    AgentNotifications.publishLocalActivity(context, "", "", "/", false)
+
+    assertTrue(manager.activeNotifications.any { it.tag == "t3-agent-activity" })
+    assertFalse(manager.activeNotifications.any { it.tag == "t3-agent-local-activity" })
+  }
+
+  @Test
+  fun disabledLocalActivityCancelsExistingCardAndSuppressesNewLocalAlerts() {
+    AgentNotifications.publishLocalActivity(context, "Working", "Project · Working", "/threads/a", true)
+    AgentNotifications.configureLocalActivity(context, "t3code-dev", false)
+    assertFalse(manager.activeNotifications.any { it.tag == "t3-agent-local-activity" })
+
+    AgentNotifications.publishLocalActivity(context, "Working", "Project · Working", "/threads/a", true)
+    AgentNotifications.publishLocalAlert(context, "Input required", "Project · Model", "/threads/a", "a")
+    assertTrue(manager.activeNotifications.isEmpty())
+  }
 }

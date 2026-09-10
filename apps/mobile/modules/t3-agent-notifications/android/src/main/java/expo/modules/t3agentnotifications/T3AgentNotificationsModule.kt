@@ -21,5 +21,19 @@ class T3AgentNotificationsModule : Module() {
     Function("clear") {
       appContext.reactContext?.let { AgentNotifications.clear(it) }
     }
+
+    Function("publishLocalActivity") { title: String, body: String, path: String, active: Boolean ->
+      appContext.reactContext?.let {
+        AgentNotifications.publishLocalActivity(it, title, body, path, active)
+      }
+    }
+
+    Function("publishLocalAlert") { title: String, body: String, path: String, id: String ->
+      appContext.reactContext?.let { AgentNotifications.publishLocalAlert(it, title, body, path, id) }
+    }
+
+    Function("configureLocalActivity") { scheme: String, enabled: Boolean ->
+      appContext.reactContext?.let { AgentNotifications.configureLocalActivity(it, scheme, enabled) }
+    }
   }
 }
