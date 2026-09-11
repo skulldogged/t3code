@@ -21,7 +21,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useWindowDimensions, View } from "react-native";
+import { type LayoutChangeEvent, useWindowDimensions, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useDerivedValue,
@@ -227,7 +227,20 @@ function AdaptiveWorkspaceLayoutContent(
 ) {
   const projectGroupingMode = props.projectGroupingMode;
   const { materialYouStyleLayoutActive } = useAppearancePreferences();
-  const { width, height } = useWindowDimensions();
+  // Measure the workspace itself: iPad window resizing can leave global
+  // window dimensions out of sync with the space available to this view.
+  const windowDimensions = useWindowDimensions();
+  const [workspaceSize, setWorkspaceSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const { width, height } = workspaceSize ?? windowDimensions;
+  const measureWorkspace = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    if (width <= 0 || height <= 0) return;
+    setWorkspaceSize((previous) =>
+      previous?.width === width && previous.height === height ? previous : { width, height },
+    );
+  }, []);
   const pathname = props.pathname;
   const navigation = useNavigation();
   const activeRoleOwner = useRef<symbol | null>(null);
@@ -548,7 +561,11 @@ function AdaptiveWorkspaceLayoutContent(
   return (
     <HomeListOptionsProvider projectGroupingMode={projectGroupingMode}>
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
-        <View testID="adaptive-workspace-layout" className="flex-1 flex-row">
+        <View
+          testID="adaptive-workspace-layout"
+          className="flex-1 flex-row"
+          onLayout={measureWorkspace}
+        >
           {shouldRenderPrimarySidebar && layout.listPaneWidth !== null ? (
             <Animated.View
               className="self-stretch overflow-hidden"
