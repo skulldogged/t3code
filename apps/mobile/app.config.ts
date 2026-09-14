@@ -15,7 +15,16 @@ const runtimeVersionPolicy =
   (APP_VARIANT === "development" ? "appVersion" : "fingerprint");
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
+const customIosBundleIdentifier = repoEnv.T3CODE_IOS_BUNDLE_ID?.trim();
+const customIosTeamIdentifier = repoEnv.T3CODE_IOS_TEAM_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+
+if (customIosBundleIdentifier && !IOS_BUNDLE_IDENTIFIER_PATTERN.test(customIosBundleIdentifier)) {
+  throw new Error("T3CODE_IOS_BUNDLE_ID must be a reverse-DNS identifier.");
+}
+if (customIosTeamIdentifier && !/^[A-Z0-9]{10}$/.test(customIosTeamIdentifier)) {
+  throw new Error("T3CODE_IOS_TEAM_ID must be a 10-character Apple developer team identifier.");
+}
 
 const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
 // Android layers are rendered by scripts/export-android-icons.ts from the Icon Composer sources.
@@ -110,9 +119,9 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
-const iosBundleIdentifier = isIosPersonalTeamBuild
-  ? personalTeamBundleIdentifier!
-  : variant.iosBundleIdentifier;
+const iosBundleIdentifier =
+  customIosBundleIdentifier ??
+  (isIosPersonalTeamBuild ? personalTeamBundleIdentifier! : variant.iosBundleIdentifier);
 
 const dmSansFonts = {
   regular: "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
@@ -199,16 +208,15 @@ const config: ExpoConfig = {
     // showcase capture build requires full screen (see infoPlist below).
     requireFullScreen: process.env.T3_SHOWCASE_CAPTURE_BUILD === "1",
     bundleIdentifier: iosBundleIdentifier,
-    // Pin code signing to the T3 Tools team so non-interactive `expo run:ios`
-    // does not fall back to a personal team (which cannot sign app groups,
-    // Sign in with Apple, or push notification entitlements).
-    appleTeamId: "ARK85ZXQ4Z",
+    // Paid developer teams can override signing without stripping extension
+    // capabilities, unlike the reduced-capability Personal Team build.
+    appleTeamId: customIosTeamIdentifier ?? "ARK85ZXQ4Z",
     associatedDomains: [
       `applinks:${variant.relyingParty}`,
       `webcredentials:${variant.relyingParty}`,
     ],
     entitlements: {
-      "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
+      "keychain-access-groups": [`$(AppIdentifierPrefix)${iosBundleIdentifier}`],
     },
     infoPlist: {
       // Preserve the authorized callback when a signing tool randomizes the bundle ID.
