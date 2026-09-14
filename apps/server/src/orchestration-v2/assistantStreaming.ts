@@ -53,40 +53,39 @@ export function splitBufferedAssistantText(text: string): { ready: string; rest:
   return { ready: text.slice(0, boundary), rest: text.slice(boundary) };
 }
 
-/** V2 adapters emit cumulative snapshots and a full non-streaming snapshot on completion. */
-export function makeResponseStreamingDelivery(mode: ResponseStreamingMode) {
-  const delivered = new Map<string, string>();
-  return (event: ProviderAdapterV2Event): ProviderAdapterV2Event | undefined => {
+/** Each adapter publishes cumulative text. Keep unfinished markdown out of the read model. */
+export function makeAssistantStreamingFilter(mode: ResponseStreamingMode) {
+  const delivered = new Map<string, { text: string; at: number }>();
+  return (event: ProviderAdapterV2Event, now: number): ProviderAdapterV2Event | null => {
     if (mode === "token") return event;
-    if (event.type === "node.updated") {
-      return mode === "turn" &&
-        event.node.kind === "assistant_message" &&
-        event.node.status === "running"
-        ? undefined
-        : event;
-    }
-    const artifact =
+    if (
+      event.type === "node.updated" &&
+      event.node.kind === "assistant_message" &&
+      event.node.status === "running"
+    )
+      return null;
+    const message =
       event.type === "message.updated" && event.message.role === "assistant"
         ? event.message
         : event.type === "turn_item.updated" && event.turnItem.type === "assistant_message"
           ? event.turnItem
-          : undefined;
-    if (artifact === undefined) return event;
-    const key = `${event.type}:${artifact.threadId}:${artifact.id}`;
-    if (!artifact.streaming) {
+          : null;
+    if (!message) return event;
+    const key = `${event.type}:${message.id}`;
+    if (!message.streaming) {
       delivered.delete(key);
       return event;
     }
-    if (mode === "turn") return undefined;
-    const { ready } = splitBufferedAssistantText(artifact.text);
-    if (ready.length === 0 || delivered.get(key) === ready) return undefined;
-    delivered.set(key, ready);
-    if (event.type === "message.updated") {
+    if (mode === "turn") return null;
+    const previous = delivered.get(key);
+    if (previous && now - previous.at < 400) return null;
+    const { ready } = splitBufferedAssistantText(message.text);
+    if (!ready || ready === previous?.text) return null;
+    delivered.set(key, { text: ready, at: now });
+    if (event.type === "message.updated")
       return { ...event, message: { ...event.message, text: ready } };
-    }
-    if (event.type === "turn_item.updated" && event.turnItem.type === "assistant_message") {
+    if (event.type === "turn_item.updated" && event.turnItem.type === "assistant_message")
       return { ...event, turnItem: { ...event.turnItem, text: ready } };
-    }
     return event;
   };
 }

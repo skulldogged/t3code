@@ -28,6 +28,8 @@ import { ensureBackgroundConnectionStarted } from "./native/backgroundConnection
 
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 
+import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
+
 import "../global.css";
 
 if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {

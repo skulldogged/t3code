@@ -4748,19 +4748,7 @@ export default function Sidebar() {
     <>
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
-        className={cn(
-          "gap-0",
-          compact ? "group-data-[collapsible=icon]:overflow-visible" : "min-h-full",
-        )}
-        fixedFooter={
-          compact && !isSearchingThreads && snoozedThreads.length > 0 ? (
-            <ul
-              ref={setSnoozedFooter}
-              aria-label="Snoozed threads"
-              className="relative flex max-h-[min(30vh,16rem)] flex-col gap-px overflow-y-auto px-[var(--sidebar-content-inset)] pb-1"
-            />
-          ) : null
-        }
+        className="gap-0 min-h-full"
         fixedHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
@@ -4820,12 +4808,8 @@ export default function Sidebar() {
                     // popup opens under the field, is at least as wide as it,
                     // and grows to fit project names up to a cap, past which
                     // the rows truncate.
-                    anchor={compact ? undefined : headerSearchRef}
-                    side={compact ? "right" : "bottom"}
-                    className={cn(
-                      "max-w-[min(18rem,var(--available-width))] overflow-hidden",
-                      compact && "min-w-56",
-                    )}
+                    anchor={headerSearchRef}
+                    className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
                   >
                     <ComboboxSearchInput
                       aria-label="Search projects"
@@ -4927,12 +4911,7 @@ export default function Sidebar() {
           </SidebarGroup>
         }
       >
-        <SidebarGroup
-          className={cn(
-            "ps-[calc(var(--sidebar-content-inset)+1px)] pe-[var(--sidebar-content-inset)] pb-1 pt-0",
-            !compact && "flex-1",
-          )}
-        >
+        <SidebarGroup className="ps-[calc(var(--sidebar-content-inset)+1px)] pe-[var(--sidebar-content-inset)] pb-1 pt-0 flex-1">
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -5023,7 +5002,7 @@ export default function Sidebar() {
                     role="list"
                     className={cn(
                       "relative flex flex-col gap-px",
-                      !compact && sidebarListItems.length > 0 && "flex-1",
+                      sidebarListItems.length > 0 && "flex-1",
                     )}
                   >
                     {(() => {
@@ -5243,7 +5222,7 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
-                                className={cn(!compact && "mt-auto")}
+                                className="mt-auto"
                                 label={
                                   snoozedShelfExpanded
                                     ? "Snoozed"
@@ -5261,7 +5240,7 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="settled-shelf-header"
                                 marker="settled-header"
-                                className={cn(!compact && snoozedThreads.length === 0 && "mt-auto")}
+                                className={cn(snoozedThreads.length === 0 && "mt-auto")}
                                 label={
                                   settledShelfExpanded
                                     ? "Settled"

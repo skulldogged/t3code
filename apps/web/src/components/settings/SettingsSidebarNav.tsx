@@ -362,12 +362,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="px-[var(--sidebar-content-inset)] py-1">
-        <div className="contents group-data-[collapsible=icon]:hidden">
-          <Suspense fallback={null}>
-            <T3ConnectSidebarSignIn />
-          </Suspense>
-        </div>
-        <div className="flex items-center gap-1 group-data-[collapsible=icon]:flex-col">
+        <Suspense fallback={null}>
+          <T3ConnectSidebarSignIn />
+        </Suspense>
+        <div className="flex items-center gap-1">
           <div className="min-w-0 flex-1">
             <SidebarUtilityMenu />
           </div>

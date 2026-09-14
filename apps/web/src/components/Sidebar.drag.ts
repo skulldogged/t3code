@@ -222,11 +222,7 @@ export function createSidebarSortingStrategy(input: {
     // Consume the shelf's auto margin as drag labels and resized rows need
     // room, keeping the combined shelves at their measured bottom.
     let shelfSpace =
-      !input.compact &&
-      shelfRect &&
-      beforeShelf &&
-      lastRect &&
-      shelfRect.top > beforeShelf.bottom + 1
+      shelfRect && beforeShelf && lastRect && shelfRect.top > beforeShelf.bottom + 1
         ? Math.max(
             0,
             lastRect.bottom - rects[0].top - heights.reduce((sum, height) => sum + height + 1, -1),

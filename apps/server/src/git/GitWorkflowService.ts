@@ -69,6 +69,7 @@ export class GitWorkflowService extends Context.Service<
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
+      options?: GitVcsDriver.CreateWorktreeOptions,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
     readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
     readonly fetchRemote: (input: {
@@ -342,9 +343,9 @@ export const make = Effect.gen(function* () {
           isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
         ),
       ),
-    createWorktree: (input) =>
+    createWorktree: (input, options) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
-        Effect.andThen(git.createWorktree(input)),
+        Effect.andThen(git.createWorktree(input, options)),
       ),
     listLocalBranchNames: (cwd) =>
       ensureGitCommand("GitWorkflowService.listLocalBranchNames", cwd).pipe(

@@ -1,3 +1,4 @@
+import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   CommandId,
@@ -48,7 +49,6 @@ import type {
   ProviderAdapterV2TurnMessage,
 } from "./ProviderAdapter.ts";
 import { ProviderAdapterTurnStartError } from "./ProviderAdapter.ts";
-import { makeResponseStreamingDelivery } from "./ResponseStreaming.ts";
 import { ProviderEventIngestorV2 } from "./ProviderEventIngestor.ts";
 import { makeProviderFailure, makeProviderFailureTurnItem } from "./ProviderFailure.ts";
 import { RunFinalizationObserver } from "./RunFinalizationService.ts";
@@ -782,7 +782,6 @@ export const layer: Layer.Layer<
                 }),
             ),
           );
-          const deliverResponse = makeResponseStreamingDelivery(responseStreamingMode);
           yield* checkpointService
             .captureBaseline({
               scope: input.checkpointScope,
@@ -1099,6 +1098,7 @@ export const layer: Layer.Layer<
             }
             return true;
           });
+          const filterAssistantEvent = makeAssistantStreamingFilter(responseStreamingMode);
           const providerEventFiber = yield* eventSubscription.events.pipe(
             Stream.filterEffect((event) =>
               Ref.modify(eventRouting, (state) => routeProviderEvent(event, routeIdentity, state)),
@@ -1106,9 +1106,11 @@ export const layer: Layer.Layer<
             Stream.tap((event) =>
               Effect.gen(function* () {
                 let storedEventCount = 0;
-                const deliveryEvent = deliverResponse(event);
-                const shouldDeliver = deliveryEvent !== undefined;
-                if (deliveryEvent !== undefined) {
+                const deliveredEvent = filterAssistantEvent(
+                  event,
+                  DateTime.toEpochMillis(yield* DateTime.now),
+                );
+                if (deliveredEvent) {
                   // Root provider_thread.updated always uses an ownership gate:
                   // pre-terminal writeIfRunCurrent (attempt still running), or
                   // post-terminal writeIfProviderThreadOwner so late roster
@@ -1129,7 +1131,7 @@ export const layer: Layer.Layer<
                     threadId: input.run.threadId,
                     runId: input.run.id,
                     nodeId: input.rootNode.id,
-                    event: deliveryEvent,
+                    event: deliveredEvent,
                     ...(isRootProviderThreadUpdate
                       ? rootTerminalAlreadySeen
                         ? {
@@ -1179,7 +1181,7 @@ export const layer: Layer.Layer<
                   yield* Ref.set(rootTerminalSeen, true);
                   yield* finalizeRootRun(event);
                 }
-                yield* trackChildLifecycle(event, shouldDeliver);
+                yield* trackChildLifecycle(event, deliveredEvent !== null);
               }),
             ),
             Stream.takeUntilEffect(() => shouldStopProviderEventIngestion),

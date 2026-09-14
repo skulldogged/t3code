@@ -28,6 +28,7 @@ import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAp
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { LegacyThreadMigrationToast } from "../components/LegacyThreadMigrationToast";
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
+import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -55,6 +56,7 @@ import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
 import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
+import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { shellEnvironment } from "../state/shell";
 import { useAtomValue } from "@effect/atom-react";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -84,7 +86,7 @@ export const Route = createRootRoute({
       };
     }
 
-    if (isHostedStaticApp(new URL(window.location.href))) {
+    if (isLocalEnvironmentDisabled() || isHostedStaticApp(new URL(window.location.href))) {
       return {
         authGateState: {
           status: "hosted-static",
@@ -223,6 +225,7 @@ function RootRouteView() {
           <ConfirmDialogHost />
           <SlowRpcRequestToastCoordinator />
           {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}
+          <ProjectCloneToastCoordinator />
           <HostedStaticEnvironmentBootstrap />
           {primaryEnvironmentAuthenticated ? (
             <EventRouter skipInitialBootstrapNavigation={returningFromWelcomeRef.current} />

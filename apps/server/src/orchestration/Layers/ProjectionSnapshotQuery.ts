@@ -2791,7 +2791,18 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           "ProjectionSnapshotQuery.getProjectShells:decodeRows",
         ),
       ),
-      Effect.map((projects) => projects.map((row) => mapProjectShellRow(row, null))),
+      Effect.flatMap((projects) =>
+        Effect.forEach(
+          projects,
+          (row) =>
+            projectEnrichment
+              .getAvailable(row.workspaceRoot)
+              .pipe(
+                Effect.map((enrichment) => mapProjectShellRow(row, enrichment.repositoryIdentity)),
+              ),
+          { concurrency: 16 },
+        ),
+      ),
     );
   };
 

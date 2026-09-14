@@ -843,7 +843,6 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Terminal");
     expect(markup).toContain("t3code — Tests");
     expect(markup).toContain('src="data:image/png;base64,aWNvbg=="');
-    expect(markup).toContain("h-28 w-52 max-w-full");
     expect(onAnchorReady).toHaveBeenCalledOnce();
     expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0);
   });
@@ -1115,6 +1114,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
+    expect(markup).toContain("rounded-2xl bg-message p-3");
   });
 
   it("identifies user-role messages sent by another agent", async () => {

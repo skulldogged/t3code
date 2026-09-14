@@ -1,3 +1,4 @@
+import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
@@ -193,6 +194,7 @@ import {
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import {
   ContextChipPopover as UserMessageContextPopover,
   ContextChipShell,
@@ -294,6 +296,9 @@ interface TimelineRowSharedState {
   openPullRequest: (event: MouseEvent<HTMLElement>, url: string) => void;
   onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
   onToggleWorkEntry: (anchorKey: string, collapsed: boolean) => void;
+  onCancelWorktreeSetup: (() => void) | null;
+  onWorktreeSetupWorkLocally: (() => void) | null;
+  onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
 }
 
@@ -375,8 +380,13 @@ interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt?: string | null;
+  worktreeSetup?: WorktreeSetupSnapshot | null;
+  onCancelWorktreeSetup?: () => void;
+  onWorktreeSetupWorkLocally?: () => void;
+  onOpenWorktreeSetupTerminal?: (terminalId: string) => void;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
+
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
   latestRun: TimelineLatestRun | null;
@@ -451,6 +461,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt = null,
+  worktreeSetup = null,
+  onCancelWorktreeSetup,
+  onWorktreeSetupWorkLocally,
+  onOpenWorktreeSetupTerminal,
   isPreparingWorktree = false,
   isCompacting = false,
   listRef,
@@ -504,6 +518,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(null);
   const previousLatestRunRef = useRef(latestRun);
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(listIdentityKey);
   const [expansionThreadKey, setExpansionThreadKey] = useState(listIdentityKey);
   if (expansionThreadKey !== listIdentityKey) {
     setExpansionThreadKey(listIdentityKey);
@@ -679,6 +695,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         activeTurnStartedAt,
         turnDiffSummaries,
         supportsConversationRollback,
+        worktreeSetup,
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -700,6 +717,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     activeTurnStartedAt,
     turnDiffSummaries,
     supportsConversationRollback,
+    worktreeSetup,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   // Run status/timestamps churn on every stream event; the shared row context
@@ -918,6 +936,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleAttemptFold,
       onToggleWorkGroup,
       onToggleWorkEntry: suspendEndScrollMaintenanceForDisclosure,
+      onCancelWorktreeSetup: onCancelWorktreeSetup ?? null,
+      onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
+      onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
       workGroupViewState,
     }),
     [
@@ -948,6 +969,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleAttemptFold,
       onToggleWorkGroup,
       suspendEndScrollMaintenanceForDisclosure,
+      onCancelWorktreeSetup,
+      onWorktreeSetupWorkLocally,
+      onOpenWorktreeSetupTerminal,
       workGroupViewState,
     ],
   );
@@ -1479,6 +1503,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "work-live" ||
                   row.kind === "work-toggle" ||
                   row.kind === "thinking" ||
+                  row.kind === "worktree-setup" ||
                   row.kind === "event" ||
                   row.kind === "attempt-fold"
                 ? "pb-2"
@@ -1516,10 +1541,33 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "thinking" ? <ThinkingTimelineRow /> : null}
+      {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
       {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
     </div>
   );
 });
+
+function WorktreeSetupTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "worktree-setup" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const terminalId = row.snapshot.setupScript?.terminalId ?? null;
+  const openTerminal = ctx.onOpenWorktreeSetupTerminal;
+  const onOpenTerminal = useMemo(
+    () => (openTerminal && terminalId ? () => openTerminal(terminalId) : null),
+    [openTerminal, terminalId],
+  );
+  return (
+    <WorktreeSetupCard
+      snapshot={row.snapshot}
+      onCancel={ctx.onCancelWorktreeSetup}
+      onWorkLocally={row.snapshot.phase === "running" ? ctx.onWorktreeSetupWorkLocally : null}
+      onOpenTerminal={onOpenTerminal}
+    />
+  );
+}
 
 function ContextCompactionTimelineRow({
   row,
@@ -1585,6 +1633,10 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
       }
       label={file.name}
       preload="visible"
+      onOpen={() => {
+        const preview = buildAttachmentVideoPreview(ctx.activeThreadEnvironmentId, file);
+        if (preview) ctx.onImageExpand(preview);
+      }}
       className="block aspect-[4/3] w-full"
       videoClassName="aspect-auto size-full rounded-lg border border-border/80"
       stateClassName="aspect-auto min-h-full rounded-lg border border-border/80 bg-black text-white"
