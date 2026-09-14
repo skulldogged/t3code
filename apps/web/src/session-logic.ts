@@ -1,3 +1,4 @@
+import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
 import {
   type AssetResource,
   type OrchestrationV2ExecutionNode,
@@ -90,6 +91,7 @@ export interface ActivePlanState {
   readonly steps: Array<{
     readonly step: string;
     readonly status: "pending" | "inProgress" | "completed";
+    readonly durationMs?: number;
   }>;
 }
 
@@ -199,18 +201,16 @@ export function isLatestRunSettled(
 }
 
 export function deriveActiveWorkStartedAt(
-  latestRun: Pick<ThreadRunSummary, "runId" | "startedAt" | "completedAt" | "status"> | null,
-  runtime: Pick<ThreadRuntimeSummary, "status" | "activeRunId"> | null,
+  latestRun: Pick<
+    ThreadRunSummary,
+    "runId" | "startedAt" | "requestedAt" | "completedAt" | "status"
+  > | null,
+  runtime: Pick<ThreadRuntimeSummary, "status" | "activeRunId" | "activityStartedAt"> | null,
   sendStartedAt: string | null,
 ): string | null {
-  if (runtime?.activeRunId !== null && runtime?.activeRunId !== undefined) {
-    return latestRun?.runId === runtime.activeRunId
-      ? (latestRun.startedAt ?? sendStartedAt)
-      : sendStartedAt;
-  }
-  return isLatestRunSettled(latestRun, runtime)
-    ? sendStartedAt
-    : (latestRun?.startedAt ?? sendStartedAt);
+  const startedAt = resolveThreadWorkingStartedAt({ latestRun, runtime });
+  // Local dispatch has a clock only until the server supplies the owning run.
+  return startedAt ?? (runtime?.activeRunId == null ? sendStartedAt : null);
 }
 
 export function derivePendingApprovals(
@@ -240,9 +240,10 @@ export function deriveActivePlanState(
     createdAt: planItemTime(projection, plan.id),
     runId: plan.runId,
     explanation: plan.explanation ?? null,
-    steps: plan.steps.map(({ text, status }) => ({
+    steps: plan.steps.map(({ text, status, durationMs }) => ({
       step: text,
       status: status === "running" ? "inProgress" : status,
+      ...(durationMs === undefined ? {} : { durationMs }),
     })),
   };
 }
@@ -593,6 +594,7 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
         id: item.messageId,
         role: item.type === "user_message" ? "user" : "assistant",
         text: item.text,
+        ...(item.type === "user_message" && item.context ? { context: item.context } : {}),
         ...((item.attachments?.length ?? 0) > 0
           ? {
               attachments: (item.attachments ?? []).map((attachment) => {

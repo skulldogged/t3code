@@ -672,8 +672,8 @@ function deriveActiveVisualResponseRunIds(input: {
 
 /**
  * Settled turns fold activity before their terminal assistant message behind
- * a "Worked for ..." row. A single ordinary activity after that message joins
- * the fold, while larger groups and failures stay visible as a trailing summary.
+ * a "Worked for ..." row. Ordinary trailing work joins the fold, while failures
+ * and work still in progress stay visible.
  */
 function deriveTurnFolds(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
@@ -763,11 +763,11 @@ function deriveTurnFolds(input: {
       }
       const isCompaction =
         entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction";
-      const isSingleTrailingActivity =
-        group.entries.length === terminalEntryIndex + 2 &&
+      const isFoldableTrailingActivity =
         entry.kind === "work" &&
+        entry.entry.toolLifecycleStatus !== "inProgress" &&
         !workEntryDisplayIndicatesToolFailure(entry.entry);
-      if (!isCompaction && index > terminalEntryIndex && !isSingleTrailingActivity) {
+      if (!isCompaction && index > terminalEntryIndex && !isFoldableTrailingActivity) {
         continue;
       }
       // Linked resources can outlive their launching run and stay visible
@@ -1071,16 +1071,10 @@ export function deriveMessagesTimelineRows(input: {
     activeWorkRow !== null || latestToolFailed ? activeToolEntries.map((entry) => entry.id) : [],
   );
   const appendWorkingRow = () => {
-    const latestResponseBoundary =
-      input.timelineEntries[lastResponseBoundaryIndex(input.timelineEntries)];
-    const visualResponseStartedAt =
-      activeVisualResponseRunIds.size > 1 && latestResponseBoundary !== undefined
-        ? latestResponseBoundary.createdAt
-        : input.activeTurnStartedAt;
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",
-      createdAt: visualResponseStartedAt ?? null,
+      createdAt: input.activeTurnStartedAt ?? null,
     });
   };
   let hasActivityRow = false;

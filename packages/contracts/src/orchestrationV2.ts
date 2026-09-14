@@ -1,3 +1,4 @@
+import { OrchestrationMessageContext } from "./composerContext.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -785,6 +786,7 @@ export const OrchestrationV2ConversationMessage = Schema.Struct({
   nodeId: Schema.NullOr(NodeId),
   role: Schema.Literals(["user", "assistant", "system"]),
   text: Schema.String,
+  context: Schema.optional(OrchestrationMessageContext),
   attachments: Schema.Array(ChatAttachment),
   streaming: Schema.Boolean,
   createdAt: Schema.DateTimeUtc,
@@ -803,6 +805,10 @@ export const OrchestrationV2PlanStep = Schema.Struct({
   id: TrimmedNonEmptyString,
   text: TrimmedNonEmptyString,
   status: Schema.Literals(["pending", "running", "completed"]),
+  /** Durable server-owned boundary used to calculate elapsed time. */
+  durationAnchorAt: Schema.optional(IsoDateTime),
+  /** Elapsed time for a completed step. */
+  durationMs: Schema.optional(NonNegativeInt),
 });
 export type OrchestrationV2PlanStep = typeof OrchestrationV2PlanStep.Type;
 
@@ -1022,6 +1028,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     ),
     inputIntent: OrchestrationV2UserMessageInputIntent,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
   }),
   Schema.Struct({
@@ -1447,6 +1454,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   latestRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   latestRunCompletedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   activeRunId: Schema.NullOr(RunId),
+  /** Start of the activity-owning run; request time while it is preparing. */
+  activityRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   activityRunStatus: Schema.optional(
     Schema.NullOr(Schema.Literals(["preparing", "starting", "running", "waiting"])),
   ),
@@ -1739,6 +1748,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     ),
     inputIntent: OrchestrationV2UserMessageInputIntent,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
   }),
   Schema.Struct({
@@ -2376,6 +2386,7 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     messageId: MessageId,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
     /** Seed the temporary title and generate a durable replacement for the first message. */
     titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -2455,6 +2466,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("queued-run.edit"),
+    context: Schema.optional(OrchestrationMessageContext),
     commandId: CommandId,
     threadId: ThreadId,
     runId: RunId,
@@ -2480,6 +2492,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("checkpoint.rollback"),
+    restoreFiles: Schema.optional(Schema.Boolean),
     commandId: CommandId,
     threadId: ThreadId,
     scopeId: CheckpointScopeId,
@@ -2636,6 +2649,7 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
     Schema.Struct({
       messageId: Schema.optional(MessageId),
       text: Schema.String,
+      context: Schema.optional(OrchestrationMessageContext),
       attachments: Schema.Array(ChatAttachment),
     }),
   ),
@@ -2726,7 +2740,7 @@ export const OrchestrationV2ThreadBoundedSnapshot = Schema.Struct({
    * has no local rows (inherited-only).
    */
   latestLocalTurnOrdinal: Schema.NullOr(NonNegativeInt),
-  /** True only when required live control state alone exceeds the transport budget. */
+  /** True when complete turns or required live control state exceed the usual byte budget. */
   payloadBudgetExceeded: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2ThreadBoundedSnapshot = typeof OrchestrationV2ThreadBoundedSnapshot.Type;

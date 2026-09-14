@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { OpencodeClient, ToolPart } from "@opencode-ai/sdk/v2";
 import {
+  CheckpointId,
   NodeId,
   OpenCodeSettings,
   ProjectId,
@@ -17,6 +18,7 @@ import {
   type OrchestrationV2ProviderTurn,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -1370,6 +1372,167 @@ describe("OpenCodeAdapterV2", () => {
     }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
   );
 
+  it.effect("fails an active turn when the OpenCode event stream ends cleanly", () =>
+    Effect.gen(function* () {
+      const nativeEvents = asyncEventStream();
+      const harness = yield* makeOpenCodeRuntimeHarness(
+        "clean-event-eof",
+        "native-opencode-clean-event-eof",
+        {
+          event: {
+            subscribe: async (_input: unknown, options: { signal?: AbortSignal }) => {
+              options.signal?.addEventListener("abort", () => nativeEvents.close(), { once: true });
+              return { stream: nativeEvents.stream };
+            },
+          },
+          session: {
+            create: async () => ({
+              data: { id: "native-opencode-clean-event-eof", time: { created: 1, updated: 1 } },
+            }),
+            promptAsync: async () => ({ data: true }),
+          },
+        },
+      );
+      yield* harness.startTurn();
+      const terminalEvents = yield* harness.runtime.events.pipe(
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+
+      nativeEvents.close();
+      const received = Array.from(yield* Fiber.join(terminalEvents));
+      assert.isTrue(
+        received.some(
+          (event) =>
+            event.type === "provider_session.updated" && event.providerSession.status === "error",
+        ),
+      );
+      const terminal = received.find((event) => event.type === "turn.terminal");
+      assert.equal(terminal?.status, "failed");
+      assert.equal(terminal?.failure?.class, "transport_error");
+      assert.equal((yield* Effect.exit(harness.startTurn()))._tag, "Failure");
+    }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+  );
+
+  it.effect("fails compaction when its response races stream termination", () =>
+    Effect.gen(function* () {
+      const nativeEvents = asyncEventStream();
+      const summarizeStarted = promiseGate<void>();
+      const summarizeResult = promiseGate<{ data: boolean }>();
+      const baseClock = yield* Clock.Clock;
+      const eofClockRead = yield* Deferred.make<void>();
+      const releaseEofClockRead = yield* Deferred.make<void>();
+      let blockNextClockRead = false;
+      const blockingClock: Clock.Clock = {
+        ...baseClock,
+        currentTimeMillis: Effect.suspend(() => {
+          if (!blockNextClockRead) return baseClock.currentTimeMillis;
+          blockNextClockRead = false;
+          return Deferred.succeed(eofClockRead, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseEofClockRead)),
+            Effect.andThen(baseClock.currentTimeMillis),
+          );
+        }),
+      };
+      const harness = yield* makeOpenCodeRuntimeHarness(
+        "compaction-eof-race",
+        "native-opencode-compaction-eof-race",
+        {
+          event: { subscribe: async () => ({ stream: nativeEvents.stream }) },
+          session: {
+            create: async () => ({
+              data: { id: "native-opencode-compaction-eof-race", time: { created: 1, updated: 1 } },
+            }),
+            summarize: () => {
+              summarizeStarted.resolve();
+              return summarizeResult.promise;
+            },
+          },
+        },
+      ).pipe(Effect.provideService(Clock.Clock, blockingClock));
+      const events = yield* harness.runtime.events.pipe(Stream.runCollect, Effect.forkScoped);
+      const start = yield* harness.startTurn("/compact").pipe(Effect.forkScoped);
+      yield* Effect.promise(() => summarizeStarted.promise);
+      blockNextClockRead = true;
+      nativeEvents.close();
+      yield* Deferred.await(eofClockRead);
+      summarizeResult.resolve({ data: true });
+      yield* Fiber.join(start);
+      yield* Deferred.succeed(releaseEofClockRead, undefined);
+      const received = Array.from(yield* Fiber.join(events));
+      const terminals = received.filter((event) => event.type === "turn.terminal");
+      assert.lengthOf(terminals, 1);
+      assert.equal(terminals[0]?.status, "failed");
+      assert.equal(terminals[0]?.failure?.class, "transport_error");
+      assert.isFalse(
+        received.some(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "compaction" &&
+            event.turnItem.status === "completed",
+        ),
+      );
+    }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+  );
+
+  it.effect("does not register a turn after the OpenCode event stream ends", () =>
+    Effect.gen(function* () {
+      const nativeEvents = asyncEventStream();
+      let promptCalls = 0;
+      const harness = yield* makeOpenCodeRuntimeHarness(
+        "event-eof-start-race",
+        "native-opencode-event-eof-start-race",
+        {
+          event: {
+            subscribe: async (_input: unknown, options: { signal?: AbortSignal }) => {
+              options.signal?.addEventListener("abort", () => nativeEvents.close(), { once: true });
+              return { stream: nativeEvents.stream };
+            },
+          },
+          session: {
+            create: async () => ({
+              data: {
+                id: "native-opencode-event-eof-start-race",
+                time: { created: 1, updated: 1 },
+              },
+            }),
+            promptAsync: async () => {
+              promptCalls += 1;
+              return { data: true };
+            },
+          },
+        },
+      );
+      const baseClock = yield* Clock.Clock;
+      const startClockRead = yield* Deferred.make<void>();
+      const releaseStartClockRead = yield* Deferred.make<void>();
+      let blockNextClockRead = true;
+      const blockingClock: Clock.Clock = {
+        ...baseClock,
+        currentTimeMillis: Effect.suspend(() => {
+          if (!blockNextClockRead) return baseClock.currentTimeMillis;
+          blockNextClockRead = false;
+          return Deferred.succeed(startClockRead, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseStartClockRead)),
+            Effect.andThen(baseClock.currentTimeMillis),
+          );
+        }),
+      };
+      const start = yield* harness
+        .startTurn()
+        .pipe(Effect.provideService(Clock.Clock, blockingClock), Effect.exit, Effect.forkScoped);
+      yield* Deferred.await(startClockRead);
+
+      const events = yield* harness.runtime.events.pipe(Stream.runCollect, Effect.forkScoped);
+      nativeEvents.close();
+      yield* Fiber.join(events);
+      yield* Deferred.succeed(releaseStartClockRead, undefined);
+
+      assert.isTrue(Exit.isFailure(yield* Fiber.join(start)));
+      assert.equal(promptCalls, 0);
+    }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+  );
+
   it("holds stale idle through prompt admission until the new user message is observed", () => {
     const admission = {
       admissionPending: true,
@@ -1975,3 +2138,67 @@ describe("OpenCodeAdapterV2", () => {
     assert.isUndefined(openCodeBoundaryAfterProviderTurn([first, synthetic, third], third.id));
   });
 });
+
+it.effect.each([false, true])(
+  "OpenCode rewind forks history and validates the retained boundary, invalid=%s",
+  (invalid) =>
+    Effect.gen(function* () {
+      const events = asyncEventStream();
+      const nativeSessionId = "rewind-source";
+      const forkId = "rewind-fork";
+      const calls: string[] = [];
+      const removed = {
+        info: { id: "first-user", sessionID: nativeSessionId, role: "user", time: { created: 1 } },
+        parts: [],
+      };
+      const harness = yield* makeOpenCodeRuntimeHarness("rewind-fork", nativeSessionId, {
+        event: {
+          subscribe: async (_input: unknown, options: { signal?: AbortSignal }) => {
+            options.signal?.addEventListener("abort", () => events.close(), { once: true });
+            return { stream: events.stream };
+          },
+        },
+        session: {
+          create: async () => ({ data: { id: nativeSessionId, time: { created: 1, updated: 1 } } }),
+          get: async ({ sessionID }: { sessionID: string }) => ({
+            data: { id: sessionID, time: { created: 1, updated: 2 } },
+          }),
+          messages: async ({ sessionID }: { sessionID: string }) => ({
+            data: sessionID === nativeSessionId || invalid ? [removed] : [],
+          }),
+          fork: async ({ sessionID, messageID }: { sessionID: string; messageID: string }) => {
+            assert.equal(sessionID, nativeSessionId);
+            assert.equal(messageID, "first-user");
+            calls.push("fork");
+            return { data: { id: forkId, time: { created: 1, updated: 2 } } };
+          },
+          update: async () => {
+            calls.push("permissions");
+            return { data: {} };
+          },
+          revert: async () => {
+            throw new Error("Native revert would change workspace files");
+          },
+        },
+      });
+      const effect = harness.runtime.rollbackThread({
+        providerThread: harness.providerThread,
+        target: {
+          type: "thread_start",
+          checkpointId: CheckpointId.make("rewind-checkpoint"),
+          appRunOrdinal: 0,
+        },
+        providerThreadTurns: [],
+      });
+      if (invalid) {
+        const error = yield* effect.pipe(Effect.flip);
+        assert.equal(error._tag, "ProviderAdapterRollbackThreadError");
+        assert.deepEqual(calls, ["fork"]);
+      } else {
+        const result = yield* effect;
+        assert.equal(result.providerThread.nativeThreadRef?.nativeId, forkId);
+        assert.equal(result.messages.length, 0);
+        assert.deepEqual(calls, ["fork", "permissions"]);
+      }
+    }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+);

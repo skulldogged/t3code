@@ -736,8 +736,11 @@ export function makeClaudeQueryOptions(input: {
   readonly allowDangerouslySkipPermissions?: boolean;
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection);
-  const extraArgs =
-    input.settings === undefined ? {} : parseCliArgs(input.settings.launchArgs).flags;
+  const {
+    "permission-mode": launchArgPermissionMode,
+    "dangerously-skip-permissions": launchArgSkipPermissions,
+    ...extraArgs
+  } = input.settings === undefined ? {} : parseCliArgs(input.settings.launchArgs).flags;
   const threadIdentity: ClaudeAgentSdkThreadIdentity = input.resume
     ? { resume: input.nativeThreadId }
     : { sessionId: input.nativeThreadId };
@@ -762,7 +765,11 @@ export function makeClaudeQueryOptions(input: {
   const options: ClaudeAgentSdkQueryOptions = {
     model: compiledSelection.apiModelId,
     tools: claudeAgentSdkQueryToolsForSdk(selectedTools),
-    permissionMode: input.permissionMode ?? "default",
+    permissionMode:
+      (launchArgPermissionMode as PermissionMode | null | undefined) ??
+      (launchArgSkipPermissions === null || launchArgSkipPermissions === "true"
+        ? "bypassPermissions"
+        : (input.permissionMode ?? "default")),
     includePartialMessages: true,
     ...(compiledSelection.effort === undefined
       ? {}
@@ -2061,6 +2068,14 @@ function terminalStatusFromResult(
   OrchestrationV2ProviderTurn["status"],
   "completed" | "interrupted" | "failed" | "cancelled"
 > {
+  // The CLI can label an abort as success with is_error=false. Its explicit
+  // terminal reason takes precedence over that envelope.
+  if (
+    message.terminal_reason === "aborted_tools" ||
+    message.terminal_reason === "aborted_streaming"
+  ) {
+    return "interrupted";
+  }
   if (message.subtype === "success") {
     // The SDK reports API-level failures (401 auth, 529 overloaded, …) as
     // subtype "success" with is_error set; the turn produced no real work.
@@ -2069,15 +2084,6 @@ function terminalStatusFromResult(
       (message.is_error && failureHint !== undefined)
       ? "failed"
       : "completed";
-  }
-  // The CLI stamps user aborts explicitly: interrupting mid-tool-call yields
-  // "aborted_tools" (with an internal "[ede_diagnostic] ..." error and
-  // is_error: true), interrupting mid-stream yields "aborted_streaming".
-  if (
-    message.terminal_reason === "aborted_tools" ||
-    message.terminal_reason === "aborted_streaming"
-  ) {
-    return "interrupted";
   }
   const errorText = message.errors.join("\n").toLowerCase();
   if (errorText.includes("interrupt")) {
@@ -2090,7 +2096,9 @@ function terminalStatusFromResult(
 }
 
 function isClaudeActiveSteeringAbortResult(message: SDKResultMessage): boolean {
-  return message.terminal_reason === "aborted_streaming";
+  return (
+    message.terminal_reason === "aborted_streaming" || message.terminal_reason === "aborted_tools"
+  );
 }
 
 function isClaudeProviderContinuationTurn(input: ProviderAdapterV2TurnInput): boolean {

@@ -100,6 +100,15 @@ export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDi
   }
 }
 
+export class OrchestratorCommandRejectedError extends Schema.TaggedError<OrchestratorCommandRejectedError>()(
+  "OrchestratorCommandRejectedError",
+  { commandId: CommandId, commandType: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {
+  override get message(): string {
+    return `Orchestration command ${this.commandType} (${this.commandId}) was rejected before commit.`;
+  }
+}
+
 export class OrchestratorProjectionError extends Schema.TaggedError<OrchestratorProjectionError>()(
   "OrchestratorProjectionError",
   {
@@ -178,6 +187,7 @@ export function canReplayCommandReceipt(
 
 export const OrchestratorV2Error = Schema.Union([
   OrchestratorDispatchError,
+  OrchestratorCommandRejectedError,
   OrchestratorProjectionError,
   OrchestratorDomainEventStreamError,
   OrchestratorProviderAdapterError,
@@ -249,6 +259,7 @@ function nextRunOrdinal(projection: OrchestrationV2ThreadProjection): number {
 function isNativeMaintenanceCommand(message: {
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
+  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
 }): boolean {
   return (
     message.attachments.length === 0 &&
@@ -991,6 +1002,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           messageId: queuedMessage.id,
           text: queuedMessage.text,
           attachments: queuedMessage.attachments,
+          ...(queuedMessage.context ? { context: queuedMessage.context } : {}),
           createdBy: queuedMessage.createdBy,
           creationSource: queuedMessage.creationSource,
           ...(queuedMessage.scheduledTaskId === undefined
@@ -2714,6 +2726,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly messageId: OrchestrationV2ConversationMessage["id"];
     readonly text: string;
     readonly attachments: ReadonlyArray<ChatAttachment>;
+    readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
     readonly createdBy: OrchestrationV2ConversationMessage["createdBy"];
     readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
     readonly scheduledTaskId?: OrchestrationV2ConversationMessage["scheduledTaskId"];
@@ -2872,6 +2885,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             role: "user",
             text: input.text,
             attachments: input.attachments,
+            ...(input.context ? { context: input.context } : {}),
             streaming: false,
             createdAt: now,
             updatedAt: now,
@@ -2907,6 +2921,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : "steer",
             text: input.text,
             attachments: input.attachments,
+            ...(input.context ? { context: input.context } : {}),
           };
           yield* emitEvent({
             type: "message.updated",
@@ -3653,6 +3668,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           targetRunId: dispatchMode.targetRunId,
           messageId: command.messageId,
           text: dispatchText,
+          ...(command.context ? { context: command.context } : {}),
           attachments: command.attachments,
           createdBy: command.createdBy,
           creationSource: command.creationSource,
@@ -3821,6 +3837,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           nodeId: rootNodeId,
           role: "user",
           text: dispatchText,
+          ...(command.context ? { context: command.context } : {}),
           attachments: command.attachments,
           streaming: false,
           createdAt: now,
@@ -4124,6 +4141,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           nodeId: rootNodeId,
           role: "user",
           text: dispatchText,
+          ...(command.context ? { context: command.context } : {}),
           attachments: command.attachments,
           streaming: false,
           createdAt: now,
@@ -4156,6 +4174,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           messageId: command.messageId,
           inputIntent: "turn_start",
           text: dispatchText,
+          ...(command.context ? { context: command.context } : {}),
           attachments: command.attachments,
         };
         const preparationTurnItem: OrchestrationV2TurnItem | null =
@@ -4799,6 +4818,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         nodeId: rootNodeId,
         role: "user",
         text: dispatchText,
+        ...(command.context ? { context: command.context } : {}),
         attachments: command.attachments,
         streaming: false,
         createdAt: now,
@@ -4831,6 +4851,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         messageId: command.messageId,
         inputIntent: "turn_start",
         text: dispatchText,
+        ...(command.context ? { context: command.context } : {}),
         attachments: command.attachments,
       };
       const activeHandoff = portableForkHandoff ?? mergeBackHandoff ?? providerSwitchHandoff;
@@ -6069,6 +6090,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         messageId: queuedMessage.id,
         text: queuedMessage.text,
         attachments: queuedMessage.attachments,
+        ...(queuedMessage.context ? { context: queuedMessage.context } : {}),
         createdBy: queuedMessage.createdBy,
         creationSource: queuedMessage.creationSource,
         ...(queuedMessage.scheduledTaskId === undefined
@@ -6327,6 +6349,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...queuedMessage,
           text: command.text,
           ...editedAttachments,
+          ...(command.context ? { context: command.context } : {}),
           updatedAt: now,
         },
       });
@@ -6342,6 +6365,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...queuedTurnItem,
             text: command.text,
             ...editedAttachments,
+            ...(command.context ? { context: command.context } : {}),
             updatedAt: now,
           },
         });
@@ -7006,6 +7030,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           request: {
             type: "provider-thread.rollback",
+            ...(command.restoreFiles === undefined ? {} : { restoreFiles: command.restoreFiles }),
             providerThreadId: providerThread.id,
             checkpointId: targetCheckpoint.id,
             scopeId: targetScope.id,
@@ -7983,7 +8008,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       Effect.catch((cause) =>
         Effect.gen(function* () {
           const rejectedAt = yield* DateTime.now;
-          yield* eventSink
+          const receipt = yield* eventSink
             .commitRejectedCommand({
               commandId: command.commandId,
               threadId: commandThreadId(command),
@@ -8001,6 +8026,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   }),
               ),
             );
+          if (
+            command.type === "queued-run.edit" &&
+            receipt.status === "rejected" &&
+            cause._tag === "OrchestratorDispatchError"
+          ) {
+            return yield* new OrchestratorCommandRejectedError({
+              commandId: cause.commandId,
+              commandType: cause.commandType,
+              cause: cause.cause,
+            });
+          }
           return yield* cause;
         }),
       ),

@@ -2,6 +2,7 @@ import {
   AgentSessionImportSource,
   ApprovalRequestId,
   ChatAttachment,
+  OrchestrationMessageContext,
   CheckpointRef,
   IsoDateTime,
   MessageId,
@@ -112,6 +113,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+    context: Schema.NullOr(Schema.fromJsonString(OrchestrationMessageContext)),
   }),
 );
 const ProjectionTurnStartMessageDbRowSchema = ProjectionThreadMessageDbRowSchema.mapFields(
@@ -140,6 +142,7 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
 const ProjectionThreadRuntimeContextDbRowSchema = Schema.Struct({
   id: ThreadId,
+  projectId: ProjectId,
   title: Schema.String,
   session: Schema.NullOr(ProjectionThreadSessionDbRowSchema),
 });
@@ -653,6 +656,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          context_json AS "context",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1207,6 +1211,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           threads.thread_id AS id,
+          threads.project_id AS "projectId",
           threads.title,
           sessions.thread_id AS "threadId",
           sessions.status,
@@ -1227,6 +1232,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         Effect.map((rows) =>
           rows.map((row) => ({
             id: row.id,
+            projectId: row.projectId,
             title: row.title,
             session: row.threadId === null ? null : row,
           })),
@@ -1245,6 +1251,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         role,
         text,
         attachments_json AS "attachments",
+        context_json AS "context",
         is_streaming AS "isStreaming",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
@@ -1277,6 +1284,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          context_json AS "context",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1607,6 +1615,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          context_json AS "context",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1958,6 +1967,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   role: row.role,
                   text: row.text,
                   ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+                  ...(row.context !== null ? { context: row.context } : {}),
                   turnId: row.turnId,
                   streaming: row.isStreaming === 1,
                   createdAt: row.createdAt,
@@ -2999,6 +3009,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       );
       return Option.map(context, (row) => ({
         id: row.id,
+        projectId: row.projectId,
         title: row.title,
         session: row.session === null ? null : mapSessionRow(row.session),
       }));
@@ -3025,6 +3036,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+        ...(row.context !== null ? { context: row.context } : {}),
       },
       hasOtherUserMessages: row.hasOtherUserMessages === 1,
     }));
@@ -3206,7 +3218,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt: row.updatedAt,
           };
           if (row.attachments !== null) {
-            return Object.assign(message, { attachments: row.attachments });
+            Object.assign(message, { attachments: row.attachments });
+          }
+          if (row.context !== null) {
+            Object.assign(message, { context: row.context });
           }
           return message;
         }),

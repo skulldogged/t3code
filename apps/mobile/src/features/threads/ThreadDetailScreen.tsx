@@ -1,3 +1,4 @@
+import { useNavigation } from "@react-navigation/native";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type {
@@ -108,7 +109,7 @@ import {
 } from "./ThreadComposer";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { ThreadRelationshipsBanner } from "./ThreadRelationshipsBanner";
-import { ThreadQueueControl } from "./ThreadQueueControl";
+import { useThreadQueuedCount } from "./ThreadQueueControl";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
@@ -304,6 +305,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + 44;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  const navigation = useNavigation();
+  const queuedCount = useThreadQueuedCount({
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+  });
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
   const draftMessageRef = useRef(props.draftMessage);
   draftMessageRef.current = props.draftMessage;
@@ -395,6 +401,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   // stable when reconnecting hands off to syncing and then to a running turn.
   const showFloatingStatus =
     showWorkingControl ||
+    queuedCount > 0 ||
     props.connectionStateLabel !== "connected" ||
     props.queuedMessages.length > 0 ||
     props.selectedThreadFeed.some(
@@ -684,14 +691,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const lastDispatchedVisitRef = useRef<string | null>(null);
+  const lastVisitDispatchRef = useRef({ threadKey: selectedThreadKey, at: 0 });
   const selectedThreadId = props.selectedThread.id;
   const selectedThreadUpdatedAt = props.selectedThread.updatedAt;
   const selectedThreadLastVisitedAt = props.selectedThread.lastVisitedAt;
+  const selectedThreadCompletedAt = props.selectedThread.latestRun?.completedAt;
   useEffect(() => {
     // Records the server-side visited watermark while the thread is on
     // screen (mirror of web ChatView), so the "Done" marker clears on every
     // device. Field absent → the server predates visited tracking.
-    if (selectedThreadLastVisitedAt === undefined) return;
+    if (!showContent || selectedThreadLastVisitedAt === undefined) return;
     const threadUpdatedAtMs = Date.parse(selectedThreadUpdatedAt);
     if (Number.isNaN(threadUpdatedAtMs)) return;
     const lastVisitedAtMs = selectedThreadLastVisitedAt
@@ -701,17 +710,36 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     // Dedupe per watermark — the effect re-runs before the command echo lands.
     const dispatchKey = `${selectedThreadKey}:${selectedThreadUpdatedAt}`;
     if (lastDispatchedVisitRef.current === dispatchKey) return;
-    lastDispatchedVisitRef.current = dispatchKey;
-    void visitThread({
-      environmentId: props.environmentId,
-      input: { threadId: selectedThreadId, visitedAt: selectedThreadUpdatedAt },
-    });
+    const dispatch = () => {
+      lastDispatchedVisitRef.current = dispatchKey;
+      lastVisitDispatchRef.current = { threadKey: selectedThreadKey, at: Date.now() };
+      void visitThread({
+        environmentId: props.environmentId,
+        input: { threadId: selectedThreadId, visitedAt: selectedThreadUpdatedAt },
+      });
+    };
+    // Completion clears unread state immediately; streaming watermarks use the
+    // same ten-second trailing throttle as web, keeping the newest update.
+    const completedAtMs = selectedThreadCompletedAt ? Date.parse(selectedThreadCompletedAt) : NaN;
+    const hasUnseenCompletion =
+      !Number.isNaN(completedAtMs) &&
+      (Number.isNaN(lastVisitedAtMs) || completedAtMs > lastVisitedAtMs);
+    const previous = lastVisitDispatchRef.current;
+    const elapsed = Date.now() - previous.at;
+    if (previous.threadKey !== selectedThreadKey || hasUnseenCompletion || elapsed >= 10_000) {
+      dispatch();
+      return;
+    }
+    const timer = setTimeout(dispatch, 10_000 - elapsed);
+    return () => clearTimeout(timer);
   }, [
     props.environmentId,
     selectedThreadId,
     selectedThreadKey,
     selectedThreadLastVisitedAt,
+    selectedThreadCompletedAt,
     selectedThreadUpdatedAt,
+    showContent,
     visitThread,
   ]);
 
@@ -985,6 +1013,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 status={floatingStatus}
                 showScrollToEnd={showScrollToEndButton}
                 onScrollToEnd={handleScrollToEnd}
+                queuedCount={queuedCount}
+                onOpenQueue={() => {
+                  Keyboard.dismiss();
+                  navigation.navigate("ThreadQueue", {
+                    environmentId: props.environmentId,
+                    threadId: props.selectedThread.id,
+                  });
+                }}
               />
               <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
                 {props.feedbackSubmissions.map((submission) => (
@@ -1020,10 +1056,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     />
                   </Animated.View>
                 ) : null}
-                <ThreadQueueControl
-                  environmentId={props.environmentId}
-                  threadId={props.selectedThread.id}
-                />
                 {props.activePendingApproval || props.activePendingUserInput ? (
                   <Animated.View
                     className="shrink-0 gap-3 px-4 pb-3"

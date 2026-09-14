@@ -1,6 +1,7 @@
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import {
   ChatAttachment,
+  OrchestrationMessageContext,
   DEFAULT_MODEL,
   EventId,
   MessageId,
@@ -69,6 +70,7 @@ interface LegacyMessageRow {
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly attachments_json: string | null;
+  readonly context_json?: string | null;
   readonly is_streaming: number;
   readonly created_at: string;
   readonly updated_at: string;
@@ -279,6 +281,13 @@ function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2Doma
     nodeId: null,
     role: row.role,
     text: row.text,
+    ...(row.context_json
+      ? {
+          context: Schema.decodeUnknownSync(OrchestrationMessageContext)(
+            parseJson(row.context_json),
+          ),
+        }
+      : {}),
     attachments,
     streaming: false,
     createdAt,
@@ -310,6 +319,13 @@ function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2Doma
           messageId,
           inputIntent: "turn_start",
           text: row.text,
+          ...(row.context_json
+            ? {
+                context: Schema.decodeUnknownSync(OrchestrationMessageContext)(
+                  parseJson(row.context_json),
+                ),
+              }
+            : {}),
           attachments,
         }
       : {
@@ -317,6 +333,13 @@ function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2Doma
           type: "assistant_message",
           messageId,
           text: row.text,
+          ...(row.context_json
+            ? {
+                context: Schema.decodeUnknownSync(OrchestrationMessageContext)(
+                  parseJson(row.context_json),
+                ),
+              }
+            : {}),
           streaming: false,
         };
   return [
@@ -359,6 +382,7 @@ const make = Effect.gen(function* () {
         role,
         text,
         attachments_json,
+        context_json,
         is_streaming,
         created_at,
         updated_at,
@@ -381,6 +405,7 @@ const make = Effect.gen(function* () {
           message.role,
           message.text,
           message.attachments_json,
+          message.context_json,
           message.is_streaming,
           message.created_at,
           message.updated_at,
@@ -410,6 +435,7 @@ const make = Effect.gen(function* () {
           message.role,
           message.text,
           message.attachments_json,
+          message.context_json,
           message.is_streaming,
           message.created_at,
           message.updated_at,

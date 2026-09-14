@@ -63,7 +63,8 @@ import Migration0047 from "./Migrations/047_ProjectionProjectIcon.ts";
 import Migration0048 from "./Migrations/048_ProjectionThreadBranchPullRequest.ts";
 import Migration0049 from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
 import Migration0050 from "./Migrations/050_ProjectionThreadPullRequests.ts";
-import Migration0051, { OrchestrationV2Base } from "./Migrations/051_OrchestrationV2.ts";
+import Migration0051 from "./Migrations/051_ProjectionThreadMessageContext.ts";
+import Migration0052, { OrchestrationV2Base } from "./Migrations/052_OrchestrationV2.ts";
 import ApplicationEventSequenceIndexes from "./Migrations/OrchestrationV2/ApplicationEventSequenceIndexes.ts";
 import ApplicationEventSource from "./Migrations/OrchestrationV2/ApplicationEventSource.ts";
 import OrchestrationV2EffectCancellation from "./Migrations/OrchestrationV2/EffectCancellation.ts";
@@ -137,7 +138,8 @@ export const migrationEntries = [
   [48, "ProjectionThreadBranchPullRequest", Migration0048],
   [49, "ProjectionThreadsActiveOrderKey", Migration0049],
   [50, "ProjectionThreadPullRequests", Migration0050],
-  [51, "OrchestrationV2", Migration0051],
+  [51, "ProjectionThreadMessageContext", Migration0051],
+  [52, "OrchestrationV2", Migration0052],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -192,7 +194,7 @@ const runHistoricalMigration = <E, R>(
 // Private V2 builds used IDs 44, 45, 48, or 50 for the V2 foundation and
 // recorded its later setup as individual migrations. Match a complete prefix,
 // finish a partial prefix without repeating its CREATE statements, then retain
-// the foundation date under the consolidated public migration 51.
+// the foundation date under the consolidated public migration 52.
 const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
   toMigrationInclusive?: number,
 ) {
@@ -212,7 +214,7 @@ const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
     if (!valid) return yield* migrationError("Unrecognized migration manifest");
     return [];
   }
-  if (firstV2.migration_id === 51) {
+  if (firstV2.migration_id === 52) {
     const valid = rows.every(
       (row, index) => row.migration_id === index + 1 && migrationEntries[index]?.[1] === row.name,
     );
@@ -223,7 +225,8 @@ const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
   const v2Start = firstV2.migration_id;
   const prefixLength = v2Start - 1;
   const valid =
-    (v2Start === 44 || v2Start === 45 || v2Start === 48 || v2Start === 50) &&
+    (v2Start === 44 || v2Start === 45 || v2Start === 48 || v2Start === 50 || v2Start === 51) &&
+    (v2Start !== 51 || rows.length === 51) &&
     rows.every((row, index) => {
       const expected =
         index < prefixLength
@@ -240,25 +243,25 @@ const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
   const historicalCount = rows.length - prefixLength;
   const executed: Array<readonly [number, string]> = [];
   for (const [index, [name, migration]] of historicalV2Entries.entries()) {
-    if (index === 0 || index >= 12 || index < historicalCount) continue;
+    if (v2Start === 51 || index === 0 || index >= 12 || index < historicalCount) continue;
     yield* runHistoricalMigration(v2Start + index, name, migration);
   }
   for (const [id, name, migration] of migrationEntries) {
-    if (id < v2Start || id > 50) continue;
+    if (id < v2Start || id > 51) continue;
     yield* runHistoricalMigration(id, name, migration);
     executed.push([id, name]);
   }
 
   yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= ${v2Start}`;
   for (const [id, name] of migrationEntries) {
-    if (id < v2Start || id > 50) continue;
+    if (id < v2Start || id > 51) continue;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
   }
   yield* sql`
     INSERT INTO effect_sql_migrations (migration_id, name, created_at)
-    VALUES (51, 'OrchestrationV2', ${firstV2.created_at})
+    VALUES (52, 'OrchestrationV2', ${firstV2.created_at})
   `;
-  executed.push([51, "OrchestrationV2"]);
+  executed.push([52, "OrchestrationV2"]);
   return executed;
 });
 

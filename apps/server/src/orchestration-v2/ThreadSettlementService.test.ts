@@ -38,6 +38,7 @@ import { ProjectionStoreV2 } from "./ProjectionStore.ts";
 import * as ThreadSettlementService from "./ThreadSettlementService.ts";
 
 import {
+  autoSettlementSettingsKey,
   isAutoSettlementCandidate,
   QUEUED_TURN_START_GRACE_MS,
   resolveAutoSettlementAt,
@@ -283,6 +284,38 @@ describe("resolveAutoSettlementAt", () => {
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("settlement-project");
+const LINKED_PROJECT_ID = ProjectId.make("linked-settlement-project");
+
+describe("autoSettlementSettingsKey", () => {
+  it("distinguishes a project that inherits the threshold from one that disables it", () => {
+    const inherits = autoSettlementSettingsKey({
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: { [PROJECT_ID]: { sidebarAutoSettleOnMerge: true } },
+    });
+    const never = autoSettlementSettingsKey({
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: {
+        [PROJECT_ID]: { sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: null },
+      },
+    });
+    assert.notStrictEqual(inherits, never);
+  });
+
+  it("ignores project overrides that do not touch settlement", () => {
+    const base = autoSettlementSettingsKey({
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: { [PROJECT_ID]: { sidebarAutoSettleOnMerge: false } },
+    });
+    const unrelated = autoSettlementSettingsKey({
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: {
+        [LINKED_PROJECT_ID]: { defaultThreadEnvMode: "worktree" },
+        [PROJECT_ID]: { sidebarAutoSettleOnMerge: false, defaultAutoPull: true },
+      },
+    });
+    assert.strictEqual(base, unrelated);
+  });
+});
 
 type AutoSettleCommand = Extract<OrchestrationV2Command, { readonly type: "thread.auto-settle" }>;
 
@@ -521,6 +554,33 @@ const startHarness = Effect.fn("startThreadSettlementHarness")(function* (
 });
 
 describe("ThreadSettlementServiceV2 worker", () => {
+  it.effect("settles only the project opted in while environment settlement is disabled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("project-opt-in", {
+          latestRunCompletedAt: DateTime.makeUnsafe("2026-08-25T00:00:00.000Z"),
+        });
+        const other = makeThread("environment-off", { projectId: ProjectId.make("other-project") });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread, other]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleAfterDays: null,
+            sidebarAutoSettleOnMerge: false,
+            projectSettingsOverrides: { [PROJECT_ID]: { sidebarAutoSettleAfterDays: 2 } },
+          },
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          const commands = yield* Ref.get(fixture.commands);
+          expect(commands.map((command) => command.threadId)).toEqual([thread.id]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
   it.effect("dispatches the last activity time with the v2 snapshot guard", () =>
     Effect.scoped(
       Effect.gen(function* () {

@@ -134,7 +134,10 @@ import {
   threadReplayEncodedBytes,
   THREAD_RESUME_MAX_REPLAY_EVENTS,
 } from "./orchestration-v2/ThreadStream.ts";
-import { THREAD_HISTORY_SNAPSHOT_ROW_LIMIT } from "./orchestration-v2/threadHistoryPaging.ts";
+import {
+  THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+  THREAD_HISTORY_PAGE_POLICY,
+} from "./orchestration-v2/threadHistoryPaging.ts";
 import {
   projectDomainEventForWire,
   projectThreadProjectionForWire,
@@ -183,6 +186,7 @@ import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
+import { projectMutationOperation } from "./project/ProjectMutation.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
@@ -1275,6 +1279,7 @@ const makeWsRpcLayer = (
                 useBoundedSnapshot
                   ? threadManagement.getThreadSnapshotWindow(input.threadId, {
                       rowLimit: THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+                      userTurnLimit: THREAD_HISTORY_PAGE_POLICY.maxUserTurns,
                     })
                   : threadManagement.getThreadSnapshot(input.threadId)
               ).pipe(
@@ -1673,48 +1678,7 @@ const makeWsRpcLayer = (
       });
 
       const mutateProject = Effect.fn("ws.projects.mutate")(function* (mutation: ProjectMutation) {
-        switch (mutation.type) {
-          case "project.create":
-            return yield* projectService.create({
-              commandId: mutation.commandId,
-              projectId: mutation.projectId,
-              title: mutation.title,
-              workspaceRoot: mutation.workspaceRoot,
-              ...(mutation.createWorkspaceRootIfMissing === undefined
-                ? {}
-                : { createWorkspaceRootIfMissing: mutation.createWorkspaceRootIfMissing }),
-              ...(mutation.defaultModelSelection === undefined
-                ? {}
-                : { defaultModelSelection: mutation.defaultModelSelection }),
-              ...(mutation.scripts === undefined ? {} : { scripts: mutation.scripts }),
-            });
-          case "project.update":
-            return yield* projectService.update({
-              commandId: mutation.commandId,
-              projectId: mutation.projectId,
-              ...(mutation.title === undefined ? {} : { title: mutation.title }),
-              ...(mutation.workspaceRoot === undefined
-                ? {}
-                : { workspaceRoot: mutation.workspaceRoot }),
-              ...(mutation.defaultModelSelection === undefined
-                ? {}
-                : { defaultModelSelection: mutation.defaultModelSelection }),
-              ...(mutation.autoPull === undefined ? {} : { autoPull: mutation.autoPull }),
-              ...(mutation.projectIcon === undefined ? {} : { projectIcon: mutation.projectIcon }),
-              ...(mutation.faviconPath === undefined ? {} : { faviconPath: mutation.faviconPath }),
-              ...(mutation.defaultThreadEnvMode === undefined
-                ? {}
-                : { defaultThreadEnvMode: mutation.defaultThreadEnvMode }),
-              ...(mutation.scripts === undefined ? {} : { scripts: mutation.scripts }),
-            });
-          case "project.delete": {
-            return yield* projectService.delete({
-              commandId: mutation.commandId,
-              projectId: mutation.projectId,
-              ...(mutation.force === undefined ? {} : { force: mutation.force }),
-            });
-          }
-        }
+        return yield* projectMutationOperation(projectService, mutation);
       });
 
       const handlers = ServerWsRpcGroup.of({
@@ -2818,6 +2782,14 @@ const makeWsRpcLayer = (
                 (input.resource._tag === "media-file" && path.isAbsolute(input.resource.path))
               ) {
                 return yield* issueAssetUrl({ resource: input.resource });
+              }
+              if (input.resource._tag === "draft-workspace-file") {
+                // A project draft names its workspace directly; there is no
+                // thread to resolve one from.
+                return yield* issueAssetUrl({
+                  resource: input.resource,
+                  workspaceRoot: input.resource.cwd,
+                });
               }
               if (input.resource._tag === "project-favicon") {
                 const project = yield* projectionSnapshotQuery
