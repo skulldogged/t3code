@@ -1,3 +1,4 @@
+import type { ResponseStreamingMode } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import type { OrchestrationV2DomainEvent, ProviderReplayTranscript } from "@t3tools/contracts";
@@ -80,7 +81,7 @@ const runFixtureProvider = Effect.fn("runOrchestratorReplayFixture")(function* <
   readonly buildInput: () => OrchestratorFixtureInput;
   readonly driver: ProviderOrchestratorReplayVariant;
   readonly harness: OrchestratorV2ProviderReplayHarness<Transcript, Error>;
-  readonly enableLegacyTokenStreaming?: boolean;
+  readonly responseStreamingMode?: ResponseStreamingMode;
 }) {
   const rawTranscript = yield* readTranscript(input.driver.transcriptFile);
   const replayTranscript = materializeReplayTranscriptRuntimeInstructions(
@@ -112,10 +113,10 @@ const runFixtureProvider = Effect.fn("runOrchestratorReplayFixture")(function* <
   };
 
   const result = yield* runOrchestratorV2ProviderReplayScenario(scenario, input.harness, {
-    enableLegacyTokenStreaming: input.enableLegacyTokenStreaming ?? false,
+    responseStreamingMode: input.responseStreamingMode ?? "turn",
   }).pipe(provideDeterministicTestRuntime);
   input.driver.assertOutput(result, transcript);
-  if (input.enableLegacyTokenStreaming !== true) {
+  if ((input.responseStreamingMode ?? "turn") === "turn") {
     assert.isFalse(
       result.domainEvents.some(isStreamingAssistantEvent),
       "buffered delivery must not persist streaming assistant artifacts",
@@ -144,7 +145,7 @@ function runFixtureProviderWithRegisteredHarness(input: {
   readonly fixtureName: string;
   readonly buildInput: () => OrchestratorFixtureInput;
   readonly driver: ProviderOrchestratorReplayVariant;
-  readonly enableLegacyTokenStreaming?: boolean;
+  readonly responseStreamingMode?: ResponseStreamingMode;
 }) {
   switch (input.driver.driver) {
     case "codex":
@@ -216,6 +217,16 @@ describe("orchestrator replay fixtures", () => {
   }
 
   const simpleFixture = ORCHESTRATOR_REPLAY_FIXTURES.find((fixture) => fixture.name === "simple");
+  for (const provider of simpleFixture?.providers ?? []) {
+    it.effect(`delivers complete ${provider.driver} responses in paragraph mode`, () =>
+      runFixtureProviderWithRegisteredHarness({
+        fixtureName: `simple-${provider.driver}-paragraph`,
+        buildInput: simpleFixture!.buildInput,
+        driver: provider,
+        responseStreamingMode: "paragraph",
+      }),
+    );
+  }
   const simpleCursorProvider = simpleFixture?.providers.find(
     (provider) => provider.driver === "cursor",
   );
@@ -226,7 +237,7 @@ describe("orchestrator replay fixtures", () => {
           fixtureName: "simple-cursor-streaming",
           buildInput: simpleFixture.buildInput,
           driver: simpleCursorProvider,
-          enableLegacyTokenStreaming: true,
+          responseStreamingMode: "token",
         });
 
         assert.deepEqual(
