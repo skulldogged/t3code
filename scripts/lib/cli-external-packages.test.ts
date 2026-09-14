@@ -309,6 +309,22 @@ describe("findEsmImportsOfExternalPackages", () => {
     ]);
   });
 
+  it("ignores embedded extension source while checking template expressions", () => {
+    const source = 'const extension = `import { Type } from "typebox"; ${import("node-pty")}`;';
+    assert.deepStrictEqual(findEsmImportsOfExternalPackages(source), ["node-pty"]);
+  });
+
+  it("allows the SDK's lazy alternate-runtime builtin, but flags a static import", () => {
+    assert.deepStrictEqual(
+      findEsmImportsOfExternalPackages('const bunBackend = () => import("bun:sqlite");'),
+      [],
+    );
+    assert.deepStrictEqual(
+      findEsmImportsOfExternalPackages('import { Database } from "bun:sqlite";'),
+      ["bun:sqlite"],
+    );
+  });
+
   it("does not mistake createRequire calls for imports", () => {
     const source = 'const { FileFinder } = createRequire(import.meta.url)("@ff-labs/fff-node");';
     assert.deepStrictEqual(findEsmImportsOfExternalPackages(source), []);

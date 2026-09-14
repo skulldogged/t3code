@@ -539,6 +539,7 @@ describe("CursorAdapterV2", () => {
           createdBy: "user",
           creationSource: "web",
           title: "Cursor search results",
+          pullRequests: [],
           providerInstanceId: instanceId,
           modelSelection,
           runtimeMode: "full-access",

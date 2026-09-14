@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeModule from "node:module";
+import ts from "typescript-legacy";
 
 /**
  * The single source of truth for packages the server CLI bundle must NOT inline.
@@ -99,24 +100,40 @@ export function selectCliRuntimeExternalDependencies(
  */
 export function findEsmImportsOfExternalPackages(source: string): ReadonlyArray<string> {
   const specifiers = new Set<string>();
-  // `import x from`, `import "side-effect"`, `export ... from`, and `import()`
-  // all resolve through the module loader.
-  const patterns = [
-    /^import\s[^;]*?\sfrom\s+["']([^"']+)["']/gm,
-    /^import\s+["']([^"']+)["']/gm,
-    /^export\s[^;]*?\sfrom\s+["']([^"']+)["']/gm,
-    // Rolldown may leave a `/* @vite-ignore */` style comment before the specifier.
-    /\bimport\(\s*(?:\/\*[\s\S]*?\*\/\s*)*["']([^"']+)["']\s*[,)]/g,
-  ];
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) {
-      const specifier = match[1];
-      if (specifier === undefined) continue;
-      if (NodeModule.isBuiltin(specifier)) continue;
-      if (specifier.startsWith("./") || specifier.startsWith("../")) continue;
-      specifiers.add(specifier);
+  const file = ts.createSourceFile(
+    "bundle.mjs",
+    source,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.JS,
+  );
+  const record = (specifier: string, dynamic: boolean) => {
+    if (NodeModule.isBuiltin(specifier)) return;
+    // Cursor's bundled SDK selects this runtime builtin only for its Bun backend.
+    // It is not a file-backed package and is never loaded by the Node backend.
+    if (dynamic && specifier === "bun:sqlite") return;
+    if (specifier.startsWith("./") || specifier.startsWith("../")) return;
+    specifiers.add(specifier);
+  };
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      record(node.moduleSpecifier.text, false);
+    } else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[0] &&
+      (ts.isStringLiteral(node.arguments[0]) ||
+        ts.isNoSubstitutionTemplateLiteral(node.arguments[0]))
+    ) {
+      record(node.arguments[0].text, true);
     }
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
   return [...specifiers].sort();
 }
 
