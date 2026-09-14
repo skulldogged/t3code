@@ -7,14 +7,12 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Encoding from "effect/Encoding";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
@@ -192,7 +190,6 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import { projectMutationOperation } from "./project/ProjectMutation.ts";
-import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
@@ -671,6 +668,8 @@ const makeWsRpcLayer = (
       );
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManagerV2;
+      const pullRequests = yield* PullRequestService.PullRequestService;
+      const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const deviceService = yield* DeviceService.DeviceService;
       const deviceHostContext =
@@ -693,7 +692,6 @@ const makeWsRpcLayer = (
             );
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
-      const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
       const repositoryIdentityResolver =
@@ -3380,10 +3378,6 @@ const makeWsRpcLayer = (
                   payload: { settings },
                 })),
               );
-
-              yield* providerRegistry
-                .refresh()
-                .pipe(Effect.ignoreCause({ log: true }), Effect.forkScoped);
 
               const liveUpdates = Stream.merge(
                 keybindingsUpdates,

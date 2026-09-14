@@ -515,8 +515,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
-  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(null);
   const previousLatestRunRef = useRef(latestRun);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(listIdentityKey);

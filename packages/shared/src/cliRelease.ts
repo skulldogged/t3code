@@ -6,6 +6,9 @@
  */
 
 const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+const PERSONAL_CLI_RELEASE_REPOSITORY = "skulldogged/t3code";
+const isPersonalRelease = (version: string) =>
+  /^\d+\.\d+\.\d+-(?:nightly|preview)\.\d{8}\.\d+\.personal\.\d+$/.test(version);
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -57,11 +60,12 @@ export function cliArchiveFileName(version: string, platformKey: CliArchivePlatf
 const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
 
 /** Directory that `releases/download/<tag>/<asset>` lives under. */
-export function cliReleaseDownloadBaseUrl(
-  version: string,
-  baseUrl: string | undefined = CLI_RELEASE_DEFAULT_BASE_URL,
-): string {
-  return `${(baseUrl?.trim() || CLI_RELEASE_DEFAULT_BASE_URL).replace(/\/+$/, "")}/v${version}`;
+export function cliReleaseDownloadBaseUrl(version: string, baseUrl?: string): string {
+  const personal = isPersonalRelease(version);
+  const defaultBaseUrl = personal
+    ? `https://github.com/${PERSONAL_CLI_RELEASE_REPOSITORY}/releases/download`
+    : CLI_RELEASE_DEFAULT_BASE_URL;
+  return `${(baseUrl?.trim() || defaultBaseUrl).replace(/\/+$/, "")}/${personal ? "personal-v" : "v"}${version}`;
 }
 
 /**
@@ -88,7 +92,7 @@ export const CLI_RELEASE_CHANNELS: ReadonlyArray<CliReleaseChannel> = [
 
 /** The release train a version was published on, derived from its prerelease tag. */
 export function cliReleaseChannelOf(version: string): CliReleaseChannel {
-  const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+$/.exec(version)?.[1];
+  const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+(?:\.personal\.\d+)?$/.exec(version)?.[1];
   return channel === "nightly" || channel === "preview" ? channel : "stable";
 }
 
@@ -97,8 +101,11 @@ export function cliReleaseChannelOf(version: string): CliReleaseChannel {
  * until a channel match turns up; a busy nightly train can push the newest
  * preview or stable release past any single page.
  */
-export function cliReleaseIndexPageUrl(page: number): string {
-  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
+export function cliReleaseIndexPageUrl(page: number, currentVersion = ""): string {
+  const repository = isPersonalRelease(currentVersion)
+    ? PERSONAL_CLI_RELEASE_REPOSITORY
+    : CLI_RELEASE_REPOSITORY;
+  return `https://api.github.com/repos/${repository}/releases?per_page=100&page=${page}`;
 }
 
 /**
@@ -116,7 +123,9 @@ export function newestCliReleaseVersion(
 ): string | undefined {
   for (const release of releases) {
     if (release.draft) continue;
-    const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
+    const version = /^(?:personal-)?v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(
+      release.tag_name,
+    )?.[1];
     if (version === undefined) continue;
     if (cliReleaseChannelOf(version) === channel) return version;
   }

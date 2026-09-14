@@ -40,6 +40,23 @@ describe("cliRelease", () => {
     );
   });
 
+  it("keeps personal downloads and update discovery on the fork", () => {
+    const version = "0.0.41-nightly.20260914.1700.personal.1";
+    expect(cliReleaseChannelOf(version)).toBe("nightly");
+    expect(cliReleaseDownloadBaseUrl(version)).toBe(
+      `https://github.com/skulldogged/t3code/releases/download/personal-v${version}`,
+    );
+    expect(cliReleaseDownloadBaseUrl(version, "https://mirror.example/t3/")).toBe(
+      `https://mirror.example/t3/personal-v${version}`,
+    );
+    expect(cliReleaseIndexPageUrl(2, version)).toBe(
+      "https://api.github.com/repos/skulldogged/t3code/releases?per_page=100&page=2",
+    );
+    expect(newestCliReleaseVersion([{ tag_name: `personal-v${version}` }], "nightly")).toBe(
+      version,
+    );
+  });
+
   it("parses sha256sum output including binary-mode markers", () => {
     const checksums = parseChecksums(
       [

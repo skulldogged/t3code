@@ -6531,7 +6531,7 @@ export default function ChatView(props: ChatViewProps) {
   const showBranchMismatchBanner = shouldShowBranchMismatchBanner({
     hasMismatch: localCheckoutBranchMismatch !== null,
     isDismissed: isBranchMismatchDismissedForSession(activeBranchMismatchKey),
-    composerHasContent: composerHasUnsentContent,
+    composerHasContent: composerHasDraftContent,
     wasShownForCurrentMismatch:
       revealedBranchMismatchKey !== null && revealedBranchMismatchKey === activeBranchMismatchKey,
   });

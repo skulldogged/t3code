@@ -107,36 +107,89 @@ jobs:
           vp test run apps/mobile/src/features/home/homeThreadList.test.ts apps/mobile/src/features/threads/threadListV2.test.ts packages/client-runtime/src/userMessage.test.ts apps/server/src/orchestration-v2/SubagentProjection.test.ts apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts
           vp test run apps/mobile/src/lib/threadActivity.test.ts apps/web/src/session-logic.test.ts apps/server/src/orchestration-v2/threadHistoryPaging.test.ts
 
-  wsl_node_pty:
+  cli_archive:
     needs: [metadata, validate]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            arch: x64
+            runner: ubuntu-24.04
+            rust_target: x86_64-unknown-linux-gnu
+            resource_key: linux-x64
+          - platform: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            resource_key: linux-arm64
+          - platform: mac
+            arch: arm64
+            runner: macos-26
+            rust_target: aarch64-apple-darwin
+            resource_key: darwin-arm64
+          - platform: win
+            arch: x64
+            runner: windows-2025
+            rust_target: x86_64-pc-windows-msvc
+            resource_key: win32-x64
+          - platform: win
+            arch: arm64
+            runner: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+            resource_key: win32-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
           cache: true
-          run-install: |
-            args:
-              - --filter=t3...
-      - name: Build Linux node-pty for WSL
+          run-install: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+      - name: Stamp version
+        run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
+      - name: Build web and CLI bundle
+        run: |
+          vp run --filter @t3tools/web build
+          vp run --filter t3 build
+      - name: Build CLI single-executable
+        env:
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+      - name: Build and stage resource monitor
         shell: bash
         run: |
           set -euo pipefail
-          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
-          pty_dir="$(dirname "$pty_pkg")"
-          ( cd "$pty_dir" && npx --yes node-gyp rebuild )
-          mkdir -p wsl-prebuild
-          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+          cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ matrix.rust_target }}"
+          binary_name=t3-resource-monitor
+          if [[ "${{ matrix.platform }}" == "win" ]]; then
+            binary_name="$binary_name.exe"
+          fi
+          target_dir="$RUNNER_TEMP/cli-resource-monitor/${{ matrix.resource_key }}"
+          mkdir -p "$target_dir"
+          cp "native/resource-monitor/target/${{ matrix.rust_target }}/release/$binary_name" "$target_dir/$binary_name"
+      - name: Package and smoke-test CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-cli-archive.ts \
+            --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" \
+            --version "${{ needs.metadata.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+          node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ needs.metadata.outputs.version }}"
       - uses: actions/upload-artifact@v7
         with:
-          name: wsl-node-pty-x64
-          path: wsl-prebuild/pty.node
+          name: cli-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-cli/*
           if-no-files-found: error
 
   desktop:
-    needs: [metadata, validate, wsl_node_pty]
+    needs: [metadata, validate, cli_archive]
     strategy:
       fail-fast: false
       matrix:
@@ -174,12 +227,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y imagemagick libsecret-1-dev pkg-config
-      - name: Download WSL node-pty
+      - name: Download WSL runtime
         if: matrix.platform == 'win'
         uses: actions/download-artifact@v8
         with:
-          name: wsl-node-pty-x64
-          path: wsl-prebuild
+          name: cli-linux-x64
+          path: wsl-runtime
       - name: Stamp version
         run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
       - name: Build desktop package
@@ -193,7 +246,7 @@ jobs:
             --verbose
           )
           if [[ "${{ matrix.platform }}" == "win" ]]; then
-            args+=(--wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node")
+            args+=(--wsl-runtime "$GITHUB_WORKSPACE"/wsl-runtime/t3-*-linux-x64.tar.gz)
           fi
           vp run dist:desktop:artifact "${args[@]}"
       - name: Collect desktop artifacts
@@ -358,7 +411,7 @@ jobs:
           path: ${{ runner.temp }}/ios-build.log
 
   release:
-    needs: [metadata, desktop, server_android, ios]
+    needs: [metadata, desktop, server_android, ios, cli_archive]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -372,6 +425,11 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: server-android
+          path: release-assets
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
           path: release-assets
       - uses: actions/download-artifact@v8
         with:

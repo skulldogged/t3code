@@ -68,12 +68,13 @@ const RELEASE_INDEX_MAX_PAGES = 10;
 /** Asks GitHub for the newest published version on a channel, page by page. */
 const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(function* (
   channel: CliReleaseChannel,
+  currentVersion: string,
 ) {
   const httpClient = yield* HttpClient.HttpClient;
   for (let page = 1; page <= RELEASE_INDEX_MAX_PAGES; page += 1) {
     const body = yield* httpClient
       .execute(
-        HttpClientRequest.get(cliReleaseIndexPageUrl(page)).pipe(
+        HttpClientRequest.get(cliReleaseIndexPageUrl(page, currentVersion)).pipe(
           HttpClientRequest.setHeader("Accept", "application/vnd.github+json"),
         ),
       )
@@ -357,7 +358,8 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
       reason: `'${input.requestedVersion}' is not an exact t3 version.`,
     });
   }
-  const targetVersion = input.requestedVersion ?? (yield* resolveNewestVersion(channel));
+  const targetVersion =
+    input.requestedVersion ?? (yield* resolveNewestVersion(channel, currentVersion));
   const targetChannel = cliReleaseChannelOf(targetVersion);
 
   // Preview is a maintainers' dogfooding train: it is cut by hand from
