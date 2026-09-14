@@ -1,4 +1,6 @@
+import type { WorkLogEntry } from "../../session-logic";
 import {
+  ApprovalRequestId,
   CheckpointRef,
   TurnItemId,
   RuntimeRequestId,
@@ -1890,7 +1892,7 @@ describe("deriveMessagesTimelineRows", () => {
   it.each([
     [undefined, true],
     ["inProgress", true],
-    ["completed", false],
+    ["completed", true],
     ["failed", null],
     ["declined", false],
     ["stopped", false],
@@ -1933,6 +1935,7 @@ describe("deriveMessagesTimelineRows", () => {
         expect(rows.at(-1)).toMatchObject({ kind: "thinking", id: "live-activity-row" });
       } else {
         expect(workLiveRow).toMatchObject({ active });
+        if (active) expect(rows.some((row) => row.kind === "thinking")).toBe(false);
       }
     },
   );
@@ -2224,6 +2227,91 @@ describe("deriveMessagesTimelineRows", () => {
     });
     expect(expandedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
       expanded: true,
+    });
+  });
+
+  it("keeps user input in its own row through tool grouping and turn folding", () => {
+    const runId = RunId.make("answer-turn");
+    const time = (second: number) => new Date(Date.UTC(2026, 8, 8, 0, 0, second)).toISOString();
+    const answer: WorkLogEntry = {
+      id: "answer-submitted",
+      createdAt: time(3),
+      runId,
+      tone: "info",
+      label: "User input submitted",
+      sourceActivityKind: "user-input.answer-submitted",
+      questionAnswer: {
+        requestId: ApprovalRequestId.make("answer-request"),
+        answers: { scope: "Use the private repository" },
+        questionTextById: { scope: "Which repository?" },
+        attachmentsByQuestionId: {},
+      },
+    };
+    const tools: WorkLogEntry[] = [1, 2, 4, 5].map((second) => ({
+      id: `tool-${second}`,
+      createdAt: time(second),
+      runId,
+      tone: "tool",
+      label: "Ran command",
+      command: "git status",
+      toolCallId: `call-${second}`,
+      toolLifecycleStatus: "completed",
+      sourceActivityKind: "tool.completed",
+    }));
+    const input = {
+      timelineEntries: [...tools, answer]
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map((entry) => ({
+          id: entry.id,
+          kind: "work" as const,
+          createdAt: entry.createdAt,
+          entry,
+        })),
+      latestRun: { runId, status: "completed", startedAt: time(0), completedAt: time(6) },
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    } satisfies Parameters<typeof deriveMessagesTimelineRows>[0];
+    const collapsed = deriveMessagesTimelineRows(input);
+    expect(collapsed.map((row) => row.kind)).toEqual(["turn-fold", "work"]);
+    const expanded = deriveMessagesTimelineRows({ ...input, expandedRunIds: new Set([runId]) });
+    expect(expanded.map((row) => row.kind)).toEqual([
+      "turn-fold",
+      "work-toggle",
+      "work",
+      "work-toggle",
+    ]);
+    const expandedGroups = deriveMessagesTimelineRows({
+      ...input,
+      expandedRunIds: new Set([runId]),
+      expandedWorkGroupIds: new Set(
+        expanded.flatMap((row) => (row.kind === "work-toggle" ? [row.groupId] : [])),
+      ),
+    });
+    expect(
+      expandedGroups.flatMap((row) =>
+        row.kind === "work" && row.isExpandedToolGroup ? [row.groupedEntries] : [],
+      ),
+    ).toEqual([tools.slice(0, 2), tools.slice(2)]);
+    const active = deriveMessagesTimelineRows({
+      ...input,
+      latestRun: { ...input.latestRun, status: "running", completedAt: null },
+      runningRunId: runId,
+      isWorking: true,
+      activeTurnStartedAt: time(0),
+    });
+    for (const rows of [collapsed, expanded, expandedGroups, active]) {
+      const answerRows = rows.filter(
+        (row) =>
+          (row.kind === "work" || row.kind === "work-live") && row.groupedEntries.includes(answer),
+      );
+      expect(answerRows).toMatchObject([
+        { kind: "work", groupedEntries: [answer], isExpandedToolGroup: false },
+      ]);
+    }
+    expect(active.find((row) => row.kind === "work-live")).toMatchObject({
+      groupedEntries: tools.slice(2),
     });
   });
 

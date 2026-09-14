@@ -250,6 +250,10 @@ export function isContextCompactionActivityGroup(entry: ThreadFeedActivityGroup)
   );
 }
 
+function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return entry.activities.some((activity) => activity.workEntry.questionAnswer !== undefined);
+}
+
 function normalizeDraftAnswer(value: string | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -729,7 +733,8 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
 
     const isStandaloneActivity =
       entry.activity.projectedItem.item.type === "compaction" ||
-      entry.activity.projectedItem.item.type === "notification";
+      entry.activity.projectedItem.item.type === "notification" ||
+      entry.activity.workEntry.questionAnswer !== undefined;
     if (
       isStandaloneActivity ||
       entry.activity.prominent ||
@@ -870,7 +875,9 @@ function deriveThreadFeedRunFolds(
               entry.type === "activity-group" &&
               entry.activities.some(
                 (activity) =>
-                  activity.prominent || activity.projectedItem.item.type === "notification",
+                  activity.prominent ||
+                  activity.projectedItem.item.type === "notification" ||
+                  activity.workEntry.questionAnswer !== undefined,
               )
             ),
         )
@@ -1029,7 +1036,7 @@ function appendPresentedFeedEntry(
     result.push(entry);
     return;
   }
-  if (isContextCompactionActivityGroup(entry)) {
+  if (isContextCompactionActivityGroup(entry) || isUserInputActivityGroup(entry)) {
     result.push(entry);
     return;
   }

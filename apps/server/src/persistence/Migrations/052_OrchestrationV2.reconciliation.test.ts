@@ -4,13 +4,49 @@ import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { OrchestrationV2Base } from "./052_OrchestrationV2.ts";
+import OrchestrationV2, { OrchestrationV2Base } from "./052_OrchestrationV2.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 const rollbackLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 const unknownManifestLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+const installedV2Layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+
+installedV2Layer("installed consolidated V2 migration", (it) => {
+  it.effect("adds message context without rebuilding the installed V2 schema", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 50 });
+      yield* OrchestrationV2;
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name, created_at)
+        VALUES (51, 'OrchestrationV2', '2026-09-11 03:04:05')
+      `;
+      yield* sql`
+        INSERT INTO orchestration_v2_command_receipts
+          (command_id, command_type, thread_id, result_sequence, accepted_at, status)
+        VALUES ('preserved-command', 'test', 'preserved-thread', 0, '2026-09-11T03:04:05.000Z', 'accepted')
+      `;
+
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [51, "ProjectionThreadMessageContext"],
+        [52, "OrchestrationV2"],
+      ]);
+      const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_thread_messages)`;
+      assert.ok(columns.some(({ name }) => name === "context_json"));
+      assert.deepStrictEqual(yield* sql`SELECT command_id FROM orchestration_v2_command_receipts`, [
+        { command_id: "preserved-command" },
+      ]);
+      assert.deepStrictEqual(
+        yield* sql`SELECT strftime('%Y-%m-%d %H:%M:%S', created_at) AS created_at
+          FROM effect_sql_migrations WHERE migration_id = 52`,
+        [{ created_at: "2026-09-11 03:04:05" }],
+      );
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }),
+  );
+});
 
 rollbackLayer("052_OrchestrationV2 reconciliation rollback", (it) => {
   it.effect("rolls back a failed canonical pull-request migration", () =>

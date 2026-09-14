@@ -136,6 +136,20 @@ it.effect(
     return Effect.gen(function* () {
       expect(
         (yield* listLinkedPullRequestThreads({
+          host: "forge.example:3000",
+          repository: "acme/web",
+          number: 7,
+        })).threads.map((thread) => thread.id),
+      ).toEqual(["forgejo-old"]);
+      expect(
+        (yield* listLinkedPullRequestThreads({
+          host: "forge.example:4000",
+          repository: "acme/web",
+          number: 7,
+        })).threads.map((thread) => thread.id),
+      ).toEqual(["forgejo-other-port"]);
+      expect(
+        (yield* listLinkedPullRequestThreads({
           host: "org.visualstudio.com",
           repository: "project/_git/web",
           number: 7,

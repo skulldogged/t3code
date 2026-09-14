@@ -592,7 +592,6 @@ describe("vcsActionState", () => {
           successfulActionId,
         );
         const failedTransportActionId = createVcsActionTransportId(targetKey, failedActionId);
-        const rpcInputs = new Array<GitRunStackedActionInput>();
         const interruptedTransportActionId = createVcsActionTransportId(
           targetKey,
           interruptedActionId,
