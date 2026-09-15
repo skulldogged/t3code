@@ -32,7 +32,27 @@ import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 // Node single-executable (only built-ins resolve there), so load it through
 // `require`, which reads from the real filesystem in every runtime.
 const requireForFff = NodeModule.createRequire(import.meta.url);
-const { FileFinder } = requireForFff("@ff-labs/fff-node") as typeof import("@ff-labs/fff-node");
+const { FileFinder } = (() => {
+  try {
+    return requireForFff("@ff-labs/fff-node") as typeof import("@ff-labs/fff-node");
+  } catch (error) {
+    // The compatibility npm artifact resolves the published package, whose
+    // exports omit `require`. Archives and Electron carry our patched export.
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
+    ) {
+      const manifest = NodeModule.findPackageJSON("@ff-labs/fff-node", import.meta.url);
+      if (manifest !== undefined) {
+        return NodeModule.createRequire(manifest)(
+          "./dist/src/index.js",
+        ) as typeof import("@ff-labs/fff-node");
+      }
+    }
+    throw error;
+  }
+})();
 
 const WORKSPACE_INDEX_MAX_ENTRIES = 25_000;
 const WORKSPACE_INDEX_PAGE_SIZE = WORKSPACE_INDEX_MAX_ENTRIES + 2;

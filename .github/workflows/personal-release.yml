@@ -313,6 +313,15 @@ jobs:
           set -euo pipefail
           mkdir -p release-publish
           node scripts/pack-server-artifact.ts "${{ needs.metadata.outputs.version }}" release-publish
+      - name: Smoke-test compatibility server package
+        shell: bash
+        run: |
+          set -euo pipefail
+          compat_dir="$RUNNER_TEMP/compat-server"
+          npm install --prefix "$compat_dir" --omit=dev --no-audit --no-fund \
+            "$GITHUB_WORKSPACE/release-publish/t3-${{ needs.metadata.outputs.version }}.tgz"
+          actual_version="$(node "$compat_dir/node_modules/t3/dist/bin.mjs" --version)"
+          test "$actual_version" = "t3 v${{ needs.metadata.outputs.version }}"
       - name: Build preview APK
         shell: bash
         env:
