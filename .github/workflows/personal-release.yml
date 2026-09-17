@@ -155,7 +155,7 @@ jobs:
       - name: Build web and CLI bundle
         run: |
           vp run --filter @t3tools/web build
-          vp run --filter t3 build:bundle
+          node apps/server/scripts/cli.ts build --verbose
       - name: Build CLI single-executable
         env:
           VP_NODE_VERSION: "26.8.2"
@@ -306,7 +306,7 @@ jobs:
       - name: Build web and server
         run: |
           vp run --filter @t3tools/web build
-          vp run --filter t3 build:bundle
+          node apps/server/scripts/cli.ts build --verbose
       - name: Pack server
         shell: bash
         run: |
