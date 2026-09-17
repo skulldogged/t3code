@@ -4,6 +4,7 @@ import type {
   ThreadUserInputQuestion,
 } from "@t3tools/client-runtime/state/thread-requests";
 import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/turn-item-presentation";
+import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-log/tool-presentation";
 import { commandProgramName } from "@t3tools/client-runtime/work-log/command-label";
 import {
@@ -199,6 +200,8 @@ function stripShellWrapper(value: string): string {
 
 /** Expanded work rows keep their detail while compact rows show a stable one-line label. */
 export function workEntryRowLabel(entry: WorkLogPresentationEntry, expanded = false): string {
+  if (expanded && entry.itemType === "reasoning")
+    return entry.toolLifecycleStatus === "inProgress" ? "Thinking" : "Thought";
   const presentation = resolveWorkEntryToolPresentation(entry);
   if (presentation) return presentation.displayName;
   if (expanded && entry.command?.trim()) return "Command";
@@ -247,6 +250,12 @@ let cachedThinkingRow: Extract<ThreadFeedEntry, { readonly type: "thinking" }> |
 export function isContextCompactionActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return (
     entry.activities.length === 1 && entry.activities[0]?.projectedItem.item.type === "compaction"
+  );
+}
+
+export function isContextHandoffActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return (
+    entry.activities.length === 1 && entry.activities[0]?.projectedItem.item.type === "handoff"
   );
 }
 
@@ -457,6 +466,7 @@ function itemSummary(
   if (item.type === "system_notice") return item.message;
   if (item.type === "compaction") return contextCompactionLabel(item);
   const title = item.title?.trim();
+  if (item.type === "subagent") return formatSubagentDisplayTitle(title || "Subagent");
   if (title) return toolPresentation?.displayName ?? capitalizePhrase(title);
   switch (item.type) {
     case "reasoning":
@@ -489,8 +499,6 @@ function itemSummary(
       return "Thread forked";
     case "thread_created":
       return "Thread created";
-    case "subagent":
-      return "Subagent";
     case "dynamic_tool":
       return toolPresentation?.displayName ?? item.toolName ?? "Tool call";
     case "proposed_plan":
@@ -677,6 +685,7 @@ function toFeedActivity(
 }
 
 function singleToolCallLabel(activity: ThreadFeedActivity): string {
+  if (activity.workEntry.itemType === "reasoning") return "Thought";
   const presentation = resolveWorkEntryToolPresentation(activity.workEntry, "completed");
   if (presentation) return presentation.displayName;
   const command = activity.workEntry.command?.trim();
@@ -733,6 +742,7 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
 
     const isStandaloneActivity =
       entry.activity.projectedItem.item.type === "compaction" ||
+      entry.activity.projectedItem.item.type === "handoff" ||
       entry.activity.projectedItem.item.type === "notification" ||
       entry.activity.workEntry.questionAnswer !== undefined;
     if (
@@ -877,6 +887,7 @@ function deriveThreadFeedRunFolds(
                 (activity) =>
                   activity.prominent ||
                   activity.projectedItem.item.type === "notification" ||
+                  activity.projectedItem.item.type === "handoff" ||
                   activity.workEntry.questionAnswer !== undefined,
               )
             ),
@@ -946,7 +957,7 @@ export function deriveThreadFeedPresentation(
   const activeTailGroup = sourceFeed.at(-1);
   const foldsByAnchorId = deriveThreadFeedRunFolds(sourceFeed, latestRun);
   const activeRunId = unsettledRunId(latestRun);
-  const isWorking = activeWorkStartedAt !== null;
+  const isWorking = activeWorkStartedAt !== null && latestRun?.status !== "preparing";
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorId.values()) {
     if (!expandedRunIds.has(fold.runId)) {
@@ -999,6 +1010,7 @@ export function deriveThreadFeedPresentation(
   // Keep exactly one live slot while a run is working. When no tool row can
   // carry it yet (or the latest call failed), the slot reads "Thinking".
   if (
+    isWorking &&
     activeWorkStartedAt !== null &&
     !result.some(
       (row) =>
@@ -1036,7 +1048,11 @@ function appendPresentedFeedEntry(
     result.push(entry);
     return;
   }
-  if (isContextCompactionActivityGroup(entry) || isUserInputActivityGroup(entry)) {
+  if (
+    isContextCompactionActivityGroup(entry) ||
+    isContextHandoffActivityGroup(entry) ||
+    isUserInputActivityGroup(entry)
+  ) {
     result.push(entry);
     return;
   }
@@ -1227,6 +1243,8 @@ function appendToolGroupRows(
 
 function liveToolActivitySummary(activity: ThreadFeedActivity, presentTense: boolean): string {
   const status = liveActivityToolStatus(activity.lifecycleStatus, presentTense);
+  if (activity.workEntry.itemType === "reasoning")
+    return status === "inProgress" ? "Thinking" : "Thought";
   const presentation = resolveWorkEntryToolPresentation({
     ...activity.workEntry,
     toolLifecycleStatus: status,
@@ -1372,10 +1390,18 @@ export function buildThreadFeed(
     }
     return null;
   };
+  const foldedAnswerMessageIds = new Set(
+    visibleTurnItems.flatMap(({ item }) =>
+      item.type === "user_input_request" && item.questionAnswer
+        ? [`async-answer:${item.questionAnswer.requestId}`]
+        : [],
+    ),
+  );
   for (const row of visibleTurnItems) {
     const item = row.item;
     if (turnItemIsWorkspacePreparation(item)) continue;
-    if (item.type === "todo_list") continue;
+    if (item.type === "todo_list" || item.type === "checkpoint") continue;
+    if (item.type === "user_message" && foldedAnswerMessageIds.has(item.messageId)) continue;
     // Match the web timeline: only the terminal interrupt result is useful to
     // users; the preceding request is transient bookkeeping.
     if (item.type === "run_interrupt_request") {
@@ -1435,9 +1461,10 @@ export function buildThreadFeed(
     projectedEntriesCache.set(row, { attemptId, entry });
     entries.push(entry);
   }
-  const retainedMessageIds = new Set(
-    entries.flatMap((entry) => (entry.type === "message" ? [entry.id] : [])),
-  );
+  const retainedMessageIds = new Set([
+    ...foldedAnswerMessageIds,
+    ...entries.flatMap((entry) => (entry.type === "message" ? [entry.id] : [])),
+  ]);
   const appendLocalMessage = (message: OrchestrationMessage): RawThreadFeedEntry => {
     const cached = localMessageEntriesCache.get(message);
     if (cached) return cached;

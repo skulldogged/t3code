@@ -47,7 +47,7 @@ import {
 import { ThreadDetailsPrRow } from "./chat/ThreadDetailsPrRow";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
-import { composerFloatingLayerProps } from "./chat/composerEventScope";
+import { useComposerMenuProps } from "./chat/composerEventScope";
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
@@ -86,6 +86,7 @@ export interface BranchToolbarBranchSelectorHandle {
 }
 
 interface BranchToolbarBranchSelectorProps {
+  forceNewWorktree?: boolean;
   ref?: Ref<BranchToolbarBranchSelectorHandle>;
   className?: string;
   displayMode?: "toolbar" | "panel";
@@ -107,6 +108,7 @@ function toBranchActionErrorMessage(error: unknown): string {
 }
 
 export function BranchToolbarBranchSelector({
+  forceNewWorktree = false,
   ref,
   className,
   displayMode = "toolbar",
@@ -122,6 +124,7 @@ export function BranchToolbarBranchSelector({
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
+  const composerFloatingLayerProps = useComposerMenuProps();
   const startFromOriginSwitchId = useId();
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, "thread session stop");
   const updateThreadMetadata = useAtomCommand(
@@ -160,7 +163,9 @@ export function BranchToolbarBranchSelector({
     activeThreadBranchOverride !== undefined
       ? activeThreadBranchOverride
       : (serverThread?.branch ?? draftThread?.branch ?? null);
-  const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
+  const activeWorktreePath = forceNewWorktree
+    ? null
+    : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const branchCwd = activeWorktreePath ?? activeProjectCwd;
   const hasServerThread = serverThread !== null;
@@ -679,11 +684,10 @@ export function BranchToolbarBranchSelector({
   const prNumber = currentLinkedPr?.number ?? displayedPr?.number;
   const prUrl = currentLinkedPr?.url ?? displayedPr?.url;
   const openPrLink = useOpenPrLink(threadRef);
-  const branchPrStatus = prStatusIndicator(branchPr, branchStatusQuery.data?.sourceControlProvider);
-  const branchPrTooltip = branchPrStatus?.tooltip ?? "Open pull request";
-  const panelPrLabel = branchPr
-    ? `#${branchPr.number}${branchPr.title.trim() ? `: ${branchPr.title}` : ""}`
-    : "";
+  const panelPrLabel =
+    prNumber === undefined
+      ? ""
+      : `#${prNumber}${displayedPr?.title.trim() ? `: ${displayedPr.title}` : ""}`;
 
   function renderPickerItem(itemValue: string, index: number) {
     if (checkoutPullRequestItemValue && itemValue === checkoutPullRequestItemValue) {
@@ -793,6 +797,7 @@ export function BranchToolbarBranchSelector({
           <ThreadPullRequestBadgeControl
             variant="ghost"
             badge={prBadge}
+            pullRequests={serverThread?.pullRequests ?? []}
             number={prNumber}
             url={prUrl}
             status={displayedPrStatus}
@@ -845,15 +850,17 @@ export function BranchToolbarBranchSelector({
             )}
           </ComboboxTrigger>
         </span>
-        {displayMode === "panel" && branchPr && displayedPrStatus ? (
+        {displayMode === "panel" && prNumber !== undefined && prUrl !== undefined ? (
           <ThreadDetailsPrRow
             environmentId={environmentId}
-            pr={branchPr}
+            pr={displayedPr}
+            number={prNumber}
+            reference={currentLinkedPr}
             status={displayedPrStatus}
             project={activeProject}
             label={panelPrLabel}
             openAriaLabel={prUrl ?? "Open pull request"}
-            onOpen={(event) => openPrLink(event, displayedPrStatus.url)}
+            onOpen={(event) => openPrLink(event, prUrl)}
             onActed={() => branchStatusQuery.refresh()}
           />
         ) : null}

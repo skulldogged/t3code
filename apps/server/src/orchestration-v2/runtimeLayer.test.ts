@@ -1,3 +1,4 @@
+import { SourceControlProviderRegistry } from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
@@ -76,6 +77,11 @@ import {
   layer as threadCommandExecutorLayer,
 } from "./ThreadCommandExecutor.ts";
 
+const PlatformTestLayer = Layer.merge(
+  NodeServices.layer,
+  Layer.mock(SourceControlProviderRegistry)({ resolveLink: () => Effect.die("unused title link") }),
+);
+
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-orchestration-v2-runtime-layer-",
 });
@@ -89,7 +95,7 @@ const alternateInstanceId = ProviderInstanceId.make("codex_alternate");
 const VcsDriverRegistryTestLayer = VcsDriverRegistry.layer.pipe(
   Layer.provide(VcsProcess.layer),
   Layer.provide(ServerConfigLayer),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(PlatformTestLayer),
 );
 
 const CheckpointStoreTestLayer = CheckpointStore.layer.pipe(
@@ -165,7 +171,7 @@ const TestLayer = Layer.mergeAll(
   Layer.provide(TestProviderInstanceRegistry),
   Layer.provide(GitWorkflowTestLayer),
   Layer.provide(ProjectServiceTestLayer),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(PlatformTestLayer),
 );
 
 const LegacyImportTestLayer = OrchestrationV2LayerLive.pipe(
@@ -177,7 +183,7 @@ const LegacyImportTestLayer = OrchestrationV2LayerLive.pipe(
   Layer.provide(TestProviderInstanceRegistry),
   Layer.provide(GitWorkflowTestLayer),
   Layer.provide(ProjectServiceTestLayer),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(PlatformTestLayer),
 );
 
 const ProjectDeletionTestLayer = Layer.mergeAll(
@@ -215,7 +221,7 @@ const ProjectDeletionTestLayer = Layer.mergeAll(
   Layer.provide(ServerSettingsService.layerTest()),
   Layer.provide(TestProviderInstanceRegistry),
   Layer.provide(GitWorkflowTestLayer),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(PlatformTestLayer),
 );
 
 it.layer(ProjectDeletionTestLayer)("project deletion during thread commands", (it) => {
@@ -350,7 +356,7 @@ const SharedApplicationDataPlaneTestLayer = Layer.merge(
   Layer.provide(TestProviderInstanceRegistry),
   Layer.provide(GitWorkflowTestLayer),
   Layer.provide(ProjectServiceTestLayer),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(PlatformTestLayer),
 );
 
 it.layer(TestLayer)("OrchestrationV2LayerLive", (it) => {
@@ -510,6 +516,38 @@ it.layer(TestLayer)("OrchestrationV2LayerLive", (it) => {
           assert.deepEqual(
             (yield* outbox.listByCommandId(commandId)).map((effect) => effect.request.type),
             ["provider-thread.rollback"],
+          );
+          yield* orchestrator.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make("runtime-rollback-share"),
+            threadId,
+            worktreePath: null,
+          });
+          const sharedCommandId = CommandId.make("runtime-rollback-shared");
+          const sequence = yield* orchestrator.getThreadEventSequence(threadId);
+          const shared = yield* orchestrator
+            .dispatch({
+              type: "checkpoint.rollback",
+              commandId: sharedCommandId,
+              threadId,
+              checkpointId,
+              scopeId: scope.id,
+            })
+            .pipe(Effect.flip);
+          assert.match(String(shared.cause), /isolated worktree/);
+          assert.equal(yield* orchestrator.getThreadEventSequence(threadId), sequence);
+          assert.deepEqual(yield* outbox.listByCommandId(sharedCommandId), []);
+          const conversationOnly = yield* orchestrator.dispatch({
+            type: "checkpoint.rollback",
+            commandId: CommandId.make("runtime-rollback-conversation"),
+            threadId,
+            checkpointId,
+            scopeId: scope.id,
+            restoreFiles: false,
+          });
+          assert.deepEqual(
+            conversationOnly.storedEvents.map((stored) => stored.event.type),
+            ["checkpoint.rollback-requested"],
           );
         } else {
           const error = yield* rollback.pipe(Effect.flip);
@@ -828,6 +866,16 @@ it.layer(TestLayer)("OrchestrationV2LayerLive", (it) => {
       assert.deepEqual(answered.runtimeRequests[0]?.answers, command.answers);
       assert.equal(answered.nodes.find((node) => node.id === nodeId)?.status, "completed");
       assert.equal(answered.turnItems.find((item) => item.id === itemId)?.status, "completed");
+      const answeredItem = answered.turnItems.find((item) => item.id === itemId);
+      assert.equal(answeredItem?.type, "user_input_request");
+      if (answeredItem?.type === "user_input_request") {
+        assert.deepEqual(answeredItem.questionAnswer, {
+          requestId,
+          answers: command.answers,
+          attachmentsByQuestionId: {},
+          questionTextById: { color: "Which color?" },
+        });
+      }
       assert.equal(answered.messages.length, 1);
       assert.equal(answered.messages[0]?.text, "Which color?\nBlue");
       assert.equal(answered.messages[0]?.role, "user");
@@ -1302,8 +1350,7 @@ it.layer(LegacyImportTestLayer)("OrchestrationV2 legacy import", (it) => {
       `;
 
       yield* importer.reconcileShells;
-      const rebuilt = yield* maintenance.rebuild;
-      assert.isTrue(rebuilt.valid);
+      assert.isTrue((yield* maintenance.verify).valid);
 
       yield* threadManagement.dispatch({
         type: "thread.metadata.update",
@@ -1715,6 +1762,102 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       const unlinkedShell = yield* orchestrator.getThreadShell(threadId);
       assert.isNotNull(unlinkedShell);
       assert.isNull(unlinkedShell.linkedPullRequest);
+    }),
+  );
+
+  it.effect("keeps the branch pull request when linking another pull request", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* OrchestratorV2;
+      const maintenance = yield* ProjectionMaintenanceV2;
+      const projects = yield* ProjectionProjectRepository;
+      const threadId = ThreadId.make("branch-pr-link");
+      const projectId = ProjectId.make("branch-pr-project");
+      yield* projects.upsert({
+        projectId,
+        title: "PR links",
+        workspaceRoot: "/workspace/pr-links",
+        defaultModelSelection: null,
+        defaultThreadEnvMode: null,
+        autoPull: false,
+        scripts: [],
+        createdAt: "2026-09-17T00:00:00.000Z",
+        updatedAt: "2026-09-17T00:00:00.000Z",
+        deletedAt: null,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("branch-pr-create"),
+        threadId,
+        projectId,
+        title: "PR links",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: "feature/pr-links",
+        worktreePath: null,
+      });
+      const snapshot = yield* orchestrator.getShellSnapshot();
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.sync",
+        commandId: CommandId.make("branch-pr-discover"),
+        threadId,
+        projectId,
+        snapshotSequence: snapshot.snapshotSequence,
+        expected: {
+          workspaceRoot: "/workspace/pr-links",
+          branch: "feature/pr-links",
+          worktreePath: null,
+          linkedPullRequest: null,
+          branchPullRequest: null,
+        },
+        branchPullRequest: {
+          projectId,
+          repository: "pingdotgg/t3code",
+          number: 1,
+          url: "https://github.com/pingdotgg/t3code/pull/1",
+        },
+      });
+      for (const [index, number] of [2, 2, 1, 3].entries()) {
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request.link",
+          commandId: CommandId.make(`branch-pr-link-${index}`),
+          threadId,
+          host: "GitHub.com",
+          repository: "Pingdotgg/T3code",
+          number,
+          url: `https://github.com/pingdotgg/t3code/pull/${number}`,
+          source: "manual",
+        });
+        assert.deepEqual(
+          (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.map((link) => link.number),
+          number === 3 ? [1, 2, 3] : [1, 2],
+        );
+      }
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.unlink",
+        commandId: CommandId.make("branch-pr-unlink"),
+        threadId,
+        host: "github.com",
+        repository: "pingdotgg/t3code",
+        number: 1,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.link",
+        commandId: CommandId.make("branch-pr-link-after-unlink"),
+        threadId,
+        host: "github.com",
+        repository: "pingdotgg/t3code",
+        number: 4,
+        url: "https://github.com/pingdotgg/t3code/pull/4",
+        source: "manual",
+      });
+      assert.isTrue((yield* maintenance.rebuild).valid);
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.map((link) => link.number),
+        [2, 3, 4],
+      );
     }),
   );
 

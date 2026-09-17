@@ -1,8 +1,8 @@
 import * as Schema from "effect/Schema";
-import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 
 import {
   PullRequestDetail,
+  pullRequestHostOf,
   type PullRequestAction,
   type PullRequestActor,
   type PullRequestBaseComparison,
@@ -15,6 +15,8 @@ import {
   type PullRequestMergeability,
   type PullRequestReaction,
   type PullRequestMergeMethod,
+  type PullRequestRef,
+  type RepositoryIdentity,
   type PullRequestReviewThread,
   type PullRequestState,
   type PullRequestUpdateMethod,
@@ -288,7 +290,9 @@ export function classifyPullRequestChecks(
   if (checks.some((check) => check.status === "failure" || check.status === "cancelled")) {
     return "failing";
   }
-  if (checks.some((check) => check.status === "pending")) return "pending";
+  if (checks.some((check) => check.status === "pending" || check.status === "action-required")) {
+    return "pending";
+  }
   return "passing";
 }
 
@@ -303,16 +307,28 @@ export function describePullRequestChecks(checks: ReadonlyArray<PullRequestCheck
     (check) => check.status === "failure" || check.status === "cancelled",
   ).length;
   const pending = checks.filter((check) => check.status === "pending").length;
+  const actionRequired = checks.filter((check) => check.status === "action-required").length;
   const passed = checks.filter((check) => check.status === "success").length;
   const parts: string[] = [];
   if (pending > 0) parts.push(`${pending} of ${checks.length} running`);
+  if (actionRequired > 0) parts.push(`${actionRequired} of ${checks.length} awaiting action`);
   if (failed > 0) {
-    parts.push(pending > 0 ? `${failed} failed` : `${failed} of ${checks.length} failing`);
+    parts.push(parts.length > 0 ? `${failed} failed` : `${failed} of ${checks.length} failing`);
   }
   if (parts.length === 0) {
     return passed === checks.length ? "All checks passed" : `${passed} of ${checks.length} passing`;
   }
   return parts.join(" · ");
+}
+
+export function groupPullRequestChecks(checks: ReadonlyArray<PullRequestCheck>) {
+  return {
+    attention: checks.filter((check) =>
+      ["failure", "cancelled", "action-required"].includes(check.status),
+    ),
+    running: checks.filter((check) => check.status === "pending"),
+    completed: checks.filter((check) => ["success", "skipped", "neutral"].includes(check.status)),
+  };
 }
 
 export type ThreadPanelPullRequestAction = "resolve" | "ready" | "fix" | "merge";
@@ -1202,6 +1218,15 @@ export function pullRequestActionNeedsHostRefresh(action: PullRequestAction): bo
 
 type SnapshotStorage = Pick<Storage, "getItem" | "setItem">;
 
+export function resolvePullRequestReferenceHost(
+  reference: PullRequestRef,
+  identity: RepositoryIdentity | null | undefined,
+): PullRequestRef {
+  // Other providers may resolve an SSH remote to a different web authority on the server.
+  if (reference.host !== undefined || identity?.provider !== "github") return reference;
+  return { ...reference, host: pullRequestHostOf(identity, "github") };
+}
+
 export interface PullRequestDetailSnapshotRef {
   readonly host?: string | undefined;
   readonly projectId: string;
@@ -1231,7 +1256,13 @@ export function readPullRequestDetailSnapshot(
   reference: PullRequestDetailSnapshotRef,
 ): PullRequestDetail | null {
   try {
-    const raw = storage?.getItem(pullRequestDetailSnapshotKey(environmentId, reference));
+    const raw =
+      storage?.getItem(pullRequestDetailSnapshotKey(environmentId, reference)) ??
+      (reference.host === undefined
+        ? null
+        : storage?.getItem(
+            pullRequestDetailSnapshotKey(environmentId, { ...reference, host: undefined }),
+          ));
     if (!raw) return null;
     const decoded = decodeDetailSnapshot(JSON.parse(raw));
     return decoded._tag === "Some"
@@ -1267,14 +1298,22 @@ export function resolveDisplayedPullRequestDetail(input: {
 }): PullRequestDetail | null {
   if (input.live !== null) return input.live;
   if (
-    input.cached !== null &&
-    input.cached.projectId === input.reference.projectId &&
-    input.cached.repository.toLowerCase() === input.reference.repository.toLowerCase() &&
-    input.cached.number === input.reference.number &&
-    (input.reference.host === undefined ||
-      parseChangeRequestUrl(input.cached.url)?.host === input.reference.host.toLowerCase())
+    input.cached === null ||
+    input.cached.projectId !== input.reference.projectId ||
+    input.cached.repository.toLowerCase() !== input.reference.repository.toLowerCase() ||
+    input.cached.number !== input.reference.number
   ) {
-    return input.cached;
+    return null;
   }
-  return null;
+  if (input.reference.host === undefined) return input.cached;
+  try {
+    const url = new URL(input.cached.url);
+    const host = input.cached.provider === "forgejo" ? url.host : url.hostname;
+    return (url.protocol === "https:" || url.protocol === "http:") &&
+      host.toLowerCase() === input.reference.host.toLowerCase()
+      ? input.cached
+      : null;
+  } catch {
+    return null;
+  }
 }

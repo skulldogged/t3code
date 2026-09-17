@@ -11,6 +11,7 @@
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -64,7 +65,9 @@ import Migration0048 from "./Migrations/048_ProjectionThreadBranchPullRequest.ts
 import Migration0049 from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
 import Migration0050 from "./Migrations/050_ProjectionThreadPullRequests.ts";
 import Migration0051 from "./Migrations/051_ProjectionThreadMessageContext.ts";
-import Migration0052, { OrchestrationV2Base } from "./Migrations/052_OrchestrationV2.ts";
+import Migration0052 from "./Migrations/052_ProjectionThreadTitleState.ts";
+import Migration0053 from "./Migrations/053_PullRequestFilesViewed.ts";
+import Migration0054, { OrchestrationV2Base } from "./Migrations/054_OrchestrationV2.ts";
 import ApplicationEventSequenceIndexes from "./Migrations/OrchestrationV2/ApplicationEventSequenceIndexes.ts";
 import ApplicationEventSource from "./Migrations/OrchestrationV2/ApplicationEventSource.ts";
 import OrchestrationV2EffectCancellation from "./Migrations/OrchestrationV2/EffectCancellation.ts";
@@ -139,7 +142,11 @@ export const migrationEntries = [
   [49, "ProjectionThreadsActiveOrderKey", Migration0049],
   [50, "ProjectionThreadPullRequests", Migration0050],
   [51, "ProjectionThreadMessageContext", Migration0051],
-  [52, "OrchestrationV2", Migration0052],
+  [52, "ProjectionThreadTitleState", Migration0052],
+  [53, "PullRequestFilesViewed", Migration0053],
+  // Released as 53 in V2 previews; reconcileV2PreviewMigration handles that collision.
+  // Preserve this migration's schema. Future V2 schema changes need new migrations.
+  [54, "OrchestrationV2", Migration0054],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -194,7 +201,7 @@ const runHistoricalMigration = <E, R>(
 // Private V2 builds used IDs 44, 45, 48, or 50 for the V2 foundation and
 // recorded its later setup as individual migrations. Match a complete prefix,
 // finish a partial prefix without repeating its CREATE statements, then retain
-// the foundation date under the consolidated public migration 52.
+// the foundation date under the consolidated public migration 54.
 const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
   toMigrationInclusive?: number,
 ) {
@@ -214,7 +221,8 @@ const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
     if (!valid) return yield* migrationError("Unrecognized migration manifest");
     return [];
   }
-  if (firstV2.migration_id === 52) {
+  if (firstV2.migration_id === 53) return [];
+  if (firstV2.migration_id === 54) {
     const valid = rows.every(
       (row, index) => row.migration_id === index + 1 && migrationEntries[index]?.[1] === row.name,
     );
@@ -225,8 +233,13 @@ const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
   const v2Start = firstV2.migration_id;
   const prefixLength = v2Start - 1;
   const valid =
-    (v2Start === 44 || v2Start === 45 || v2Start === 48 || v2Start === 50 || v2Start === 51) &&
-    (v2Start !== 51 || rows.length === 51) &&
+    (v2Start === 44 ||
+      v2Start === 45 ||
+      v2Start === 48 ||
+      v2Start === 50 ||
+      v2Start === 51 ||
+      v2Start === 52) &&
+    (v2Start < 51 || rows.length === v2Start) &&
     rows.every((row, index) => {
       const expected =
         index < prefixLength
@@ -243,25 +256,25 @@ const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
   const historicalCount = rows.length - prefixLength;
   const executed: Array<readonly [number, string]> = [];
   for (const [index, [name, migration]] of historicalV2Entries.entries()) {
-    if (v2Start === 51 || index === 0 || index >= 12 || index < historicalCount) continue;
+    if (v2Start >= 51 || index === 0 || index >= 12 || index < historicalCount) continue;
     yield* runHistoricalMigration(v2Start + index, name, migration);
   }
   for (const [id, name, migration] of migrationEntries) {
-    if (id < v2Start || id > 51) continue;
+    if (id < v2Start || id > 53) continue;
     yield* runHistoricalMigration(id, name, migration);
     executed.push([id, name]);
   }
 
   yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= ${v2Start}`;
   for (const [id, name] of migrationEntries) {
-    if (id < v2Start || id > 51) continue;
+    if (id < v2Start || id > 53) continue;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
   }
   yield* sql`
     INSERT INTO effect_sql_migrations (migration_id, name, created_at)
-    VALUES (52, 'OrchestrationV2', ${firstV2.created_at})
+    VALUES (54, 'OrchestrationV2', ${firstV2.created_at})
   `;
-  executed.push([52, "OrchestrationV2"]);
+  executed.push([54, "OrchestrationV2"]);
   return executed;
 });
 
@@ -286,13 +299,41 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   const executedMigrations = yield* sql.withTransaction(
     Effect.gen(function* () {
       const reconciled = yield* reconcileHistoricalV2(toMigrationInclusive);
+      const preview =
+        toMigrationInclusive === undefined || toMigrationInclusive >= 54
+          ? yield* reconcileV2PreviewMigration()
+          : [];
       const pending = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
-      return [...reconciled, ...pending];
+      return [...reconciled, ...preview, ...pending];
     }),
   );
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")
     : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
+
+  // The migrator keys on migration_id: a database that recorded a different
+  // migration under a shared id (local or fork builds) keeps that id and
+  // silently skips this build's migration at it. Surface the divergence so the
+  // skipped schema change is diagnosable.
+  const recorded = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+  }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
+  const divergent = recorded.flatMap((row) => {
+    const expected = manifestNames.get(row.migration_id);
+    if (expected === undefined) {
+      return [`${row.migration_id}:${row.name} (unknown to this build)`];
+    }
+    return expected === row.name
+      ? []
+      : [`${row.migration_id}:${row.name} (this build: ${expected})`];
+  });
+  if (divergent.length > 0) {
+    yield* Effect.logWarning(
+      "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
+    ).pipe(Effect.annotateLogs({ divergent }));
+  }
   return executedMigrations;
 });

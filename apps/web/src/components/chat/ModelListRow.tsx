@@ -1,11 +1,10 @@
 import { type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
 import { memo } from "react";
-import { StarIcon } from "lucide-react";
+import { CheckIcon, StarIcon } from "lucide-react";
 import {
   getDisplayModelName,
   getTriggerDisplayModelLabel,
   type ModelEsque,
-  PROVIDER_ICON_BY_PROVIDER,
 } from "./providerIconUtils";
 import { ComboboxItem } from "../ui/combobox";
 import { Button } from "../ui/button";
@@ -34,6 +33,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
   acpRegistryIconUrl?: string | undefined;
   isFavorite: boolean;
   isSelected: boolean;
+  showSelection?: boolean;
   showProvider: boolean;
   preferShortName?: boolean;
   useTriggerLabel?: boolean;
@@ -43,7 +43,6 @@ export const ModelListRow = memo(function ModelListRow(props: {
   disabledReason?: string | null;
   onToggleFavorite: () => void;
 }) {
-  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
   const providerLabel = props.model.subProvider
     ? `${props.providerDisplayName} · ${props.model.subProvider}`
     : props.providerDisplayName;
@@ -88,18 +87,14 @@ export const ModelListRow = memo(function ModelListRow(props: {
         </div>
         {props.showProvider && (
           <div className="mt-1 flex items-center gap-1.5">
-            {props.driverKind === "acpRegistry" ? (
-              <ProviderInstanceIcon
-                driverKind={props.driverKind}
-                displayName={props.providerDisplayName}
-                acpRegistryAgentId={props.acpRegistryAgentId}
-                acpRegistryIconUrl={props.acpRegistryIconUrl}
-                className="size-3"
-                iconClassName="size-3"
-              />
-            ) : ProviderIcon ? (
-              <ProviderIcon className="size-3 shrink-0" />
-            ) : null}
+            <ProviderInstanceIcon
+              driverKind={props.driverKind}
+              displayName={props.providerDisplayName}
+              acpRegistryAgentId={props.acpRegistryAgentId}
+              acpRegistryIconUrl={props.acpRegistryIconUrl}
+              className="size-3"
+              iconClassName="size-3"
+            />
             <span className="truncate text-xs font-normal leading-snug text-muted-foreground/70">
               {providerLabel}
             </span>
@@ -108,6 +103,9 @@ export const ModelListRow = memo(function ModelListRow(props: {
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
+        {props.showSelection && props.isSelected ? (
+          <CheckIcon className="size-3.5" aria-hidden="true" />
+        ) : null}
         {props.jumpLabel ? (
           <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">{props.jumpLabel}</Kbd>
         ) : null}

@@ -1,5 +1,4 @@
 import { restoreDelegatedCompletionMetadata } from "./SubagentProjection.ts";
-import { withThreadPullRequestLinks } from "./ThreadPullRequestLinks.ts";
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import type {
   OrchestrationV2AppThread,
@@ -8,6 +7,7 @@ import type {
   OrchestrationV2ConversationMessage,
   OrchestrationV2DomainEvent,
   OrchestrationV2ProjectedTurnItem,
+  OrchestrationV2ProviderThread,
   OrchestrationV2ProviderTurn,
   OrchestrationV2Run,
   OrchestrationV2Subagent,
@@ -432,7 +432,7 @@ export function emptyProjection(
   event: Extract<OrchestrationV2DomainEvent, { readonly type: "thread.created" }>,
 ): OrchestrationV2ThreadProjection {
   return {
-    thread: withThreadPullRequestLinks(event.payload),
+    thread: event.payload,
     runs: [],
     attempts: [],
     nodes: [],
@@ -451,6 +451,16 @@ export function emptyProjection(
     visibleTurnItems: [],
     updatedAt: event.occurredAt,
   };
+}
+
+// A future queued provider has a reserved thread record but is not active until delivery.
+function isQueuedProviderThreadPlaceholder(providerThread: OrchestrationV2ProviderThread): boolean {
+  return (
+    providerThread.status === "not_loaded" &&
+    providerThread.firstRunOrdinal === null &&
+    providerThread.nativeThreadRef === null &&
+    providerThread.providerSessionId === null
+  );
 }
 
 export function applyToProjection(
@@ -487,7 +497,7 @@ export function applyToProjection(
     case "thread.provider-switched":
       return {
         ...base,
-        thread: withThreadPullRequestLinks(event.payload),
+        thread: event.payload,
       };
     // Visited tracking is read state, not activity: skip the updatedAt bump so
     // viewing a thread does not surface it as recently active.
@@ -495,7 +505,7 @@ export function applyToProjection(
     case "thread.marked-unread":
       return {
         ...projection,
-        thread: withThreadPullRequestLinks(event.payload),
+        thread: event.payload,
       };
     case "run.created":
     case "run.updated":
@@ -548,7 +558,8 @@ export function applyToProjection(
       return {
         ...base,
         thread:
-          event.payload.appThreadId === base.thread.id
+          event.payload.appThreadId === base.thread.id &&
+          !isQueuedProviderThreadPlaceholder(event.payload)
             ? {
                 ...base.thread,
                 activeProviderThreadId: event.payload.id,
@@ -796,11 +807,9 @@ const encodeContextTransferPayload = Schema.encodeEffect(
   Schema.fromJsonString(OrchestrationV2ContextTransferJsonSchema),
 );
 
-const decodeThreadPayloadSchema = Schema.decodeUnknownEffect(
+const decodeThreadPayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2AppThreadJsonSchema),
 );
-const decodeThreadPayload = (input: unknown) =>
-  decodeThreadPayloadSchema(input).pipe(Effect.map(withThreadPullRequestLinks));
 const decodeRunPayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2RunJsonSchema),
 );
@@ -1834,7 +1843,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 updated_at = excluded.updated_at,
                 payload_json = excluded.payload_json
             `;
-            if (event.payload.appThreadId !== null) {
+            if (
+              event.payload.appThreadId !== null &&
+              !isQueuedProviderThreadPlaceholder(event.payload)
+            ) {
               const threadRows = yield* sql<PayloadRow>`
                 SELECT payload_json
                 FROM orchestration_v2_projection_threads
@@ -2819,7 +2831,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           runtimeRequests,
           messages: orderedMessages,
           plans,
-          // Older stored turn items omitted metadata already present on messages.
           turnItems: restoreDelegatedCompletionMetadata({ messages, turnItems }),
           checkpointScopes,
           checkpoints,

@@ -9,9 +9,10 @@ import * as Schema from "effect/Schema";
 
 import serverPackageJson from "../../apps/server/package.json" with { type: "json" };
 
+import { findEsmImportsOfExternalPackages } from "./cli-executable-imports.ts";
+
 import {
   CLI_RUNTIME_EXTERNAL_PREFIXES,
-  findEsmImportsOfExternalPackages,
   findInlinedExternalPackages,
   selectCliRuntimeExternalDependencies,
   shouldBundleCliDependency,
@@ -309,14 +310,19 @@ describe("findEsmImportsOfExternalPackages", () => {
     ]);
   });
 
-  it("ignores embedded extension source while checking template expressions", () => {
-    const source = 'const extension = `import { Type } from "typebox"; ${import("node-pty")}`;';
-    assert.deepStrictEqual(findEsmImportsOfExternalPackages(source), ["node-pty"]);
+  it("ignores imports inside generated extension source and comments", () => {
+    const source = [
+      'const extension = `import { Type } from "typebox";\nimport type { ExtensionAPI } from "@earendil-works/pi-coding-agent";`;',
+      '// import "comment-only";',
+      "const example = 'import(\"string-only\")';",
+      'const interpolated = `source ${import("real-package")}`;',
+    ].join("\n");
+    assert.deepStrictEqual(findEsmImportsOfExternalPackages(source), ["real-package"]);
   });
 
-  it("allows the SDK's lazy alternate-runtime builtin, but flags a static import", () => {
+  it("allows optional dynamic Bun built-ins but rejects static imports", () => {
     assert.deepStrictEqual(
-      findEsmImportsOfExternalPackages('const bunBackend = () => import("bun:sqlite");'),
+      findEsmImportsOfExternalPackages('const load = () => import("bun:sqlite");'),
       [],
     );
     assert.deepStrictEqual(

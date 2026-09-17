@@ -84,12 +84,7 @@ export const linkCreatedPullRequest = <E>(input: {
         ...key,
         source: "created",
       })
-      .pipe(
-        Effect.catchTag("OrchestratorDispatchError", (error) =>
-          error.reason === "pull-request-already-linked" ? Effect.void : Effect.fail(error),
-        ),
-        Effect.asVoid,
-      );
+      .pipe(Effect.asVoid);
   }).pipe(
     Effect.withSpan("linkCreatedPullRequest"),
     Effect.catchCause((cause) =>

@@ -1,4 +1,7 @@
-import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
+import {
+  threadPullRequestKeysEqual,
+  threadPullRequestsOf,
+} from "@t3tools/shared/threadPullRequests";
 import {
   ChatAttachment,
   OrchestrationMessageContext,
@@ -27,7 +30,6 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { EventSinkV2 } from "./EventSink.ts";
-import { EventStoreV2 } from "./EventStore.ts";
 import { makeKeyedSerialExecutor } from "./KeyedSerialExecutor.ts";
 import { randomUuidV4 } from "./RandomUuid.ts";
 
@@ -82,17 +84,6 @@ interface LegacyImportRow {
   readonly transcript_imported_at: string | null;
 }
 
-interface LegacyPullRequestRow {
-  readonly host: string;
-  readonly repository: string;
-  readonly number: number;
-  readonly url: string;
-  readonly source: string;
-  readonly linked_at: string;
-  readonly snapshot_json: string | null;
-  readonly stack_json: string | null;
-}
-
 export interface LegacyV1ImportSummary {
   readonly importedThreadCount: number;
   readonly importedMessageCount: number;
@@ -131,7 +122,6 @@ const decodeModelSelection = Schema.decodeUnknownOption(ModelSelection);
 const decodeAttachments = Schema.decodeUnknownOption(Schema.Array(ChatAttachment));
 const decodePullRequests = Schema.decodeUnknownOption(Schema.Array(ThreadPullRequestLink));
 const decodeLinkedPullRequest = Schema.decodeUnknownOption(ThreadLinkedPullRequest);
-const decodePullRequestLink = Schema.decodeUnknownOption(ThreadPullRequestLink);
 const decodeStoredThread = Schema.decodeUnknownOption(
   Schema.fromJsonString(OrchestrationV2AppThreadJson),
 );
@@ -170,24 +160,6 @@ function branchPullRequestFor(row: LegacyThreadRow) {
   return Option.getOrNull(decodeLinkedPullRequest(parseJson(row.branch_pull_request_json)));
 }
 
-function pullRequestLinksFor(
-  rows: ReadonlyArray<LegacyPullRequestRow>,
-): OrchestrationV2AppThread["pullRequests"] {
-  return rows.flatMap((row) => {
-    const decoded = decodePullRequestLink({
-      host: row.host,
-      repository: row.repository,
-      number: row.number,
-      url: row.url,
-      source: row.source,
-      linkedAt: row.linked_at,
-      snapshot: row.snapshot_json === null ? null : parseJson(row.snapshot_json),
-      stack: row.stack_json === null ? null : parseJson(row.stack_json),
-    });
-    return Option.isSome(decoded) ? [decoded.value] : [];
-  });
-}
-
 function runtimeModeFor(value: string): OrchestrationV2AppThread["runtimeMode"] {
   return value === "approval-required" ||
     value === "auto-accept-edits" ||
@@ -213,17 +185,22 @@ function nullableDateTime(value: string | null): DateTime.Utc | null {
   return value === null ? null : dateTime(value);
 }
 
-function importedThread(
-  row: LegacyThreadRow,
-  suppliedPullRequests?: OrchestrationV2AppThread["pullRequests"],
-): OrchestrationV2AppThread {
+function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
   const threadId = ThreadId.make(row.thread_id);
   const modelSelection = modelSelectionFor(row);
   const branch = row.branch?.trim() || null;
   const worktreePath = row.worktree_path?.trim() || null;
-  const pullRequests =
-    suppliedPullRequests ??
-    Option.getOrElse(decodePullRequests(parseJson(row.pull_requests_json)), () => []);
+  const pullRequests = Option.getOrElse(
+    decodePullRequests(parseJson(row.pull_requests_json)),
+    () => [],
+  );
+  const linkedPullRequest = linkedPullRequestFor(row);
+  const legacyLink = threadPullRequestsOf({ linkedPullRequest })[0];
+  const importedPullRequests =
+    legacyLink !== undefined &&
+    !pullRequests.some((link) => threadPullRequestKeysEqual(link, legacyLink))
+      ? [...pullRequests, legacyLink]
+      : pullRequests;
   return {
     createdBy: "system",
     creationSource: "server",
@@ -236,11 +213,8 @@ function importedThread(
     interactionMode: interactionModeFor(row.interaction_mode),
     branch,
     worktreePath,
-    linkedPullRequest: linkedPullRequestFor(row),
-    pullRequests:
-      pullRequests.length > 0
-        ? pullRequests
-        : threadPullRequestsOf({ linkedPullRequest: linkedPullRequestFor(row) }),
+    linkedPullRequest,
+    pullRequests: importedPullRequests,
     branchPullRequest: branchPullRequestFor(row),
     activeOrderKey: row.active_order_key?.trim() || null,
     activeProviderThreadId: null,
@@ -370,7 +344,6 @@ function chunks<A>(items: ReadonlyArray<A>, size: number): Array<ReadonlyArray<A
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const eventStore = yield* EventStoreV2;
   const eventSink = yield* EventSinkV2;
   const transcriptImports = yield* makeKeyedSerialExecutor<ThreadId>();
 
@@ -465,14 +438,6 @@ const make = Effect.gen(function* () {
       );
     });
 
-  const listPullRequests = (threadId: ThreadId) =>
-    sql<LegacyPullRequestRow>`
-      SELECT host, repository, number, url, source, linked_at, snapshot_json, stack_json
-      FROM projection_thread_pull_requests
-      WHERE thread_id = ${threadId}
-      ORDER BY linked_at ASC, number ASC
-    `;
-
   const reconcileShellsBase = Effect.gen(function* () {
     const now = DateTime.formatIso(yield* DateTime.now);
     const repairRows = yield* sql<LegacyRepairRow>`
@@ -512,6 +477,7 @@ const make = Effect.gen(function* () {
          OR json_type(projection.payload_json, '$.snoozedAt') IS NULL
          OR json_type(projection.payload_json, '$.unsettledAt') IS NULL
          OR json_type(projection.payload_json, '$.linkedPullRequest') IS NULL
+         OR json_type(projection.payload_json, '$.pullRequests') IS NULL
          OR json_type(projection.payload_json, '$.branchPullRequest') IS NULL
          OR json_type(projection.payload_json, '$.activeOrderKey') IS NULL
       ORDER BY thread.created_at ASC, thread.thread_id ASC
@@ -522,6 +488,7 @@ const make = Effect.gen(function* () {
       if (Option.isNone(decoded)) continue;
       const current = decoded.value;
       const legacy = importedThread(row);
+      const legacyPullRequests = legacy.pullRequests ?? [];
       const repaired: OrchestrationV2AppThread = {
         ...current,
         pinnedAt: current.pinnedAt === undefined ? legacy.pinnedAt : current.pinnedAt,
@@ -534,6 +501,19 @@ const make = Effect.gen(function* () {
           current.linkedPullRequest === undefined
             ? legacy.linkedPullRequest
             : current.linkedPullRequest,
+        pullRequests:
+          current.pullRequests === undefined
+            ? current.linkedPullRequest === null
+              ? []
+              : legacyPullRequests.length > 0
+                ? legacyPullRequests
+                : threadPullRequestsOf({
+                    linkedPullRequest:
+                      current.linkedPullRequest === undefined
+                        ? legacy.linkedPullRequest
+                        : current.linkedPullRequest,
+                  })
+            : current.pullRequests,
         branchPullRequest:
           current.branchPullRequest === undefined
             ? legacy.branchPullRequest
@@ -598,10 +578,7 @@ const make = Effect.gen(function* () {
     let importedThreadCount = repairedThreadCount;
     let importedMessageCount = 0;
     for (const row of rows) {
-      const pullRequests = pullRequestLinksFor(
-        yield* listPullRequests(ThreadId.make(row.thread_id)),
-      );
-      const thread = importedThread(row, pullRequests);
+      const thread = importedThread(row);
       const previews = yield* listShellMessages(thread.id);
       const events: Array<OrchestrationV2DomainEvent> = [
         {
@@ -624,7 +601,6 @@ const make = Effect.gen(function* () {
       ];
       yield* sql.withTransaction(
         Effect.gen(function* () {
-          yield* eventStore.append({ events });
           yield* Effect.forEach(
             previews,
             (message) =>
@@ -643,6 +619,7 @@ const make = Effect.gen(function* () {
               `,
             { discard: true },
           );
+          yield* eventSink.write({ events });
           yield* sql`
             INSERT INTO orchestration_v2_legacy_imports (
               thread_id,
@@ -841,8 +818,5 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer: Layer.Layer<
-  LegacyV1ThreadImporter,
-  never,
-  EventSinkV2 | EventStoreV2 | SqlClient.SqlClient
-> = Layer.effect(LegacyV1ThreadImporter, make);
+export const layer: Layer.Layer<LegacyV1ThreadImporter, never, EventSinkV2 | SqlClient.SqlClient> =
+  Layer.effect(LegacyV1ThreadImporter, make);

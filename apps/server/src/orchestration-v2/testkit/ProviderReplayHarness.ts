@@ -1,4 +1,3 @@
-import type { ResponseStreamingMode } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ProviderDriverKind, ProviderReplayTranscript } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -184,7 +183,6 @@ export function runOrchestratorV2ProviderReplayScenario<
       SqlClient.SqlClient,
       MigrationError | PlatformError.PlatformError | SqlError
     >;
-    readonly responseStreamingMode?: ResponseStreamingMode;
     readonly runEffectWorker?: boolean;
   } = {},
 ): Effect.Effect<
@@ -223,7 +221,6 @@ export function makeOrchestratorV2ProviderReplayLayer<
       SqlClient.SqlClient,
       MigrationError | PlatformError.PlatformError | SqlError
     >;
-    readonly responseStreamingMode?: ResponseStreamingMode;
     readonly runEffectWorker?: boolean;
     readonly replayGate?: ProviderReplayGate;
   } = {},
@@ -246,7 +243,6 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
       SqlClient.SqlClient,
       MigrationError | PlatformError.PlatformError | SqlError
     >;
-    readonly responseStreamingMode?: ResponseStreamingMode;
     readonly runEffectWorker?: boolean;
   } = {},
 ): Layer.Layer<
@@ -265,7 +261,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         );
   const databaseLayer = options.databaseLayer ?? SqlitePersistenceMemory;
   const serverSettingsLayer = ServerSettingsService.layerTest({
-    responseStreamingMode: options.responseStreamingMode ?? "turn",
+    responseStreamingMode: "turn",
   }).pipe(Layer.orDie);
   const storesLayer = Layer.mergeAll(
     eventStoreLayer,

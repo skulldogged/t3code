@@ -1,4 +1,5 @@
 import type { WorkLogEntry } from "../../session-logic";
+import { ThreadId, type WorktreeSetupSnapshot } from "@t3tools/contracts";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -30,6 +31,7 @@ import {
   type MessagesTimelineRow,
   resolveTimelineToolPresentation,
   workEntryDisplayLabel,
+  workEntryIsVisibleInGroup,
 } from "./MessagesTimeline.logic";
 
 describe("expanded tool group scrolling", () => {
@@ -88,6 +90,24 @@ describe("work entry labels", () => {
     label: "Tool call",
     tone: "tool" as const,
   };
+
+  it("keeps a stable live reasoning label and exposes the trace in grouped rows", () => {
+    const thought = {
+      ...entry,
+      itemType: "reasoning" as const,
+      tone: "thinking" as const,
+      detail: "Check **ordering** first.",
+      toolLifecycleStatus: "inProgress" as const,
+    };
+    expect(liveWorkEntryLabel(thought, undefined, true)).toBe("Thinking");
+    expect(
+      liveWorkEntryLabel({ ...thought, toolLifecycleStatus: "completed" }, undefined, false),
+    ).toBe("Thought");
+    expect(workEntryDisplayLabel(thought, undefined)).toBe(thought.detail);
+    expect(workEntryIsVisibleInGroup(thought)).toBe(true);
+    expect(workEntryIsVisibleInGroup({ ...thought, toolLifecycleStatus: "completed" })).toBe(true);
+    expect(workEntryIsVisibleInGroup({ ...thought, detail: "  " })).toBe(false);
+  });
 
   it.each([
     ["inProgress", "Clicking in the preview browser"],
@@ -1347,6 +1367,48 @@ describe("deriveMessagesTimelineRows", () => {
         expanded: false,
       }),
     ]);
+  });
+
+  it("keeps the working header below the initiating prompt across repeated steers", () => {
+    const runId = RunId.make("steered-run");
+    const startedAt = "2026-01-01T00:00:00Z";
+    const prompt = (id: string, inputIntent: "steer" | "send") => ({
+      id,
+      kind: "message" as const,
+      createdAt: startedAt,
+      message: {
+        id: MessageId.make(id),
+        role: "user" as const,
+        text: id,
+        runId,
+        ...(inputIntent === "steer" ? { inputIntent } : {}),
+        createdAt: startedAt,
+        updatedAt: startedAt,
+        streaming: false,
+      },
+    });
+    const timelineEntries = [prompt("initial-prompt", "send")];
+    for (let index = 0; index < 3; index += 1) {
+      const rows = deriveMessagesTimelineRows({
+        timelineEntries,
+        latestRun: { runId, status: "running", startedAt, completedAt: null },
+        isWorking: true,
+        activeTurnStartedAt: startedAt,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+      });
+      expect(rows.slice(0, 2).map((row) => row.id)).toEqual([
+        "initial-prompt",
+        "working-indicator-row",
+      ]);
+      expect(rows.filter((row) => row.kind === "working")).toEqual([
+        expect.objectContaining({ createdAt: startedAt }),
+      ]);
+      expect(rows.filter((row) => row.kind === "message").map((row) => row.id)).toEqual(
+        timelineEntries.map((entry) => entry.id),
+      );
+      timelineEntries.push(prompt(`steer-${index}`, "steer"));
+    }
   });
 
   it("keeps the previous turn folded while a newly sent message awaits its turn", () => {
@@ -3727,3 +3789,143 @@ it.each([true, false])(
     if (isWorking) expect(rows.find((row) => row.id === boundary)?.createdAt).toBe(time(40));
   },
 );
+
+it("keeps the working header in place across worktree setup handoff", () => {
+  const snapshot: WorktreeSetupSnapshot = {
+    threadId: ThreadId.make("thread-setup"),
+    phase: "running",
+    startedAt: "2026-01-01T00:00:00Z",
+    endedAt: null,
+    branch: "feature",
+    baseRef: "main",
+    worktreePath: null,
+    setupScript: null,
+    stages: [],
+    error: null,
+    sequence: 3,
+  };
+  const userEntry = {
+    id: "user-entry",
+    kind: "message",
+    createdAt: "2026-01-01T00:00:00Z",
+    message: {
+      id: "user-1" as never,
+      role: "user",
+      text: "Build it",
+      runId: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      streaming: false,
+    },
+  } as const;
+  const assistantEntry = {
+    id: "assistant-entry",
+    kind: "message",
+    createdAt: "2026-01-01T00:00:30Z",
+    message: {
+      id: "assistant-1" as never,
+      role: "assistant",
+      text: "On it",
+      runId: "turn-1" as never,
+      createdAt: "2026-01-01T00:00:30Z",
+      updatedAt: "2026-01-01T00:00:30Z",
+      streaming: true,
+    },
+  } as const;
+  const withoutMessages = deriveMessagesTimelineRows({
+    timelineEntries: [],
+    isWorking: true,
+    activeTurnStartedAt: "2026-01-01T00:00:00Z",
+    turnDiffSummaries: [],
+    supportsConversationRollback: false,
+    worktreeSetup: snapshot,
+  });
+  expect(withoutMessages).toEqual([
+    { kind: "working", id: "working-indicator-row", createdAt: snapshot.startedAt },
+    {
+      kind: "worktree-setup",
+      id: "worktree-setup-row",
+      createdAt: "2026-01-01T00:00:00Z",
+      snapshot,
+      embedded: false,
+    },
+  ]);
+
+  // A failed setup never handed off, so the card stays under the send.
+  const withMessages = deriveMessagesTimelineRows({
+    timelineEntries: [userEntry, assistantEntry],
+    isWorking: true,
+    activeTurnStartedAt: "2026-01-01T00:00:00Z",
+    turnDiffSummaries: [],
+    supportsConversationRollback: false,
+    worktreeSetup: { ...snapshot, phase: "failed" },
+  });
+  expect(withMessages.map((row) => row.kind)).toEqual([
+    "message",
+    "worktree-setup",
+    "working",
+    "message",
+    "thinking",
+  ]);
+
+  // Once the agent stage is done the setup script may still be running in
+  // the background: the header owns its progress chip, so no setup row remains.
+  const stage = (id: "agent" | "setup-script", status: "done" | "running") =>
+    ({
+      id,
+      status,
+      startedAt: "2026-01-01T00:00:10Z",
+      endedAt: status === "done" ? "2026-01-01T00:00:11Z" : null,
+      percent: null,
+      detail: null,
+      tail: [],
+    }) as const;
+  const asyncSnapshot: WorktreeSetupSnapshot = {
+    ...snapshot,
+    stages: [stage("setup-script", "running"), stage("agent", "done")],
+  };
+  const liveTurn = {
+    runId: "turn-1" as never,
+    status: "running",
+    startedAt: "2026-01-01T00:00:11Z",
+    completedAt: null,
+  } as const;
+  const asyncRows = deriveMessagesTimelineRows({
+    timelineEntries: [userEntry],
+    latestRun: liveTurn,
+    isWorking: true,
+    activeTurnStartedAt: "2026-01-01T00:00:00Z",
+    turnDiffSummaries: [],
+    supportsConversationRollback: false,
+    worktreeSetup: asyncSnapshot,
+  });
+  expect(asyncRows.map((row) => row.kind)).toEqual(["message", "working", "thinking"]);
+
+  // Dispatched but not yet visible as a turn: the full card stays put so
+  // nothing collapses during the handoff.
+  const handoffRows = deriveMessagesTimelineRows({
+    timelineEntries: [userEntry],
+    isWorking: true,
+    activeTurnStartedAt: "2026-01-01T00:00:00Z",
+    turnDiffSummaries: [],
+    supportsConversationRollback: false,
+    worktreeSetup: asyncSnapshot,
+  });
+  expect(handoffRows.map((row) => row.kind)).toEqual(["message", "working", "worktree-setup"]);
+  expect(handoffRows[2]).toMatchObject({ kind: "worktree-setup", embedded: false });
+
+  // A script that already finished has nothing left to show once the turn is live.
+  const finishedRows = deriveMessagesTimelineRows({
+    timelineEntries: [userEntry],
+    latestRun: liveTurn,
+    isWorking: true,
+    activeTurnStartedAt: "2026-01-01T00:00:00Z",
+    turnDiffSummaries: [],
+    supportsConversationRollback: false,
+    worktreeSetup: {
+      ...asyncSnapshot,
+      stages: [stage("setup-script", "done"), stage("agent", "done")],
+    },
+  });
+  expect(finishedRows.map((row) => row.kind)).toEqual(["message", "working", "thinking"]);
+});

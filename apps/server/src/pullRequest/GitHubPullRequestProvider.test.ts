@@ -2,8 +2,10 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import type { PullRequestReaction } from "@t3tools/contracts";
 
+import { decodePullRequestDetailJson } from "./gitHubPullRequestJson.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as GitHubPullRequestCli from "./GitHubPullRequestCli.ts";
 import { gitHubViewerPermissions, loginAvatarUrl, make } from "./GitHubPullRequestProvider.ts";
@@ -44,6 +46,54 @@ it.effect("maps credential verification failures without relabeling operation fa
     verificationFails = false;
     expect(yield* verify(input, operation).pipe(Effect.flip)).toBe("operation-failed");
     expect(operations).toBe(1);
+  }),
+);
+
+it.effect("refreshes checks without permissions or comparison reads", () =>
+  Effect.gen(function* () {
+    let reads = 0;
+    const snapshot = Result.getOrThrow(
+      decodePullRequestDetailJson(`{
+      "number": 7, "title": "Checks", "url": "https://github.com/acme/web/pull/7",
+      "headRefName": "feature", "baseRefName": "main", "state": "OPEN",
+      "createdAt": "2026-07-01T00:00:00Z", "updatedAt": "2026-07-01T00:00:00Z"
+    }`),
+    );
+    const provider = yield* make.pipe(
+      Effect.provide(
+        Layer.mock(GitHubPullRequestCli.GitHubPullRequestCli)({
+          getPullRequestDetail: () =>
+            Effect.sync(() => {
+              reads++;
+              return {
+                ...snapshot,
+                state: reads === 3 ? ("merged" as const) : ("open" as const),
+                checks: [
+                  {
+                    name: "build",
+                    status: reads === 1 ? ("pending" as const) : ("success" as const),
+                    description: null,
+                    url: null,
+                  },
+                ],
+              };
+            }),
+        }),
+      ),
+    );
+    const read = provider.getChangeRequestChecks;
+    if (read === undefined) return yield* Effect.die("checks read missing");
+    for (let tick = 1; tick <= 3; tick++) {
+      const result = yield* read({
+        cwd: "/w",
+        repository: "acme/web",
+        host: "github.com",
+        number: 7,
+      });
+      expect(result.checks[0]?.status).toBe(tick === 1 ? "pending" : "success");
+      expect(result.state).toBe(tick === 3 ? "merged" : "open");
+    }
+    expect(reads).toBe(3);
   }),
 );
 
@@ -338,6 +388,11 @@ describe("gitHubViewerPermissions", () => {
         number: 7,
       });
 
+      const readChecks = provider.getChangeRequestChecks;
+      if (readChecks === undefined) return yield* Effect.die("checks read missing");
+      expect(
+        yield* readChecks({ cwd: "/w", repository: "acme/web", host: "github.com", number: 7 }),
+      ).toEqual({ state: detail.state, checks: detail.checks });
       expect(detail.workflowApprovalsRequired).toBe(1);
       expect(detail.checks).toEqual([
         {
@@ -741,6 +796,7 @@ describe("getChangeRequest commits", () => {
     reactionsById: new Map<string, ReadonlyArray<PullRequestReaction>>(),
     reviewers: [],
     avatarsByLogin: new Map<string, string>(),
+    botLogins: new Set<string>(),
     commitStats: new Map<string, { readonly additions: number; readonly deletions: number }>(),
     viewer: { canUpdate: true, didAuthor: false },
   };
@@ -807,7 +863,7 @@ describe("getChangeRequestActivity dismissed reviews", () => {
   const dismissedReview = (body: string) => ({
     id: "PRR_1",
     kind: "review" as const,
-    author: null,
+    author: { login: "macroscopeapp", name: null, avatarUrl: null },
     body,
     createdAt: "2026-07-03T00:00:00Z",
     url: null,
@@ -824,6 +880,7 @@ describe("getChangeRequestActivity dismissed reviews", () => {
     reactionsById: new Map(),
     reviewers: [],
     avatarsByLogin: new Map(),
+    botLogins: new Set(["macroscopeapp"]),
     commitStats: new Map(),
     commits: [],
     viewer: { canUpdate: true, didAuthor: false },
@@ -850,6 +907,7 @@ describe("getChangeRequestActivity dismissed reviews", () => {
     readActivity.pipe(
       Effect.map((activity) => {
         expect(activity.comments[0]?.body).toBe("Dismissing prior approval to re-evaluate 9b66581");
+        expect(activity.comments[0]?.author?.isBot).toBe(true);
       }),
       Effect.provide(layerFor("<!-- Macroscope (Approvability) review body marker -->")),
     ),

@@ -1,5 +1,8 @@
 import {
+  ContextHandoffId,
   MessageId,
+  CheckpointId,
+  CheckpointScopeId,
   RuntimeRequestId,
   NodeId,
   PlanId,
@@ -20,6 +23,8 @@ import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  workEntryRowLabel,
+  isContextHandoffActivityGroup,
   buildThreadFeed,
   deriveThreadFeedPresentation,
   threadFeedActivityIsVisible,
@@ -121,6 +126,41 @@ function assistantMessage(updatedAt = "2026-06-20T00:00:03.000Z") {
 }
 
 describe("buildThreadFeed", () => {
+  it("keeps async answers in question history instead of user bubbles", () => {
+    const requestId = RuntimeRequestId.make("question");
+    const question: OrchestrationV2TurnItem = {
+      ...base("question", "2026-06-20T00:00:01.000Z", 0),
+      type: "user_input_request",
+      requestId,
+      questions: [],
+      questionAnswer: { requestId, answers: { color: "Blue" }, attachmentsByQuestionId: {} },
+    };
+    const reply: OrchestrationV2TurnItem = {
+      ...userMessage(),
+      id: TurnItemId.make("answer"),
+      messageId: MessageId.make(`async-answer:${requestId}`),
+    };
+    const feed = buildThreadFeed([projected(question, 0), projected(reply, 1)]);
+    expect(feed).toHaveLength(1);
+    expect(feed[0]).toMatchObject({
+      type: "activity-group",
+      activities: [{ workEntry: { questionAnswer: question.questionAnswer } }],
+    });
+    expect(buildThreadFeed([projected(reply, 0)])[0]?.type).toBe("message");
+  });
+
+  it("does not create a work group for a message and checkpoint", () => {
+    const checkpoint: OrchestrationV2TurnItem = {
+      ...base("checkpoint", "2026-06-20T00:00:04.000Z", 3),
+      type: "checkpoint",
+      checkpointId: CheckpointId.make("checkpoint"),
+      scopeId: CheckpointScopeId.make("scope"),
+      files: [],
+    };
+    const feed = buildThreadFeed([projected(assistantMessage(), 0), projected(checkpoint, 1)]);
+    expect(feed.map((entry) => entry.type)).toEqual(["message"]);
+  });
+
   it("omits cached tool output and patch bodies from expanded and copied activity", () => {
     const rawOutput = "RAW_TOOL_OUTPUT";
     const items: OrchestrationV2TurnItem[] = [
@@ -881,6 +921,21 @@ describe("buildThreadFeed", () => {
     });
   });
 
+  it("waits for workspace preparation before showing provider activity", () => {
+    const startedAt = "2026-04-01T00:00:01.000Z";
+    const run = { runId, status: "preparing" as const, startedAt: null, completedAt: null };
+    expect(deriveThreadFeedPresentation([], run, new Set(), new Set(), startedAt)).toEqual([]);
+    expect(
+      deriveThreadFeedPresentation(
+        [],
+        { ...run, status: "running", startedAt },
+        new Set(),
+        new Set(),
+        startedAt,
+      ),
+    ).toEqual([{ type: "thinking", id: "live-activity-row", createdAt: startedAt, runId }]);
+  });
+
   it("uses a stable Thinking row while work has started without a projected item", () => {
     const startedAt = "2026-04-01T00:00:01.000Z";
     const presented = deriveThreadFeedPresentation([], null, new Set(), new Set(), startedAt);
@@ -1130,6 +1185,47 @@ describe("retained v2 feed presentation", () => {
           },
         ],
       });
+    },
+  );
+
+  it.each(["running", "completed", "failed"] as const)(
+    "keeps a %s handoff separate from commands and visible through folds",
+    (status) => {
+      const handoff = projected(
+        {
+          ...base("handoff", "2026-06-20T00:00:02.000Z", 1),
+          type: "handoff",
+          status,
+          contextHandoffId: ContextHandoffId.make("handoff"),
+          fromProviderThreadIds: [],
+          toProviderThreadId: ProviderThreadId.make("target"),
+          fromProviderInstanceIds: [ProviderInstanceId.make("codex")],
+          toProviderInstanceId: ProviderInstanceId.make("claudeAgent"),
+          strategy: "full_thread_summary",
+          summary: "Private full conversation summary",
+        },
+        1,
+      );
+      const feed = buildThreadFeed([
+        projected(userMessage(), 0),
+        handoff,
+        projected(command("2026-06-20T00:00:03.000Z"), 2),
+        projected(assistantMessage("2026-06-20T00:00:04.000Z"), 3),
+      ]);
+      for (const expanded of [new Set<RunId>(), new Set([runId])]) {
+        const rows = deriveThreadFeedPresentation(feed, null, expanded);
+        const divider = rows.filter(
+          (entry) => entry.type === "activity-group" && isContextHandoffActivityGroup(entry),
+        );
+        expect(divider).toHaveLength(1);
+        expect(divider[0]).toMatchObject({ activities: [{ projectedItem: handoff }] });
+      }
+      const alone = deriveThreadFeedPresentation(
+        buildThreadFeed([projected(userMessage(), 0), handoff]),
+        null,
+        new Set(),
+      );
+      expect(alone.map((entry) => entry.type)).toEqual(["message", "activity-group"]);
     },
   );
 
@@ -1539,4 +1635,19 @@ it("renders automatic completion as a neutral activity while retaining its detai
     ),
   ).toBe(true);
   expect(buildThreadFeed([projected(userMessage(), 0)])[0]?.type).toBe("message");
+});
+
+it("uses a compact reasoning preview and a short expanded heading", () => {
+  const entry = {
+    id: "thought",
+    label: "Thinking",
+    createdAt: "2026-09-17T12:00:00Z",
+    itemType: "reasoning" as const,
+    tone: "thinking" as const,
+    detail: "Check **ordering**.\nThen run the test.",
+    toolLifecycleStatus: "inProgress" as const,
+  };
+  expect(workEntryRowLabel(entry)).toBe("Check **ordering**. Then run the test.");
+  expect(workEntryRowLabel(entry, true)).toBe("Thinking");
+  expect(workEntryRowLabel({ ...entry, toolLifecycleStatus: "completed" }, true)).toBe("Thought");
 });

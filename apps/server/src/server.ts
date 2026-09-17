@@ -1,4 +1,4 @@
-import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
+import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
@@ -41,6 +41,7 @@ import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
+import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ProviderEventIngestor from "./orchestration-v2/ProviderEventIngestor.ts";
@@ -79,6 +80,7 @@ import * as NativeAppIconResolver from "./assets/NativeAppIconResolver.ts";
 import * as CodexResetCredit from "./provider/Layers/codexResetCredit.ts";
 import { AntigravityInstallation } from "./provider/AntigravityInstallation.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
+import { layerFromProviderInstanceRegistry as providerAdapterRegistryLayerFromProviderInstances } from "./orchestration-v2/ProviderAdapterRegistry.ts";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry.ts";
 import { ProviderUsageLimitsIngestionLive } from "./provider/Layers/ProviderUsageLimitsIngestion.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
@@ -98,6 +100,7 @@ import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
+import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
 import * as SourceControlRateLimit from "./sourceControl/SourceControlRateLimit.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
@@ -297,6 +300,8 @@ const RepositoryIdentityResolverLayerLive = Layer.effect(
 
 const PullRequestServiceLive = PullRequestService.layer.pipe(
   Layer.provide(PullRequestProviderRegistry.layer),
+  // Where the viewed-file marks live for a host that keeps none of its own.
+  Layer.provide(PullRequestFilesViewed.layer),
   Layer.provide(PullRequestReadCache.layer),
   Layer.provide(SourceControlProviderRegistryLayerLive),
   Layer.provide(SourceControlRateLimit.layer),
@@ -307,7 +312,9 @@ const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(WorktreeSetupTracker.layer),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
-  Layer.provideMerge(TextGeneration.layer),
+  Layer.provideMerge(
+    TextGeneration.layer.pipe(Layer.provide(SourceControlProviderRegistryLayerLive)),
+  ),
 );
 
 const GitLayerLive = Layer.empty.pipe(
@@ -446,15 +453,6 @@ const ThreadSettlementWorkerLive = Layer.effectDiscard(
   Layer.provide(OrchestrationInfrastructureLayerLive),
 );
 
-const PullRequestSyncLive = PullRequestSyncReactor.layer.pipe(
-  Layer.provide(PullRequestServiceLive),
-  Layer.provide(OrchestrationInfrastructureLayerLive),
-);
-
-const PullRequestSyncWorkerLive = Layer.effectDiscard(
-  Effect.flatMap(PullRequestSyncReactor.PullRequestSyncReactor, (service) => service.start()),
-);
-
 const ThreadPullRequestWorkerLive = Layer.effectDiscard(
   ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(PullRequestServiceLive), Layer.provide(OrchestrationInfrastructureLayerLive));
@@ -489,21 +487,29 @@ const AntigravityInstallationRefreshLive = Layer.effectDiscard(
 const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   AgentAwarenessRelay.layer,
   ThreadSettlementWorkerLive,
+  Layer.effectDiscard(StorageCleanup.make.pipe(Effect.flatMap((service) => service.start()))).pipe(
+    Layer.provide(ProjectionStoreV2.layer),
+  ),
   ThreadPullRequestWorkerLive,
-  PullRequestSyncWorkerLive,
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const service = yield* PullRequestSyncReactor.PullRequestSyncReactor;
+      yield* service.start();
+    }),
+  ).pipe(Layer.provideMerge(PullRequestSyncReactor.layer), Layer.provide(PullRequestServiceLive)),
   // Subscribes to `account.rate-limits.updated` so usage bars track live
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestionLive,
   AntigravityInstallationRefreshLive,
 ).pipe(
-  Layer.provideMerge(PullRequestSyncLive),
   // Core Services
   Layer.provideMerge(OrchestrationApplicationLayerLive),
   // Startup reconciliation and the server-owned thread workers still read the
   // canonical project/thread snapshots while mutations flow through v2.
   Layer.provideMerge(OrchestrationInfrastructureLayerLive),
   Layer.provideMerge(ServerSettingsLayerLive),
-  Layer.provideMerge(SourceControlProviderRegistryLayerLive),
+  // The asset route uses the registry's GitHub credential for private PR media.
+  Layer.provideMerge(Layer.mergeAll(SourceControlProviderRegistryLayerLive, GitHubCli.layer)),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive, DeviceLayerLive)),
@@ -602,8 +608,11 @@ const makeRoutesLayer = Layer.mergeAll(
     websocketRpcRouteLayer,
   ),
   // The MCP session registry is provided globally (shared with V2 provider
-  // sessions) rather than inline here.
-  McpHttpServer.layer,
+  // sessions) rather than inline here. The orchestrator toolkit resolves
+  // delegation targets through the same live adapter facade the V2
+  // orchestrator uses, so MCP capability reporting can never drift from
+  // what dispatch can actually serve.
+  McpHttpServer.layer.pipe(Layer.provide(providerAdapterRegistryLayerFromProviderInstances)),
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.

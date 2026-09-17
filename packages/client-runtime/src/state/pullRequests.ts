@@ -65,12 +65,18 @@ function writableQueryFamily<A, E>(
   );
   return ({
     environmentId,
-    input: { projectId, host, repository, number },
+    input: { projectId, host, repository, number, allowStale },
   }: Parameters<typeof family>[0]) =>
     writable(
       family({
         environmentId,
-        input: { projectId, ...(host === undefined ? {} : { host }), repository, number },
+        input: {
+          projectId,
+          ...(host === undefined ? {} : { host }),
+          repository,
+          number,
+          ...(allowStale === undefined ? {} : { allowStale }),
+        },
       }),
     );
 }
@@ -221,6 +227,13 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
     }),
     detail,
+    checks: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:pull-requests:checks",
+      tag: WS_METHODS.pullRequestsChecks,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsChecks, input),
+      staleTimeMs: 45_000,
+      refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
+    }),
     activity,
     threadComments: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:thread-comments",
@@ -268,6 +281,27 @@ export function createPullRequestEnvironmentAtoms<R, E>(
             input.oldPath,
             input.newPath,
           ]),
+      },
+    }),
+    filesViewed: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:pull-requests:files-viewed",
+      tag: WS_METHODS.pullRequestsFilesViewed,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsFilesViewed, input),
+      staleTimeMs: 15_000,
+    }),
+    /**
+     * One write in flight per change request: the host applies these in order, and a reader
+     * ticking down a file list faster than the round trip would otherwise race their own presses.
+     */
+    setFilesViewed: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:pull-requests:set-files-viewed",
+      tag: WS_METHODS.pullRequestsSetFilesViewed,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsSetFilesViewed, input),
+      scheduler: commandScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.projectId, input.repository, input.number]),
       },
     }),
     runAction: createEnvironmentRpcCommand(runtime, {

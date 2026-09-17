@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import OrchestrationV2, { OrchestrationV2Base } from "./052_OrchestrationV2.ts";
+import OrchestrationV2, { OrchestrationV2Base } from "./054_OrchestrationV2.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
@@ -31,7 +31,9 @@ installedV2Layer("installed consolidated V2 migration", (it) => {
 
       assert.deepStrictEqual(yield* runMigrations(), [
         [51, "ProjectionThreadMessageContext"],
-        [52, "OrchestrationV2"],
+        [52, "ProjectionThreadTitleState"],
+        [53, "PullRequestFilesViewed"],
+        [54, "OrchestrationV2"],
       ]);
       const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_thread_messages)`;
       assert.ok(columns.some(({ name }) => name === "context_json"));
@@ -40,7 +42,7 @@ installedV2Layer("installed consolidated V2 migration", (it) => {
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT strftime('%Y-%m-%d %H:%M:%S', created_at) AS created_at
-          FROM effect_sql_migrations WHERE migration_id = 52`,
+          FROM effect_sql_migrations WHERE migration_id = 54`,
         [{ created_at: "2026-09-11 03:04:05" }],
       );
       assert.deepStrictEqual(yield* runMigrations(), []);
@@ -150,7 +152,9 @@ layer("052_OrchestrationV2 reconciliation", (it) => {
         [49, "ProjectionThreadsActiveOrderKey"],
         [50, "ProjectionThreadPullRequests"],
         [51, "ProjectionThreadMessageContext"],
-        [52, "OrchestrationV2"],
+        [52, "ProjectionThreadTitleState"],
+        [53, "PullRequestFilesViewed"],
+        [54, "OrchestrationV2"],
       ]);
       const migrations = yield* sql<{ readonly migration_id: number; readonly name: string }>`
         SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 44 ORDER BY migration_id
@@ -164,7 +168,9 @@ layer("052_OrchestrationV2 reconciliation", (it) => {
         { migration_id: 49, name: "ProjectionThreadsActiveOrderKey" },
         { migration_id: 50, name: "ProjectionThreadPullRequests" },
         { migration_id: 51, name: "ProjectionThreadMessageContext" },
-        { migration_id: 52, name: "OrchestrationV2" },
+        { migration_id: 52, name: "ProjectionThreadTitleState" },
+        { migration_id: 53, name: "PullRequestFilesViewed" },
+        { migration_id: 54, name: "OrchestrationV2" },
       ]);
     }),
   );
@@ -192,6 +198,7 @@ layer("052_OrchestrationV2 reconciliation", (it) => {
         INSERT INTO orchestration_v2_agent_session_import_sources (thread_id, file_path, source_json)
         VALUES ('thread:preserved', '/tmp/session.json', '{"source":"legacy"}')
       `;
+      yield* sql`ALTER TABLE projection_threads DROP COLUMN title_state_json`;
       yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 50`;
       const historicalNames = [
         "OrchestrationV2",
@@ -230,10 +237,10 @@ layer("052_OrchestrationV2 reconciliation", (it) => {
         yield* sql`
           SELECT migration_id, strftime('%Y-%m-%d %H:%M:%S', created_at) AS created_at
           FROM effect_sql_migrations
-          WHERE migration_id = 52
+          WHERE migration_id = 54
           ORDER BY migration_id
         `,
-        [{ migration_id: 52, created_at: "2026-01-02 03:04:05" }],
+        [{ migration_id: 54, created_at: "2026-01-02 03:04:05" }],
       );
       assert.deepStrictEqual(yield* runMigrations(), []);
     }),

@@ -48,7 +48,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { DriverOption, ProviderEnvironmentFieldDefinition } from "./providerDriverMeta";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
-import { ProviderInstanceIcon, providerInstanceInitials } from "../chat/ProviderInstanceIcon";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
@@ -565,7 +565,6 @@ export function ProviderInstanceCard({
   const versionAdvisory = getProviderVersionAdvisoryPresentation(liveProvider?.versionAdvisory);
   const urlAuthAction = liveProvider?.auth.action;
   const updateCommand = versionAdvisory?.updateCommand ?? null;
-  const FallbackIconComponent = driverOption?.icon;
   const displayName =
     instance.displayName?.trim() || driverOption?.label || String(instance.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
@@ -679,9 +678,9 @@ export function ProviderInstanceCard({
     updateEnvironment(providerEnvironmentWithoutNames(instance.environment, new Set([field.name])));
   };
 
-  const titleIconNode = driverKind ? (
+  const titleIconNode = (
     <ProviderInstanceIcon
-      driverKind={driverKind}
+      driverKind={driverKind ?? instance.driver}
       displayName={displayName}
       accentColor={accentColor}
       acpRegistryAgentId={readConfigString(instance.config, "agentId") ?? undefined}
@@ -691,17 +690,6 @@ export function ProviderInstanceCard({
       iconClassName="size-4 text-foreground/80"
       badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-[7px]"
     />
-  ) : FallbackIconComponent ? (
-    <span className="inline-flex size-5 shrink-0 items-center justify-center">
-      <FallbackIconComponent className="size-4 text-foreground/80" aria-hidden />
-    </span>
-  ) : (
-    <span
-      className="inline-flex size-5 shrink-0 items-center justify-center text-[10px] font-semibold leading-none text-foreground/80"
-      aria-hidden
-    >
-      {providerInstanceInitials(displayName)}
-    </span>
   );
 
   const titleTailNode = headerAction ? (
@@ -990,7 +978,7 @@ export function ProviderInstanceCard({
               inert={readOnly}
               aria-disabled={readOnly || undefined}
               className={cn(
-                "flex w-full items-center justify-end gap-2 sm:w-auto",
+                "flex w-full min-w-0 items-center justify-end gap-2 @min-[32rem]/settings-row:w-auto",
                 readOnly && "opacity-50 select-none",
               )}
             >
@@ -1004,7 +992,7 @@ export function ProviderInstanceCard({
               <DraftInput
                 id={`provider-instance-${instanceId}-display-name`}
                 size="sm"
-                className="min-w-0 flex-1 sm:w-56 sm:flex-none"
+                className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
                 value={instance.displayName ?? ""}
                 onCommit={updateDisplayName}
                 placeholder={driverOption?.label ?? "Instance label"}

@@ -218,11 +218,6 @@ const make = Effect.gen(function* () {
           })
           .pipe(
             Effect.as(false),
-            Effect.catchTag("OrchestratorDispatchError", (error) =>
-              error.reason === "pull-request-already-linked"
-                ? Effect.succeed(true)
-                : Effect.fail(error),
-            ),
             // The decider rejects a second link of the same PR; for the agent that is
             // the outcome it asked for, not an error.
 
@@ -253,11 +248,6 @@ const make = Effect.gen(function* () {
           })
           .pipe(
             Effect.as(true),
-            Effect.catchTag("OrchestratorDispatchError", (error) =>
-              error.reason === "pull-request-not-linked"
-                ? Effect.succeed(false)
-                : Effect.fail(error),
-            ),
 
             Effect.catchCause(dispatchFailure(PullRequestUnlinkFailedError)),
           );

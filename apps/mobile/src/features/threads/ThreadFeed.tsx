@@ -1,3 +1,10 @@
+import { ThreadContextDivider } from "./thread-context-divider";
+import { ThreadHandoffRow } from "./thread-handoff-row";
+import {
+  WorktreeWorkingHeader,
+  WorktreeSetupCard,
+  type WorktreeSetupCardProps,
+} from "./worktree-setup-card";
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
@@ -91,12 +98,7 @@ import { isPdfFile } from "../../lib/filePreview";
 import { flattenThemeColor } from "../../lib/mobileTheme";
 import { PresentationSource } from "../../components/NativePresentation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, {
-  FadeIn,
-  FadeInUp,
-  LinearTransition,
-  type SharedValue,
-} from "react-native-reanimated";
+import Animated, { FadeIn, FadeInUp, type SharedValue } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
 import { useFontFamily } from "../../lib/useFontFamily";
@@ -160,6 +162,7 @@ import {
   deriveThreadFeedPresentation,
   threadFeedRunIsUnsettled,
   isContextCompactionActivityGroup,
+  isContextHandoffActivityGroup,
   type ThreadFeedEntry,
   type ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
@@ -175,7 +178,6 @@ import {
   THREAD_DISCLOSURE_TRANSITION_MS,
   ThreadWorkGroupToggle,
   ThreadThinkingRow,
-  ShimmeringWorkContent,
   ThreadWorkLog,
   WORK_GROUP_TOGGLE_HEIGHT,
 } from "./thread-work-log";
@@ -235,10 +237,9 @@ function formatMessageTime(input: string): string {
   return MESSAGE_TIME_FORMATTER.format(timestamp);
 }
 
-const TURN_FOLD_HEIGHT = 42;
-
-const THREAD_FEED_LAYOUT_TRANSITION = LinearTransition.duration(THREAD_DISCLOSURE_TRANSITION_MS);
-const THREAD_FEED_IMMEDIATE_TRANSITION = LinearTransition.duration(0);
+// Fixed heights mirror renderFeedEntry's classNames and are only used while
+// text fits at the current font settings. Larger accessibility text is measured.
+const TURN_FOLD_HEIGHT = 42; // min-h-11 (38.5) + mb-1 (3.5), with the mobile 14px rem
 // Tailwind spacing on the mobile 14px rem: px-3.5 on the user bubble, px-1 on
 // assistant rows. Images size their frame from these before their own layout.
 const USER_BUBBLE_HORIZONTAL_PADDING = 3.5 * 3.5;
@@ -265,6 +266,8 @@ export interface ThreadFeedHistoryControls {
 }
 
 export interface ThreadFeedProps {
+  readonly worktreeSetup?: WorktreeSetupCardProps | null;
+  readonly setupWorkingStartedAt?: string | null;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
   readonly dispatchingMessageId: MessageId | null;
   readonly onEditPendingMessage: (message: QueuedThreadMessage) => void;
@@ -286,7 +289,6 @@ export interface ThreadFeedProps {
   readonly contentTopInset?: number;
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
-  readonly topAccessory?: ReactNode;
   readonly contentMaxWidth?: number;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
@@ -728,6 +730,7 @@ const markdownLinkStyles = StyleSheet.create({
     height: 14,
     marginHorizontal: 3,
     transform: [{ translateY: 2 }],
+    flexShrink: 0,
   },
   favicon: {
     borderRadius: 3,
@@ -988,6 +991,7 @@ function MarkdownCodeBlock(props: {
       >
         <NativeText
           selectable
+          selectionColorClassName={Platform.OS === "android" ? "accent-primary/32" : undefined}
           className="font-mono"
           style={{
             color: props.textColor,
@@ -1255,7 +1259,7 @@ function useMarkdownStyles(
                 >
                   {ordered ? `${start + index}.` : "•"}
                 </NativeText>
-                <View className="min-w-0 flex-1">
+                <View className="min-w-0 flex-1 shrink overflow-hidden">
                   <Renderer node={child} depth={1} inListItem parentIsText={false} />
                 </View>
               </View>
@@ -1521,6 +1525,7 @@ function renderFeedEntry(
     readonly markdownLinkHandlers: MarkdownLinkHandlers;
     readonly renderMarkdownImage: MarkdownImageRenderer;
     readonly renderViewedImage: MarkdownImageRenderer;
+    readonly renderReasoning: (text: string) => ReactNode;
     readonly iconSubtleColor: string | import("react-native").ColorValue;
     readonly screenColor: string;
     readonly userBubbleColor: string | import("react-native").ColorValue;
@@ -1590,6 +1595,16 @@ function renderFeedEntry(
     );
   }
 
+  if (entry.type === "activity-group" && isContextHandoffActivityGroup(entry)) {
+    return (
+      <ThreadHandoffRow
+        environmentId={props.environmentId}
+        projectedItem={entry.activities[0]!.projectedItem}
+        iconColor={iconSubtleColor}
+      />
+    );
+  }
+
   if (entry.type === "activity-group" && isContextCompactionActivityGroup(entry)) {
     const label = entry.activities[0]!.summary;
     const active =
@@ -1597,35 +1612,12 @@ function renderFeedEntry(
       entry.runId === props.unsettledTurnId &&
       entry.activities[0]!.projectedItem.item.status === "running";
     return (
-      <View
-        accessible
-        accessibilityLabel={label}
-        className="mb-3 flex-row items-center gap-3 px-1 py-1"
-      >
-        <View className="h-px flex-1 bg-adaptive-neutral-200-a80-white-a8" />
-        <View className="shrink-0 flex-row items-center gap-1.5">
-          <SymbolView
-            name="arrow.down.right.and.arrow.up.left"
-            size={12}
-            tintColor={iconSubtleColor}
-            type="monochrome"
-          />
-          {active ? (
-            <ShimmeringWorkContent
-              className="flex-none"
-              textClassName="font-t3-medium"
-              compact
-              icon="brain"
-              iconSubtleColor={iconSubtleColor}
-              label={label}
-              showIcon={false}
-            />
-          ) : (
-            <Text className="font-t3-medium text-xs text-foreground-muted">{label}</Text>
-          )}
-        </View>
-        <View className="h-px flex-1 bg-adaptive-neutral-200-a80-white-a8" />
-      </View>
+      <ThreadContextDivider
+        label={label}
+        icon="arrow.down.right.and.arrow.up.left"
+        iconColor={iconSubtleColor}
+        active={active}
+      />
     );
   }
 
@@ -1844,10 +1836,14 @@ function renderFeedEntry(
       return null;
     }
 
+    // Assistant messages hit the same Android unclamped-pass bug as user
+    // bubbles: wide markdown blocks cause children to be positioned at
+    // intrinsic width before the container is clamped, overlapping the
+    // timestamp/copy button row. Pinning the width removes that pass.
     const enterAnimated = isFreshTimestamp(message.createdAt);
     return (
       <Animated.View
-        className={cn(showAssistantMeta ? "mb-5 px-1" : "mb-1 px-1")}
+        className={cn(showAssistantMeta ? "mb-5 px-1" : "mb-1 px-1", hasWideBlock && "w-full")}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
         {renderedText.trim().length > 0 ? (
@@ -1929,6 +1925,7 @@ function renderFeedEntry(
       onCopyRow={props.onCopyWorkRow}
       onToggleRow={props.onToggleWorkRow}
       renderImage={props.renderViewedImage}
+      renderReasoning={props.renderReasoning}
     />
   );
 }
@@ -1960,6 +1957,13 @@ function UserMessageContent(props: UserMessageContentProps) {
     );
     if (record?.kind === "mention" && "path" in record) {
       props.linkHandlers.onLinkPress?.(record.path);
+      return;
+    }
+    if (record?.kind === "thread" && "threadId" in record) {
+      navigation.navigate("Thread", {
+        environmentId: String(record.environmentId),
+        threadId: String(record.threadId),
+      });
       return;
     }
     // Documents open in the file screen; pictures, video and PDF keep their native viewers.
@@ -2431,6 +2435,18 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     [props.environmentId, props.threadId, props.workspaceRoot],
   );
   const markdownStyles = useMarkdownStyles(onMarkdownLinkPress, renderMarkdownImage);
+  const renderReasoning = useCallback(
+    (text: string) => (
+      <AssistantMarkdownContent
+        markdown={text}
+        markdownStyles={markdownStyles.assistant}
+        linkHandlers={markdownLinkHandlers}
+        renderImage={renderMarkdownImage}
+        skills={props.skills}
+      />
+    ),
+    [markdownStyles.assistant, markdownLinkHandlers, renderMarkdownImage, props.skills],
+  );
   const reviewCommentColors = useReviewCommentColors();
   const unsettledTurnId = threadFeedRunIsUnsettled(props.latestRun) ? props.latestRun.runId : null;
   // LegendList does not invalidate visible rows when only the renderItem closure changes.
@@ -2438,6 +2454,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // even when the final message update arrives before the turn settles.
   const listAppearanceData = useMemo(
     () => ({
+      worktreeSetup: props.worktreeSetup,
+      setupWorkingStartedAt: props.setupWorkingStartedAt,
       dispatchingMessageId: props.dispatchingMessageId,
       unsettledTurnId,
       copiedRowId,
@@ -2452,6 +2470,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       viewportWidth,
     }),
     [
+      props.worktreeSetup,
+      props.setupWorkingStartedAt,
       props.dispatchingMessageId,
       unsettledTurnId,
       copiedRowId,
@@ -2612,6 +2632,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.feed,
       props.latestRun,
     ],
+  );
+  const setupAnchorIndex = presentedFeed.findIndex(
+    (entry) => entry.type === "message" && entry.message.role === "user",
   );
   // The empty↔filled key below remounts the list and resets its imperative
   // content-inset override. Seed the fresh instance synchronously with the
@@ -2840,7 +2863,13 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         case "thinking":
           return WORK_GROUP_TOGGLE_HEIGHT;
         case "activity-group":
-          if (isContextCompactionActivityGroup(entry)) {
+          if (isContextCompactionActivityGroup(entry) || isContextHandoffActivityGroup(entry)) {
+            return undefined;
+          }
+          if (
+            entry.activities[0]?.groupedToolDetail &&
+            entry.activities.every((activity) => activity.workEntry.itemType === "reasoning")
+          ) {
             return undefined;
           }
           // Expanded rows append a variable detail block — fall back to
@@ -2887,6 +2916,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             markdownLinkHandlers,
             renderMarkdownImage,
             renderViewedImage,
+            renderReasoning,
             iconSubtleColor,
             screenColor,
             userBubbleColor,
@@ -2901,10 +2931,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             workspaceRoot: props.workspaceRoot,
             delegatedTasks: props.delegatedTasks,
           })}
+          {props.worktreeSetup && info.index === setupAnchorIndex ? (
+            <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
+          ) : props.setupWorkingStartedAt && info.index === setupAnchorIndex ? (
+            <WorktreeWorkingHeader startedAt={props.setupWorkingStartedAt} />
+          ) : null}
         </ThreadMediaVisibility>
       </Animated.View>
     ),
     [
+      props.worktreeSetup,
+      props.setupWorkingStartedAt,
+      props.threadId,
+      setupAnchorIndex,
       props.dispatchingMessageId,
       props.onEditPendingMessage,
       copiedRowId,
@@ -2939,6 +2978,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.delegatedTasks,
       renderMarkdownImage,
       renderViewedImage,
+      renderReasoning,
     ],
   );
 
@@ -3034,17 +3074,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               entry.type === "message" ? `message:${entry.message.role}` : entry.type
             }
             getFixedItemSize={getFixedItemSize}
-            // Android can retain stale native row positions when layout transitions
-            // race the measurements arriving during sync, even with duration 0.
-            // Keep its rows on LegendList's non-animated positioning path. On iOS,
-            // keep a transition installed between disclosures so containers don't remount.
-            itemLayoutAnimation={
-              Platform.OS === "android"
-                ? undefined
-                : disclosureToggleSettling
-                  ? THREAD_FEED_LAYOUT_TRANSITION
-                  : THREAD_FEED_IMMEDIATE_TRANSITION
-            }
+            // Virtualized rows must move with their measurements. Native layout
+            // transitions can retain stale positions during sync, even at duration 0.
             onItemSizeChanged={handleItemSizeChanged}
             // Measure rows well before they scroll into view so estimate→actual
             // corrections land offscreen instead of under the user's finger.
@@ -3083,10 +3114,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             ListHeaderComponent={
               <>
                 {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
+                {setupAnchorIndex < 0 && props.worktreeSetup ? (
+                  <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
+                ) : null}
                 {props.historyControls ? (
                   <ThreadFeedLoadEarlierControl {...props.historyControls} />
                 ) : null}
-                {props.topAccessory}
               </>
             }
             contentContainerStyle={{
@@ -3096,6 +3129,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           />
         </View>
         {presentedFeed.length === 0 &&
+        !props.worktreeSetup &&
         props.activeWorkStartedAt === null &&
         props.contentPresentation.kind === "ready" ? (
           <View pointerEvents="none" style={StyleSheet.absoluteFill}>

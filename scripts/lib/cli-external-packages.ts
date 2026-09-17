@@ -1,7 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodeModule from "node:module";
-import ts from "typescript-legacy";
-
 /**
  * The single source of truth for packages the server CLI bundle must NOT inline.
  *
@@ -85,56 +81,6 @@ export function selectCliRuntimeExternalDependencies(
   return Object.fromEntries(
     Object.entries(dependencies).filter(([name]) => isRuntimeExternalCliDependency(name)),
   );
-}
-
-/**
- * Scan an emitted bundle chunk for ESM imports of packages that are not Node
- * built-ins.
- *
- * Inside a Node single-executable, `import` statements and `import()` can only
- * resolve built-in modules; any file-backed specifier throws at module
- * evaluation (static) or at first use (dynamic). External packages therefore
- * have to be reached through `createRequire`, which reads the real filesystem
- * in every runtime. The bundler cannot enforce this, so the check reads what it
- * produced.
- */
-export function findEsmImportsOfExternalPackages(source: string): ReadonlyArray<string> {
-  const specifiers = new Set<string>();
-  const file = ts.createSourceFile(
-    "bundle.mjs",
-    source,
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.JS,
-  );
-  const record = (specifier: string, dynamic: boolean) => {
-    if (NodeModule.isBuiltin(specifier)) return;
-    // Cursor's bundled SDK selects this runtime builtin only for its Bun backend.
-    // It is not a file-backed package and is never loaded by the Node backend.
-    if (dynamic && specifier === "bun:sqlite") return;
-    if (specifier.startsWith("./") || specifier.startsWith("../")) return;
-    specifiers.add(specifier);
-  };
-  const visit = (node: ts.Node): void => {
-    if (
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-      node.moduleSpecifier &&
-      ts.isStringLiteral(node.moduleSpecifier)
-    ) {
-      record(node.moduleSpecifier.text, false);
-    } else if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      node.arguments[0] &&
-      (ts.isStringLiteral(node.arguments[0]) ||
-        ts.isNoSubstitutionTemplateLiteral(node.arguments[0]))
-    ) {
-      record(node.arguments[0].text, true);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(file);
-  return [...specifiers].sort();
 }
 
 /**
