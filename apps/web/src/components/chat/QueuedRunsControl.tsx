@@ -1,5 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { deriveThreadQueueWorkflowState } from "@t3tools/client-runtime/state/thread-workflows";
+import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import type {
   ChatAttachment as ContractChatAttachment,
   EnvironmentId,
@@ -13,6 +14,7 @@ import {
   GripVerticalIcon,
   ListOrderedIcon,
   PencilIcon,
+  PauseIcon,
 } from "lucide-react";
 import { useId, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 
@@ -67,6 +69,8 @@ export function QueuedRunsControl({
   const reorder = useAtomCommand(threadEnvironment.reorderQueuedRun);
   const promote = useAtomCommand(threadEnvironment.promoteQueuedRun);
   const cancel = useAtomCommand(threadEnvironment.cancelQueuedRun);
+  const resume = useAtomCommand(threadEnvironment.resumeThreadQueue);
+  const [resuming, setResuming] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const queueListId = useId();
   const [busyRunId, setBusyRunId] = useState<RunId | null>(null);
@@ -244,15 +248,44 @@ export function QueuedRunsControl({
           <ComposerBanner.Icon>
             <ListOrderedIcon />
           </ComposerBanner.Icon>
-          <ComposerBanner.Content className="text-muted-foreground">Queued</ComposerBanner.Content>
+          <ComposerBanner.Content className="text-muted-foreground">
+            {workflow?.isHeld ? "Queue held after restart" : "Queued"}
+          </ComposerBanner.Content>
           <ComposerBanner.Actions>
             <ComposerBanner.Count>{items.length}</ComposerBanner.Count>
             <ComposerBanner.ToggleIcon expanded={expanded} />
           </ComposerBanner.Actions>
         </ComposerBanner.Row>
+        {workflow?.isHeld && (
+          <ComposerBanner.Row layout="wrap-actions">
+            <ComposerBanner.Icon>
+              <PauseIcon />
+            </ComposerBanner.Icon>
+            <ComposerBanner.Content>Messages stay saved until you resume.</ComposerBanner.Content>
+            <ComposerBanner.Actions>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={resuming || busyRunId !== null}
+                onClick={() => {
+                  setResuming(true);
+                  void resume({
+                    environmentId: props.environmentId,
+                    input: { threadId: props.threadId },
+                  }).finally(() => setResuming(false));
+                }}
+              >
+                Resume queue
+              </Button>
+            </ComposerBanner.Actions>
+          </ComposerBanner.Row>
+        )}
         <ComposerBanner.Scroll className={cn("max-h-32", !expanded && "hidden")}>
           <ComposerBanner.Children render={<ol />} id={queueListId}>
             {items.map((item) => {
+              const previewText = replaceComposerContextReferences(item.text, (reference) =>
+                reference.kind === "image" && item.thumbnails.length > 0 ? "" : reference.label,
+              ).trim();
               const rowRunId = item.runId;
               const rowServerIndex = item.serverIndex;
               const isEditing = rowRunId !== null && rowRunId === props.editingRunId;
@@ -374,10 +407,10 @@ export function QueuedRunsControl({
                     ) : null}
                     <Tooltip>
                       <TooltipTrigger render={<span className="min-w-0 flex-1 truncate" />}>
-                        {item.text}
+                        {previewText}
                       </TooltipTrigger>
                       <TooltipPopup side="top" className="max-w-96 break-words">
-                        {item.text}
+                        {previewText}
                       </TooltipPopup>
                     </Tooltip>
                   </ComposerBanner.Content>

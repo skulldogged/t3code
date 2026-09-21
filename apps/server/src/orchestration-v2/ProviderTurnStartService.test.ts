@@ -101,16 +101,25 @@ it("does not commit running state when inherited background routing cannot be re
             ),
         }),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
-          getThreadProjection: () => {
+          getTurnStartContext: () => {
             projectionReadCount += 1;
-            return projectionReadCount === 1
-              ? Effect.succeed(projection)
-              : Effect.fail(
-                  new ProjectionStore.ProjectionStoreReadError({
-                    threadId,
-                    cause: "simulated inherited-background projection failure",
-                  }),
-                );
+            return Effect.succeed({
+              ...projection,
+              hasConversation: projection.messages.some(
+                (m) =>
+                  m.role === "user" &&
+                  (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
+              ),
+            });
+          },
+          getRuntimeRecoveryProjection: () => {
+            projectionReadCount += 1;
+            return Effect.fail(
+              new ProjectionStore.ProjectionStoreReadError({
+                threadId,
+                cause: "simulated inherited-background projection failure",
+              }),
+            );
           },
         }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({}),
@@ -354,7 +363,24 @@ function makeLocalCommandHarness(input: {
         Layer.mock(GitWorkflow.GitWorkflowService)({}),
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
-          getThreadProjection: () => Effect.succeed(projection),
+          getTurnStartContext: () =>
+            Effect.succeed({
+              ...projection,
+              hasConversation: projection.messages.some(
+                (m) =>
+                  m.role === "user" &&
+                  (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
+              ),
+            }),
+          getRuntimeRecoveryProjection: () =>
+            Effect.succeed({
+              ...projection,
+              hasConversation: projection.messages.some(
+                (m) =>
+                  m.role === "user" &&
+                  (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
+              ),
+            }),
         }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ open }),
         Layer.mock(ProviderAuthService)({ tryHandlePromptCommand }),

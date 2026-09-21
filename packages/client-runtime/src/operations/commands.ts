@@ -121,6 +121,7 @@ export interface VisitThreadInput extends ThreadCommandInput {
 export type MarkThreadUnreadInput = ThreadCommandInput;
 
 export interface UpdateThreadMetadataInput extends ThreadCommandInput {
+  readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecoveryUpdate | null;
   readonly title?: string;
   readonly modelSelection?: ModelSelection;
   readonly branch?: string | null;
@@ -545,10 +546,12 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.branch !== undefined ||
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
-      input.linkedPullRequest !== undefined
+      input.linkedPullRequest !== undefined ||
+      input.limitRecovery !== undefined
     ) {
       result = yield* dispatch({
         type: "thread.metadata.update",
+        ...(input.limitRecovery === undefined ? {} : { limitRecovery: input.limitRecovery }),
         commandId,
         threadId: input.threadId,
         ...(input.title === undefined ? {} : { title: input.title }),
@@ -912,6 +915,16 @@ export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(
     sourceThreadId: input.sourceThreadId,
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
+  });
+});
+
+export const resumeThreadQueue = Effect.fn("EnvironmentCommands.resumeThreadQueue")(function* (
+  input: ThreadCommandInput,
+) {
+  return yield* dispatch({
+    type: "queue.resume",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
   });
 });
 

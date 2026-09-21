@@ -1,3 +1,4 @@
+import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -271,7 +272,7 @@ for (const target of ["new", "existing"] as const) {
       () => {
         const harness = makeHarness();
         const scheduledTasks = ScheduledTasks.layer.pipe(
-          Layer.provide(Layer.mergeAll(harness.layer, NodeCrypto.layer)),
+          Layer.provide(Layer.mergeAll(harness.layer, NodeCrypto.layer, Scheduler.layer)),
         );
         return Effect.gen(function* () {
           const tasks = yield* ScheduledTasks.ScheduledTaskService;
@@ -561,7 +562,7 @@ it.effect(
         assert.equal(followUp.delivery, "queued");
         assert.equal(followUp.run.status, "queued");
         assert.equal(
-          followUp.projection.nodes.find(
+          (yield* threads.getThreadRecords(launched.threadId, ["nodes"])).nodes.find(
             (node) => node.runId === followUp.run.id && node.kind === "root_turn",
           )?.checkpointScopeId,
           null,

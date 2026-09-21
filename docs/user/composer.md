@@ -14,9 +14,13 @@ to keep a large paste editable in the composer instead.
 
 ## Attach files
 
-Attach up to eight files per message. Images can be up to 10 MB; other files can
-be up to 50 MB, subject to the environment's upload support and limit. The agent
-receives them on the environment's machine.
+Attach up to 100 files per message. Each image can be up to 10 MiB, with at most
+80 MiB of images in one message. Other files, including videos, can be up to
+50 MiB each, subject to the environment's upload support and limit. The agent
+receives them on the environment's machine. Provider and model limits still
+apply, including images already in the conversation. A video attachment gives
+the agent a file path; it does not enable native video input. Antigravity does
+not accept video attachments.
 
 Uploads begin when you add an attachment. All uploads must finish before the
 message can send. Retry or remove a failed upload. On web and desktop, reloading
@@ -106,7 +110,10 @@ into a normal draft.
 On web and desktop, choose **Edit from here** beneath a sent message to rewind
 the conversation to before that message. Choose **Revert and keep changes** to
 leave workspace files as they are, or **Revert files too** to restore them as well.
-The selected prompt and its attachments return to the composer for editing and
+File restore is only offered for threads running in a worktree, and it is
+refused when another thread or agent session also uses that directory, since
+restoring would erase their changes. A thread that works in the project directory
+rewinds the conversation only. The selected prompt and its attachments return to the composer for editing and
 resending. Any unsent draft stays above the restored prompt.
 
 This removes the selected message and later conversation from the active thread
@@ -150,6 +157,10 @@ switch the button to a queue icon. Click while holding that key, or press `Cmd+E
 Queued messages appear above the composer. Rows show a thumbnail of any attached image alongside
 the text. Drag a row by its handle to reorder it, use the handle's arrow keys, promote the message
 to a steer, or remove it.
+
+If the server restarts, saved queued messages keep their order and are held. Choose
+**Resume queue** above the composer on web or desktop, or in the queue sheet on mobile,
+to continue. You can edit, reorder, or remove held messages without starting them.
 
 The pencil on a queued row opens that message in the composer for editing. The original message
 stays in the queue until you save, and its row is highlighted while you edit. The message's

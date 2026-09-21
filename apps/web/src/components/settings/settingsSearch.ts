@@ -89,7 +89,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
-  "/settings/scheduled-tasks": "Schedule Tasks",
+  "/settings/scheduled-tasks": "Scheduled Tasks",
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
@@ -271,6 +271,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Project grouping",
     to: "/settings/general",
     searchTerms: ["combine matching repositories environments sidebar"],
+  },
+  {
+    id: "snooze-limited-threads",
+    title: "Snooze limited threads",
+    to: "/settings/general",
+    searchTerms: ["usage quota rate limit reset wake recover continue"],
+  },
+  {
+    id: "auto-resume-limited-threads",
+    title: "Auto-resume limited threads",
+    to: "/settings/general",
+    searchTerms: ["usage quota rate limit reset recover continue"],
   },
   {
     id: "auto-settle-inactive-threads",
@@ -621,6 +633,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "browser-recording-frame-rate",
     title: "Browser recording frame rate",
     to: "/settings/integrations",
+  },
+  {
+    id: "browser-recording-key-presses",
+    title: "Show key presses in recordings",
+    to: "/settings/integrations",
+    searchTerms: ["browser preview keyboard shortcuts keystrokes overlay capture"],
+  },
+  {
+    id: "browser-recording-mouse-presses",
+    title: "Show mouse presses in recordings",
+    to: "/settings/integrations",
+    searchTerms: ["browser preview clicks buttons drag overlay capture"],
   },
   {
     id: "browser-link-target",

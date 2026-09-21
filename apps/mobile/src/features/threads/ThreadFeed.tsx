@@ -159,6 +159,7 @@ import {
   resolveMarkdownLinkPresentation,
 } from "@t3tools/mobile-markdown-text/links";
 import {
+  failedFeedRunIds,
   deriveThreadFeedPresentation,
   threadFeedRunIsUnsettled,
   isContextCompactionActivityGroup,
@@ -991,7 +992,7 @@ function MarkdownCodeBlock(props: {
       >
         <NativeText
           selectable
-          selectionColorClassName={Platform.OS === "android" ? "accent-primary/32" : undefined}
+          selectionColorClassName={Platform.OS === "android" ? "accent-focus/32" : undefined}
           className="font-mono"
           style={{
             color: props.textColor,
@@ -1516,6 +1517,7 @@ function renderFeedEntry(
     readonly workGroupScrollPositions: Map<string, ThreadWorkGroupScrollPosition>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
     readonly unsettledTurnId: RunId | null;
+    readonly failedRunIds: ReadonlySet<RunId>;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string, anchorKey?: string) => void;
     readonly onToggleWorkRow: (rowId: string, anchorKey?: string) => void;
@@ -1549,7 +1551,7 @@ function renderFeedEntry(
         accessibilityState={{ expanded: entry.expanded }}
         onPress={() => props.onToggleTurnFold(entry.runId)}
         hitSlop={4}
-        className="mb-1 min-h-11 flex-row items-center gap-2 border-b border-adaptive-neutral-200-a80-white-a8 px-2"
+        className="mb-1 min-h-11 flex-row items-center gap-2 border-b border-border-subtle px-2"
         style={{
           minHeight: Math.max(TURN_FOLD_HEIGHT - 3.5, props.workRowSizing.estimatedRowHeight),
         }}
@@ -1726,8 +1728,8 @@ function renderFeedEntry(
                       mimeType={attachment.mimeType}
                       className={
                         inlineAttachmentIds.size
-                          ? "h-24 w-24 rounded-[14px] bg-white/15"
-                          : "aspect-[1.3] w-full rounded-[14px] bg-white/15"
+                          ? "h-24 w-24 rounded-[14px] bg-user-bubble-foreground/15"
+                          : "aspect-[1.3] w-full rounded-[14px] bg-user-bubble-foreground/15"
                       }
                       onPressPreview={props.onPressPreview}
                     />
@@ -1787,7 +1789,7 @@ function renderFeedEntry(
                 </Text>
               </View>
             ) : null}
-            <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
+            <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
               {entry.pendingMessage && !entry.acknowledged ? "Pending" : timestampLabel}
             </Text>
             {entry.pendingMessage &&
@@ -1843,7 +1845,12 @@ function renderFeedEntry(
     const enterAnimated = isFreshTimestamp(message.createdAt);
     return (
       <Animated.View
-        className={cn(showAssistantMeta ? "mb-5 px-1" : "mb-1 px-1", hasWideBlock && "w-full")}
+        className={cn(
+          showAssistantMeta && !(message.runId && props.failedRunIds.has(message.runId))
+            ? "mb-5 px-1"
+            : "mb-1 px-1",
+          hasWideBlock && "w-full",
+        )}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
         {renderedText.trim().length > 0 ? (
@@ -1866,7 +1873,7 @@ function renderFeedEntry(
               attachmentId={attachment.id}
               name={attachment.name}
               mimeType={attachment.mimeType}
-              className="mt-1.5 aspect-[1.3] w-full rounded-[18px] bg-adaptive-neutral-200-800"
+              className="mt-1.5 aspect-[1.3] w-full rounded-[18px] bg-subtle-strong"
               onPressPreview={props.onPressPreview}
             />
           ) : isFileAttachment(attachment) ? (
@@ -1898,7 +1905,7 @@ function renderFeedEntry(
               buttonSize={28}
               iconSize={13}
             />
-            <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
+            <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
           </View>
@@ -1913,6 +1920,7 @@ function renderFeedEntry(
       // Anchors/details live in ThreadFeed and survive this group-only remount.
       key={`${entry.id}:${props.workRowSizing.textSizeKey}`}
       activities={entry.activities}
+      continuesWorkLog={entry.continuesWorkLog}
       environmentId={props.environmentId}
       anchorKey={entry.id}
       copiedRowId={props.copiedRowId}
@@ -2658,6 +2666,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       ),
     [presentedFeed, props.anchorMessageId, anchorTopInset],
   );
+  const failedRunIds = useMemo(
+    () => failedFeedRunIds(props.feed, props.latestRun),
+    [props.feed, props.latestRun],
+  );
   const terminalAssistantMessageIds = useMemo(() => {
     const terminalIdsByTurn = new Map<RunId, string>();
     for (const entry of props.feed) {
@@ -2878,7 +2890,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             (activity) => activity.prominent || expandedWorkRows[activity.id],
           )
             ? undefined
-            : collapsedWorkLogHeight(entry.activities);
+            : collapsedWorkLogHeight(entry.activities, entry.continuesWorkLog);
         default:
           return undefined;
       }
@@ -2907,6 +2919,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             workGroupScrollPositions,
             terminalAssistantMessageIds,
             unsettledTurnId,
+            failedRunIds,
             onCopyWorkRow,
             onToggleWorkGroup,
             onToggleWorkRow,
@@ -2953,6 +2966,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       workGroupScrollPositions,
       terminalAssistantMessageIds,
       unsettledTurnId,
+      failedRunIds,
       iconSubtleColor,
       screenColor,
       userBubbleColor,

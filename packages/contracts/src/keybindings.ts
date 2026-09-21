@@ -42,6 +42,7 @@ const THREAD_KEYBINDING_COMMANDS = [
   "thread.copyReference",
   "thread.settle",
   "thread.pin",
+  "thread.undo",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
@@ -80,6 +81,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "appearance.cycle",
   "themeEditor.toggle",
   "composer.stash",
+  "composer.sendAlternate",
+  "composer.sendBackground",
   "composer.host",
   "composer.effort",
   "composer.mode",

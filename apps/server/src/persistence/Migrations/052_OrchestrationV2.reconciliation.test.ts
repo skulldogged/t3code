@@ -8,10 +8,12 @@ import OrchestrationV2, { OrchestrationV2Base } from "./054_OrchestrationV2.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
-const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
-const rollbackLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
-const unknownManifestLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
-const installedV2Layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
+const rollbackLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
+const unknownManifestLayer = it.layer(
+  Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })),
+);
+const installedV2Layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 installedV2Layer("installed consolidated V2 migration", (it) => {
   it.effect("adds message context without rebuilding the installed V2 schema", () =>
