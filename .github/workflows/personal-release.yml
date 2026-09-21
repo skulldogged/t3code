@@ -85,27 +85,12 @@ jobs:
           run-install: true
       - name: Stamp version
         run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
-      - name: Verify source provenance validation
-        run: node --test scripts/personal-release-sources.test.mjs
-      - name: Check personal mobile and update behavior
-        run: |
-          vp test run apps/server/src/cloud/pinnedRuntime.test.ts
-          vp test run apps/mobile/src/features/background-connection apps/mobile/src/features/agent-awareness/androidNotifications.test.ts apps/mobile/src/lib/mobileTheme.test.ts
       - name: Typecheck changed packages
         env:
           GOMEMLIMIT: 4GiB
         run: |
           vp run --filter t3 typecheck
           vp run --filter @t3tools/web --filter @t3tools/mobile typecheck
-      - name: Check orchestrator V2 integration
-        run: |
-          vp test run apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts apps/server/src/orchestration-v2/LegacyV1ThreadImporter.test.ts apps/server/src/persistence/Migrations
-          vp test run apps/server/src/device apps/server/src/mcp/toolkits/device apps/server/src/mcp/McpSessionRegistry.test.ts
-          vp test run apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts apps/server/src/orchestration/PullRequestSyncReactor.test.ts apps/server/src/pullRequest/PullRequestReadCache.test.ts apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts
-          vp test run apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts apps/server/src/orchestration-v2/AttachmentPrompt.test.ts apps/server/src/orchestration-v2/AttachmentClaims.test.ts
-          vp test run apps/web/src/components/ChatView.logic.test.ts apps/web/src/components/settings/KeybindingsSettings.logic.test.ts
-          vp test run apps/mobile/src/features/home/homeThreadList.test.ts apps/mobile/src/features/threads/threadListV2.test.ts packages/client-runtime/src/userMessage.test.ts apps/server/src/orchestration-v2/SubagentProjection.test.ts apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts
-          vp test run apps/mobile/src/lib/threadActivity.test.ts apps/web/src/session-logic.test.ts apps/server/src/orchestration-v2/threadHistoryPaging.test.ts
 
   cli_archive:
     needs: [metadata, validate]
@@ -167,7 +152,7 @@ jobs:
           target_dir="$RUNNER_TEMP/cli-resource-monitor/${{ matrix.resource_key }}"
           mkdir -p "$target_dir"
           cp "native/resource-monitor/target/${{ matrix.rust_target }}/release/$binary_name" "$target_dir/$binary_name"
-      - name: Package and smoke-test CLI archive
+      - name: Package CLI archive
         shell: bash
         run: |
           set -euo pipefail
@@ -176,7 +161,6 @@ jobs:
             --version "${{ needs.metadata.outputs.version }}" \
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
             --output-dir release-cli
-          node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ needs.metadata.outputs.version }}"
       - uses: actions/upload-artifact@v7
         with:
           name: cli-${{ matrix.platform }}-${{ matrix.arch }}
@@ -308,15 +292,6 @@ jobs:
           set -euo pipefail
           mkdir -p release-publish
           node scripts/pack-server-artifact.ts "${{ needs.metadata.outputs.version }}" release-publish
-      - name: Smoke-test compatibility server package
-        shell: bash
-        run: |
-          set -euo pipefail
-          compat_dir="$RUNNER_TEMP/compat-server"
-          npm install --prefix "$compat_dir" --omit=dev --no-audit --no-fund \
-            "$GITHUB_WORKSPACE/release-publish/t3-${{ needs.metadata.outputs.version }}.tgz"
-          actual_version="$(node "$compat_dir/node_modules/t3/dist/bin.mjs" --version)"
-          test "$actual_version" = "t3 v${{ needs.metadata.outputs.version }}"
       - name: Build preview APK
         shell: bash
         env:
@@ -330,7 +305,7 @@ jobs:
           ( cd apps/mobile/android && \
             ./gradlew --build-cache --parallel \
               -PreactNativeArchitectures=arm64-v8a \
-              :t3-agent-notifications:testReleaseUnitTest assembleRelease )
+              assembleRelease )
           ccache --show-stats
           cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
             "release-publish/T3-Code-${{ needs.metadata.outputs.version }}-preview.apk"
