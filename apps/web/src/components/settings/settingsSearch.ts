@@ -421,6 +421,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["default workspace mode draft local worktree"],
   },
   {
+    id: "worktree-submodules",
+    title: "Submodules",
+    to: "/settings/general",
+    scope: "project-defaults",
+    searchTerms: ["git submodule init recursive top-level none worktree t3.json"],
+  },
+  {
     id: "start-from-origin",
     title: "Start from origin",
     to: "/settings/general",
@@ -690,6 +697,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
     environmentOnly: true,
     scope: "environment-defaults",
+  },
+  {
+    id: "worktree-branch-naming",
+    title: "Worktree branch naming",
+    to: "/settings/source-control",
+    searchTerms: ["static semantic prefix custom prompt instructions feat fix refactor chore"],
+    environmentOnly: true,
+    scope: "project-defaults",
   },
   {
     id: "source-control-writing-style",

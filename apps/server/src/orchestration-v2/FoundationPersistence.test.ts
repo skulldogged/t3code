@@ -93,7 +93,6 @@ const modelSelection = {
 
 function makeThread(threadId: ThreadId, now: DateTime.Utc): OrchestrationV2AppThread {
   return {
-    pullRequests: [],
     createdBy: "user",
     creationSource: "web",
     id: threadId,

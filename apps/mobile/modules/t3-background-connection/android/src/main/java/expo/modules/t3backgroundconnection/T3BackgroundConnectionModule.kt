@@ -106,4 +106,3 @@ class T3BackgroundConnectionModule : Module() {
       "T3BackgroundConnection requires an Android React context"
     }
 }
-

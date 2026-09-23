@@ -52,7 +52,6 @@ const createThread = Effect.fn(function* (
     modelSelection,
     runtimeMode: "full-access",
     interactionMode: "default",
-    pullRequests: [],
     branch: null,
     worktreePath: null,
     activeProviderThreadId: null,

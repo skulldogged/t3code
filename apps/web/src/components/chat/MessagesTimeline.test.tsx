@@ -208,6 +208,7 @@ function matchMedia() {
 }
 
 let MessagesTimeline: typeof import("./MessagesTimeline").MessagesTimeline;
+let resolvePreviewAnnotationImage: typeof import("./MessagesTimeline").resolvePreviewAnnotationImage;
 
 const ElementStub = class ElementStub {};
 function stubDomGlobals() {
@@ -249,7 +250,7 @@ function stubDomGlobals() {
 beforeEach(stubDomGlobals);
 beforeAll(async () => {
   stubDomGlobals();
-  ({ MessagesTimeline } = await import("./MessagesTimeline"));
+  ({ MessagesTimeline, resolvePreviewAnnotationImage } = await import("./MessagesTimeline"));
 }, 30_000);
 
 const ACTIVE_THREAD_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
@@ -1169,7 +1170,7 @@ describe("MessagesTimeline", () => {
         timelineEntries={[
           {
             ...entry,
-            message: { ...entry.message, createdBy: "agent", creationSource: "mcp" },
+            message: { ...entry.message, createdBy: "agent", creationSource: "provider" },
           },
         ]}
       />,
@@ -1450,7 +1451,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('aria-label="Copy link"');
+    expect(markup).toContain('aria-label="Copy message"');
     expect(markup).toContain('data-user-message-collapsed="true"');
     expect(markup).toContain('data-user-message-footer="true"');
   });
@@ -1849,6 +1850,8 @@ describe("MessagesTimeline", () => {
     async ({ status, progress, result, preview }) => {
       activityTestState.expandedRuns = true;
       activityTestState.subagentTooltips = true;
+      vi.stubGlobal("HTMLElement", ElementStub);
+      window.HTMLElement = ElementStub as typeof HTMLElement;
       vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
       vi.stubGlobal("requestAnimationFrame", () => 0);
       vi.stubGlobal("cancelAnimationFrame", () => {});
@@ -1901,7 +1904,7 @@ describe("MessagesTimeline", () => {
             />,
           );
         });
-        const groupLabel = status === "running" ? "Kicked off 1 subagent" : "Ran 1 subagent";
+        const groupLabel = "1 subagent";
         const group = () =>
           renderer!.root.findAll(
             (node) => node.type === "button" && node.props["aria-label"] === groupLabel,
@@ -1911,7 +1914,7 @@ describe("MessagesTimeline", () => {
             (node) => node.type === "button" && node.props["aria-label"] === "Open Package audit",
           );
         expect(child()).toHaveLength(0);
-        await act(() => group().props.onClick());
+        await act(() => group().props.onClick({ nativeEvent: new Event("click") }));
         expect(child()).toHaveLength(1);
         const content = renderer!.root
           .findAll((node) => typeof node.type === "string")
@@ -1923,10 +1926,11 @@ describe("MessagesTimeline", () => {
         if (progress && progress !== preview) expect(content).not.toContain(progress);
         await act(() => child()[0]!.props.onClick());
         expect(onOpenThread).toHaveBeenCalledWith("thread-subagent-1");
-        await act(() => group().props.onClick());
+        await act(() => group().props.onClick({ nativeEvent: new Event("click") }));
         expect(child()).toHaveLength(0);
       } finally {
         await act(() => renderer?.unmount());
+        vi.stubGlobal("HTMLElement", undefined);
       }
     },
   );

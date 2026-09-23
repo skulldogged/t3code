@@ -9,6 +9,7 @@ import {
   ProviderInstanceId,
   ProviderDriverKind,
   ProviderThreadId,
+  ProviderTurnId,
   RunId,
   RunAttemptId,
   ScheduledTaskId,
@@ -217,28 +218,21 @@ describe("buildThreadFeed", () => {
     });
   });
 
-  it("keeps delegated completion metadata for readable mobile messages", () => {
-    const taskId = NodeId.make("task-mobile-completion");
+  it("keeps the sender of an agent message distinct from its timeline source", () => {
     const feed = buildThreadFeed([
       projected(
         {
           ...userMessage(),
-          delegatedCompletion: { parentRunId: runId, generation: 1, taskIds: [taskId] },
+          createdBy: "agent",
+          creationSource: "mcp",
+          senderThreadId: sourceThreadId,
         },
         0,
       ),
     ]);
-    const entry = feed.find((candidate) => candidate.type === "message");
-    expect(entry?.type).toBe("message");
-    if (entry?.type !== "message") return;
-    expect(
-      resolveUserMessagePresentation({
-        ...entry.message,
-        delegatedTasks: [
-          { id: taskId, title: "Make delegated completions readable", status: "completed" },
-        ],
-      }).text,
-    ).toBe("Delegated task completed: Make delegated completions readable");
+    const messageEntry = feed.find((entry) => entry.type === "message");
+    expect(messageEntry?.message.senderThreadId).toBe(sourceThreadId);
+    expect(messageEntry?.message.sourceThreadId).toBe(threadId);
   });
 
   it("adds local feedback messages to an otherwise server-authored feed", () => {
@@ -789,22 +783,22 @@ describe("buildThreadFeed", () => {
     const collapsed = deriveThreadFeedPresentation(feed, latestRun, new Set());
     expect(collapsed.map((entry) => entry.id)).toEqual([
       "message-user",
-      "run-fold:run-1",
       "message-opening",
+      "run-fold:run-1",
       "message-assistant",
     ]);
-    expect(collapsed[2]).toMatchObject({ message: { text: opening.text } });
-    expect(collapsed[1]).toMatchObject({
+    expect(collapsed[1]).toMatchObject({ message: { text: opening.text } });
+    expect(collapsed[2]).toMatchObject({
       type: "run-fold",
-      createdAt: "2026-06-20T00:00:01.500Z",
+      createdAt: "2026-06-20T00:00:02.000Z",
       label: "Worked for 2.0s",
     });
 
     const expanded = deriveThreadFeedPresentation(feed, latestRun, new Set([runId]));
     expect(expanded.map((entry) => entry.type)).toEqual([
       "message",
-      "run-fold",
       "message",
+      "run-fold",
       "work-toggle",
       "message",
       "message",
@@ -1098,6 +1092,18 @@ describe("buildThreadFeed", () => {
     expect(activity?.summary).toBe("Read a T3 thread");
     expect(activity?.logo).toBe("t3-code");
     expect(activity?.getCopyText().split("\n")[0]).toBe("Read a T3 thread");
+  });
+
+  it("uses the CUA action title in the mobile feed", () => {
+    const item: OrchestrationV2TurnItem = {
+      ...base("cua", "2026-09-23T20:20:00.000Z", 1),
+      type: "dynamic_tool",
+      toolName: "cua_repl.js",
+      input: { code: "await game.getAXStateAndScreenshot();", title: "Inspect Saga music screen" },
+    };
+    const feed = buildThreadFeed([projected(item, 0)]);
+    const activity = feed[0]?.type === "activity-group" ? feed[0].activities[0] : null;
+    expect(activity?.summary).toBe("Inspect Saga music screen");
   });
 
   it("uses canonical T3 orchestration summaries in compact work groups", () => {
@@ -1455,6 +1461,117 @@ describe("retained v2 feed presentation", () => {
     },
   );
 
+  it.each([
+    { envelope: "direct", output: { taskId: "a" } },
+    { envelope: "structured", output: { structuredContent: { taskId: "a" } } },
+    { envelope: "text", output: { content: [{ type: "text", text: '{"taskId":"a"}' }] } },
+  ])(
+    "folds matched $envelope delegations without hiding pending, failed or unmatched calls",
+    ({ output }) => {
+      const agent = (
+        id: string,
+        index: number,
+        origin = "app_owned" as "app_owned" | "provider_native",
+      ) =>
+        projected(
+          {
+            ...base(id, "2026-06-20T00:00:01.000Z", index),
+            type: "subagent",
+            subagentId: NodeId.make(id),
+            origin,
+            driver: ProviderDriverKind.make("codex"),
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            childThreadId: ThreadId.make(`child-${id}`),
+            prompt: "Identical task",
+            result: "Done",
+          },
+          index,
+        );
+      const delegation = (
+        id: string,
+        index: number,
+        overrides: Partial<Extract<OrchestrationV2TurnItem, { type: "dynamic_tool" }>> = {},
+      ) =>
+        projected(
+          {
+            ...base(id, "2026-06-20T00:00:02.000Z", index),
+            type: "dynamic_tool",
+            toolName: "t3-code.delegate_task",
+            input: { task: "Identical task" },
+            output,
+            ...overrides,
+          },
+          index,
+        );
+      const feed = buildThreadFeed([
+        agent("a", 1),
+        delegation("matched", 2),
+        agent("b", 3),
+        delegation("pending", 4, { status: "running", output: null }),
+        delegation("unmatched", 5, { output: { taskId: "missing" } }),
+        delegation("failed", 6, { status: "failed" }),
+        delegation("error-output", 7, { output: { taskId: "a", isError: true } }),
+        delegation("other-run", 8, { runId: RunId.make("other-run") }),
+        agent("native", 9, "provider_native"),
+        delegation("native-delegation", 10, { output: { taskId: "native" } }),
+      ]);
+      const groups = feed.flatMap((entry) =>
+        entry.type === "activity-group"
+          ? [entry.activities.map((activity) => activity.projectedItem.item.id)]
+          : [],
+      );
+      expect(groups[0]).toEqual(["a", "b"]);
+      expect(groups.flat()).toEqual([
+        "a",
+        "b",
+        "pending",
+        "unmatched",
+        "failed",
+        "error-output",
+        "other-run",
+        "native",
+        "native-delegation",
+      ]);
+      const presented = deriveThreadFeedPresentation(
+        feed,
+        null,
+        new Set([runId, RunId.make("other-run")]),
+      );
+      expect(
+        presented.find(
+          (entry) =>
+            entry.type === "activity-group" && entry.activities[0]?.projectedItem.item.id === "a",
+        )?.continuesWorkLog,
+      ).toBeUndefined();
+    },
+  );
+
+  it("keeps subagents from different provider turns in separate cards", () => {
+    const agent = (id: string, index: number) =>
+      projected(
+        {
+          ...base(id, "2026-06-20T00:00:01.000Z", index),
+          type: "subagent",
+          subagentId: NodeId.make(id),
+          origin: "provider_native",
+          driver: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          providerTurnId: ProviderTurnId.make(id),
+          childThreadId: null,
+          prompt: "Task",
+          result: null,
+        },
+        index,
+      );
+    expect(
+      buildThreadFeed([agent("a", 1), agent("b", 2)]).flatMap((entry) =>
+        entry.type === "activity-group"
+          ? [entry.activities.map((activity) => activity.projectedItem.item.id)]
+          : [],
+      ),
+    ).toEqual([["a"], ["b"]]);
+  });
+
   it("groups only adjacent subagents in the same run, keeping their child links", () => {
     const agent = (id: string, index: number, agentRunId = runId) =>
       projected(
@@ -1694,7 +1811,7 @@ it("accepts ready attachment-only answers while preserving selected options", ()
   ).toBeNull();
 });
 
-it("keeps attachment-only question answers expandable outside mobile work groups and turn folds", () => {
+it("makes attachment-only question answers expandable in the mobile feed", () => {
   const answer = {
     requestId: RuntimeRequestId.make("question-request"),
     answers: { q: "" },

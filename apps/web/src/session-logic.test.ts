@@ -17,7 +17,6 @@ import {
   type OrchestrationV2RunAttempt,
   type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
-import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { deriveMessagesTimelineRows } from "./components/chat/MessagesTimeline.logic";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
@@ -290,11 +289,6 @@ describe("V2 session presentation", () => {
       attachments: [],
       createdBy: "user" as const,
       creationSource: "web" as const,
-      delegatedCompletion: {
-        parentRunId: runId,
-        generation: 1,
-        taskIds: [NodeId.make("task-web-completion")],
-      },
     } satisfies OrchestrationV2TurnItem;
     const requestItem = {
       ...base("item-interrupt-request", 1),
@@ -389,18 +383,6 @@ describe("V2 session presentation", () => {
       expect(userEntry.message.inputIntent).toBe("turn_start");
       expect(userEntry.message.createdBy).toBe("user");
       expect(userEntry.message.creationSource).toBe("web");
-      expect(
-        resolveUserMessagePresentation({
-          ...userEntry.message,
-          delegatedTasks: [
-            {
-              id: "task-web-completion",
-              title: "Fix mobile child-agent list clutter",
-              status: "completed",
-            },
-          ],
-        }).text,
-      ).toBe("Delegated task completed: Fix mobile child-agent list clutter");
     }
     expect(commandEntry?.kind).toBe("work");
     if (commandEntry?.kind === "work") {
@@ -609,6 +591,7 @@ describe("V2 session presentation", () => {
       createdBy: "agent" as const,
       creationSource: "mcp" as const,
       scheduledTaskId: ScheduledTaskId.make("task-queued"),
+      senderThreadId: ThreadId.make("thread-agent-sender"),
     } satisfies OrchestrationV2TurnItem;
     const promotedEntries = deriveTimelineEntriesFromVisibleTurnItems({
       visibleTurnItems: [
@@ -627,6 +610,7 @@ describe("V2 session presentation", () => {
     if (promotedEntries[0]?.kind === "message") {
       expect(promotedEntries[0].message.inputIntent).toBe("turn_start");
       expect(promotedEntries[0].message.scheduledTaskId).toBe("task-queued");
+      expect(promotedEntries[0].message.senderThreadId).toBe("thread-agent-sender");
     }
   });
 

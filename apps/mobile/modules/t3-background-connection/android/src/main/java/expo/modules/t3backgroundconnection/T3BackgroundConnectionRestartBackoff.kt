@@ -10,5 +10,3 @@ internal object T3BackgroundConnectionRestartBackoff {
     return exponentialDelay.coerceAtMost(MAX_DELAY_MS)
   }
 }
-
-

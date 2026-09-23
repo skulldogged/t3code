@@ -1410,6 +1410,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(queuedMessage.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: queuedMessage.scheduledTaskId }),
+          ...(queuedMessage.senderThreadId === undefined
+            ? {}
+            : { senderThreadId: queuedMessage.senderThreadId }),
           ...(queuedMessage.delegatedCompletion === undefined
             ? {}
             : { delegatedCompletion: queuedMessage.delegatedCompletion }),
@@ -2241,11 +2244,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     }
     if (command.type === "thread.settle") {
-      const projection = yield* loadProjectionForCommand(command, ["runs", "runtimeRequests"], {
-        turnItemTypes: [],
-      });
-      const activeRunExists = projection.runs.some((run) =>
-        ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
+      const projection = yield* loadProjectionForCommand(
+        command,
+        ["runs", "runtimeRequests", "messages"],
+        { turnItemTypes: [], messageRoles: ["user"] },
+      );
+      // Queued notification and delegated-completion runs only wake the agent.
+      // They are not user messages and are hidden from the queue UI, so they
+      // must not block settling; they are cancelled below instead.
+      const automaticMessageIds = new Set(
+        projection.messages
+          .filter(
+            (message) =>
+              message.notification !== undefined || message.delegatedCompletion !== undefined,
+          )
+          .map((message) => message.id),
+      );
+      const automaticQueuedRuns = projection.runs.filter(
+        (run) => run.status === "queued" && automaticMessageIds.has(run.userMessageId),
+      );
+      const activeRunExists = projection.runs.some(
+        (run) =>
+          ["preparing", "queued", "starting", "running", "waiting"].includes(run.status) &&
+          !automaticQueuedRuns.includes(run),
       );
       const pendingRequests = projection.runtimeRequests.filter(
         (request) => request.status === "pending",
@@ -2275,6 +2296,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           },
           events,
           effects,
+        );
+      }
+      for (const run of automaticQueuedRuns) {
+        yield* dispatchQueuedRunCancel(
+          {
+            type: "queued-run.cancel",
+            commandId: command.commandId,
+            threadId: command.threadId,
+            runId: run.id,
+          },
+          events,
         );
       }
     }
@@ -3288,6 +3320,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly createdBy: OrchestrationV2ConversationMessage["createdBy"];
     readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
     readonly scheduledTaskId?: OrchestrationV2ConversationMessage["scheduledTaskId"];
+    readonly senderThreadId?: OrchestrationV2ConversationMessage["senderThreadId"];
     readonly delegatedCompletion?: OrchestrationV2ConversationMessage["delegatedCompletion"];
     readonly forceRestart: boolean;
   }) =>
@@ -3433,6 +3466,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(input.scheduledTaskId === undefined
               ? {}
               : { scheduledTaskId: input.scheduledTaskId }),
+            ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
             id: input.messageId,
             threadId: input.command.threadId,
             runId: messageInput.runId,
@@ -3451,6 +3485,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(input.scheduledTaskId === undefined
               ? {}
               : { scheduledTaskId: input.scheduledTaskId }),
+            ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
             id: idAllocator.derive.userTurnItem({ messageId: input.messageId }),
             threadId: input.command.threadId,
             runId: messageInput.runId,
@@ -4291,6 +4326,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(command.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: command.scheduledTaskId }),
+          ...(command.senderThreadId === undefined
+            ? {}
+            : { senderThreadId: command.senderThreadId }),
           forceRestart: dispatchMode.type === "restart_active",
         });
         return;
@@ -4472,6 +4510,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(command.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: command.scheduledTaskId }),
+          ...(command.senderThreadId === undefined
+            ? {}
+            : { senderThreadId: command.senderThreadId }),
           id: command.messageId,
           threadId: command.threadId,
           runId,
@@ -4808,6 +4849,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(command.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: command.scheduledTaskId }),
+          ...(command.senderThreadId === undefined
+            ? {}
+            : { senderThreadId: command.senderThreadId }),
           id: command.messageId,
           threadId: command.threadId,
           runId,
@@ -4828,6 +4872,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(command.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: command.scheduledTaskId }),
+          ...(command.senderThreadId === undefined
+            ? {}
+            : { senderThreadId: command.senderThreadId }),
           id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
           threadId: command.threadId,
           runId,
@@ -5494,6 +5541,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
+        ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
         id: command.messageId,
         threadId: command.threadId,
         runId,
@@ -5514,6 +5562,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
+        ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
         id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
         threadId: command.threadId,
         runId,
@@ -6113,6 +6162,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         creationSource: command.creationSource,
         commandId: command.commandId,
         threadId: childThreadId,
+        senderThreadId: command.parentThreadId,
         messageId: childMessageId,
         text: command.task,
         attachments: [],
@@ -6798,6 +6848,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(queuedMessage.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: queuedMessage.scheduledTaskId }),
+        ...(queuedMessage.senderThreadId === undefined
+          ? {}
+          : { senderThreadId: queuedMessage.senderThreadId }),
         forceRestart: false,
       });
     });

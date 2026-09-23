@@ -61,7 +61,6 @@ it.effect("resolves the thread baseline after a second root run replaces scope o
         interactionMode: "default",
         branch: null,
         worktreePath: null,
-        pullRequests: [],
         activeProviderThreadId: providerThreadId,
         lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
         forkedFrom: null,

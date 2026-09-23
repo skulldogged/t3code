@@ -59,6 +59,7 @@ export type ThreadLaunchWorkspaceStrategy =
 export interface ThreadLaunchInitialMessage {
   readonly messageId?: MessageId;
   readonly scheduledTaskId?: ScheduledTaskId;
+  readonly senderThreadId?: ThreadId;
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
@@ -242,13 +243,23 @@ const make = Effect.gen(function* () {
                 );
           return yield* textGeneration
             .generateBranchName({
+              naming: {
+                mode: settings.branchNamingMode,
+                prefix: settings.branchNamePrefix,
+                instructions: settings.branchNameInstructions,
+              },
               cwd,
               message: message.text,
               attachments: message.attachments,
               ...(message.context ? { context: message.context } : {}),
               modelSelection,
             })
-            .pipe(Effect.map((result) => result.branch));
+            .pipe(
+              Effect.map((result) => ({
+                branch: result.branch,
+                exactName: settings.branchNamingMode === "custom",
+              })),
+            );
         });
 
       // The server owns worktree naming: without an explicit branch, provision
@@ -393,8 +404,13 @@ const make = Effect.gen(function* () {
         const oldBranch = branch;
         const worktreeCwd = worktreePath;
         yield* generateBranchNameFor(worktreeCwd, initialMessage).pipe(
-          Effect.flatMap((newBranch) =>
-            git.renameBranch({ cwd: worktreeCwd, oldBranch, newBranch }),
+          Effect.flatMap(({ branch: newBranch, exactName }) =>
+            git.renameBranch({
+              cwd: worktreeCwd,
+              oldBranch,
+              newBranch,
+              ...(exactName ? { exactName: true } : {}),
+            }),
           ),
           Effect.flatMap((renamed) =>
             threads.dispatch({
@@ -747,6 +763,9 @@ const make = Effect.gen(function* () {
               ...(input.initialMessage.scheduledTaskId === undefined
                 ? {}
                 : { scheduledTaskId: input.initialMessage.scheduledTaskId }),
+              ...(input.initialMessage.senderThreadId === undefined
+                ? {}
+                : { senderThreadId: input.initialMessage.senderThreadId }),
               attachments: input.initialMessage.attachments,
               ...(input.initialMessage.context ? { context: input.initialMessage.context } : {}),
               ...(input.generateTitle === true ? { titleSeed: input.title } : {}),

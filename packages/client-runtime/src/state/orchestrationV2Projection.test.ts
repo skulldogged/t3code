@@ -72,7 +72,6 @@ const emptyProjection = {
     interactionMode: "default",
     branch: null,
     worktreePath: null,
-    pullRequests: [],
     activeProviderThreadId: null,
     lineage: { rootThreadId: threadId, parentThreadId: null, relationshipToParent: null },
     forkedFrom: null,

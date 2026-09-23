@@ -330,5 +330,3 @@ internal object T3BackgroundConnectionController {
     }
   }
 }
-
-

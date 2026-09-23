@@ -27,7 +27,6 @@ function makeThread(input: {
 }): OrchestrationV2AppThread {
   const threadId = ThreadId.make("thread:runtime-policy");
   return {
-    pullRequests: [],
     createdBy: "user",
     creationSource: "web",
     id: threadId,

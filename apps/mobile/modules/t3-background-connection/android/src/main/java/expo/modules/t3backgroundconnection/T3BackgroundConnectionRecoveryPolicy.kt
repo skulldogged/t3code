@@ -11,5 +11,3 @@ internal object T3BackgroundConnectionRecoveryPolicy {
     runtimeReady: Boolean
   ): Boolean = enabled && (!serviceRunning || !runtimeReady)
 }
-
-

@@ -49,7 +49,6 @@ function makeProjection(input: {
   const nodeId = NodeId.make("node:restart-session");
   return {
     thread: {
-      pullRequests: [],
       createdBy: "user",
       creationSource: "web",
       id: input.threadId,

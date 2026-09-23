@@ -1454,6 +1454,36 @@ function useMarkdownStyles(
   ]);
 }
 
+function AgentMessageAttribution(props: {
+  readonly environmentId: EnvironmentId;
+  readonly senderThreadId?: ThreadId;
+}) {
+  const navigation = useNavigation();
+  const senderThreadId = props.senderThreadId;
+  const label = (
+    <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
+      Sent by another agent
+    </Text>
+  );
+  return senderThreadId ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Open sending thread"
+      hitSlop={4}
+      onPress={() =>
+        navigation.navigate("Thread", {
+          environmentId: String(props.environmentId),
+          threadId: String(senderThreadId),
+        })
+      }
+    >
+      {label}
+    </Pressable>
+  ) : (
+    label
+  );
+}
+
 function AgentUpdateRow({ text, iconColor }: { text: string; iconColor: ColorValue }) {
   const [expanded, setExpanded] = useState(false);
   const [summary, ...lines] = text.trim().split("\n");
@@ -1676,10 +1706,15 @@ function renderFeedEntry(
           className="mb-5 items-end"
           {...(enterAnimated ? { entering: FadeInUp.duration(220) } : {})}
         >
-          {presentation.isAutomation || message.createdBy === "agent" ? (
+          {presentation.isAutomation ? (
             <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
-              {presentation.isAutomation ? "Sent by automation" : "Sent by another agent"}
+              Sent by automation
             </Text>
+          ) : message.createdBy === "agent" ? (
+            <AgentMessageAttribution
+              environmentId={props.environmentId}
+              senderThreadId={message.senderThreadId}
+            />
           ) : null}
           <View
             className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
@@ -2875,6 +2910,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         case "thinking":
           return WORK_GROUP_TOGGLE_HEIGHT;
         case "activity-group":
+          if (entry.activities[0]?.projectedItem.item.type === "subagent") {
+            return undefined;
+          }
           if (isContextCompactionActivityGroup(entry) || isContextHandoffActivityGroup(entry)) {
             return undefined;
           }

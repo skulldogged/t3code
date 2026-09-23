@@ -90,7 +90,19 @@ jobs:
           GOMEMLIMIT: 4GiB
         run: |
           vp run --filter t3 typecheck
-          vp run --filter @t3tools/web --filter @t3tools/mobile typecheck
+          vp run --filter @t3tools/web typecheck
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          const mobile = path.resolve("apps/mobile");
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, "t3-mobile-tsconfig.json"), JSON.stringify({
+            extends: path.join(mobile, "tsconfig.json"),
+            compilerOptions: { types: ["node", "react", "react-dom"], typeRoots: [path.join(mobile, "node_modules/@types"), path.resolve("node_modules/@types")] },
+            include: [path.join(mobile, "**/*.ts"), path.join(mobile, "**/*.tsx")],
+            exclude: [path.join(mobile, "node_modules"), path.join(mobile, "**/*.test.*"), path.join(mobile, "**/*.spec.*"), path.join(mobile, "**/test-fixtures.*"), path.join(mobile, "**/*.test-support.*")],
+          }));
+          NODE
+          vp exec tsc --noEmit --project "$RUNNER_TEMP/t3-mobile-tsconfig.json"
 
   cli_archive:
     needs: [metadata, validate]

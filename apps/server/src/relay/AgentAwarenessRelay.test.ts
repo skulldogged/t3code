@@ -42,7 +42,6 @@ const NOW = "2026-09-04T12:00:00.000Z";
 
 function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): OrchestrationV2ThreadShell {
   return {
-    pullRequests: [],
     id: THREAD_ID,
     projectId: PROJECT_ID,
     title: "Thread",

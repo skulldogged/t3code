@@ -37,6 +37,7 @@ export type ModelPickerJumpKeybindingCommand =
 const THREAD_KEYBINDING_COMMANDS = [
   "thread.stop",
   "thread.steerQueuedMessage",
+  "thread.editQueuedMessage",
   "thread.previous",
   "thread.next",
   "thread.copyReference",
@@ -57,6 +58,8 @@ export type ModelPickerKeybindingCommand = (typeof MODEL_PICKER_KEYBINDING_COMMA
 
 export const STATIC_KEYBINDING_COMMANDS = [
   "sidebar.toggle",
+  "navigation.back",
+  "navigation.forward",
   "terminal.toggle",
   "terminal.split",
   "terminal.splitVertical",

@@ -250,7 +250,6 @@ layer("OrchestrationEventStore", (it) => {
             providerInstanceId,
             occurredAt,
             payload: {
-              pullRequests: [],
               id: threadId,
               projectId,
               title: "Thread",

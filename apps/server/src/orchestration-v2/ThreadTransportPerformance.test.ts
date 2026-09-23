@@ -33,8 +33,6 @@ const HISTORICAL_FULL_SNAPSHOT_APPLICATION_BYTES = 10_375_079;
 // Contract encoding plus the Effect RPC Chunk envelope adds 42 bytes to both
 // snapshot variants. WebSocket framing and compression are intentionally out
 // of scope for this deterministic pre-compression measurement.
-// The multi-PR thread field adds 18 bytes (including its JSON separator).
-const THREAD_PULL_REQUESTS_METADATA_BYTES = 18;
 const FULL_SNAPSHOT_RPC_JSON_BYTES = 10_375_121;
 const PRE_OMISSION_BOUNDED_SNAPSHOT_RPC_JSON_BYTES = 1_038_647;
 // The first payload-omitting projection measured 67,412 bytes.
@@ -100,7 +98,6 @@ function makeProjection(): OrchestrationV2ThreadProjection {
 
   return {
     thread: {
-      pullRequests: [],
       id: THREAD_ID,
       projectId: ProjectId.make("project-perf"),
       title: "Thread",
@@ -190,15 +187,9 @@ describe("thread transport payload budget", () => {
     );
     const projectedBoundedRpcJsonBytes = encodedThreadStreamChunkBytes(projectedBoundedSnapshot);
 
-    expect(historicalApplicationBytes).toBe(
-      HISTORICAL_FULL_SNAPSHOT_APPLICATION_BYTES + THREAD_PULL_REQUESTS_METADATA_BYTES,
-    );
-    expect(fullRpcJsonBytes).toBe(
-      FULL_SNAPSHOT_RPC_JSON_BYTES + THREAD_PULL_REQUESTS_METADATA_BYTES,
-    );
-    expect(preOmissionBoundedRpcJsonBytes).toBe(
-      PRE_OMISSION_BOUNDED_SNAPSHOT_RPC_JSON_BYTES + THREAD_PULL_REQUESTS_METADATA_BYTES,
-    );
+    expect(historicalApplicationBytes).toBe(HISTORICAL_FULL_SNAPSHOT_APPLICATION_BYTES);
+    expect(fullRpcJsonBytes).toBe(FULL_SNAPSHOT_RPC_JSON_BYTES);
+    expect(preOmissionBoundedRpcJsonBytes).toBe(PRE_OMISSION_BOUNDED_SNAPSHOT_RPC_JSON_BYTES);
     expect(projectedBoundedRpcJsonBytes).toBeLessThanOrEqual(
       MAX_PROJECTED_BOUNDED_SNAPSHOT_RPC_JSON_BYTES,
     );

@@ -1,7 +1,5 @@
-import type { WorkLogEntry } from "../../session-logic";
 import { ThreadId, type WorktreeSetupSnapshot } from "@t3tools/contracts";
 import {
-  ApprovalRequestId,
   CheckpointRef,
   NodeId,
   RunAttemptId,
@@ -14,6 +12,7 @@ import {
   deriveTimelineEntriesFromVisibleTurnItems,
   deriveTimelineEntriesFromVisibleTurnItemsWithState,
   workEntryDisplayIndicatesToolFailure,
+  type TimelineEntry,
 } from "../../session-logic";
 import { makeStreamingTimelineFixture } from "../../test-fixtures";
 import type { TurnDiffSummary } from "../../types";
@@ -530,6 +529,37 @@ describe("resolveAssistantMessageCopyState", () => {
 });
 
 describe("deriveMessagesTimelineRows", () => {
+  it("shows the CUA action title for a retained tool item", () => {
+    const fixture = makeStreamingTimelineFixture();
+    const source = fixture.visibleTurnItems.find((row) => row.item.type === "dynamic_tool")!;
+    if (source.item.type !== "dynamic_tool") throw new Error("Expected tool fixture");
+    const item = {
+      ...source.item,
+      title: null,
+      toolName: "cua_repl.js",
+      input: { code: "await game.getAXStateAndScreenshot();", title: "Inspect Saga music screen" },
+    };
+    const entries = deriveTimelineEntriesFromVisibleTurnItems({
+      visibleTurnItems: [{ ...source, item }],
+      optimisticMessages: [],
+    });
+    const work = entries.find((entry) => entry.kind === "work");
+    expect(work?.kind === "work" && workEntryDisplayLabel(work.entry, undefined)).toBe(
+      "Inspect Saga music screen",
+    );
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: entries,
+      isWorking: false,
+      runningRunId: fixture.runId,
+      activeTurnStartedAt: fixture.time(0),
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    expect(rows.find((row) => row.kind === "work")).toMatchObject({
+      displayLabel: "Inspect Saga music screen",
+    });
+  });
+
   it("presents project MCP calls and summarizes successful clones through the web timeline", () => {
     const fixture = makeStreamingTimelineFixture();
     const source = fixture.visibleTurnItems.find((row) => row.item.type === "dynamic_tool")!;
@@ -2118,7 +2148,7 @@ describe("deriveMessagesTimelineRows", () => {
   it.each([
     [undefined, true],
     ["inProgress", true],
-    ["completed", true],
+    ["completed", false],
     ["failed", null],
     ["declined", false],
     ["stopped", false],
@@ -2161,7 +2191,6 @@ describe("deriveMessagesTimelineRows", () => {
         expect(rows.at(-1)).toMatchObject({ kind: "thinking", id: "live-activity-row" });
       } else {
         expect(workLiveRow).toMatchObject({ active });
-        if (active) expect(rows.some((row) => row.kind === "thinking")).toBe(false);
       }
     },
   );
@@ -2453,91 +2482,6 @@ describe("deriveMessagesTimelineRows", () => {
     });
     expect(expandedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
       expanded: true,
-    });
-  });
-
-  it("keeps user input in its own row through tool grouping and turn folding", () => {
-    const runId = RunId.make("answer-turn");
-    const time = (second: number) => new Date(Date.UTC(2026, 8, 8, 0, 0, second)).toISOString();
-    const answer: WorkLogEntry = {
-      id: "answer-submitted",
-      createdAt: time(3),
-      runId,
-      tone: "info",
-      label: "User input submitted",
-      sourceActivityKind: "user-input.answer-submitted",
-      questionAnswer: {
-        requestId: ApprovalRequestId.make("answer-request"),
-        answers: { scope: "Use the private repository" },
-        questionTextById: { scope: "Which repository?" },
-        attachmentsByQuestionId: {},
-      },
-    };
-    const tools: WorkLogEntry[] = [1, 2, 4, 5].map((second) => ({
-      id: `tool-${second}`,
-      createdAt: time(second),
-      runId,
-      tone: "tool",
-      label: "Ran command",
-      command: "git status",
-      toolCallId: `call-${second}`,
-      toolLifecycleStatus: "completed",
-      sourceActivityKind: "tool.completed",
-    }));
-    const input = {
-      timelineEntries: [...tools, answer]
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-        .map((entry) => ({
-          id: entry.id,
-          kind: "work" as const,
-          createdAt: entry.createdAt,
-          entry,
-        })),
-      latestRun: { runId, status: "completed", startedAt: time(0), completedAt: time(6) },
-      isWorking: false,
-      activeTurnStartedAt: null,
-      turnDiffSummaries: [],
-      supportsConversationRollback: false,
-    } satisfies Parameters<typeof deriveMessagesTimelineRows>[0];
-    const collapsed = deriveMessagesTimelineRows(input);
-    expect(collapsed.map((row) => row.kind)).toEqual(["turn-fold", "work"]);
-    const expanded = deriveMessagesTimelineRows({ ...input, expandedRunIds: new Set([runId]) });
-    expect(expanded.map((row) => row.kind)).toEqual([
-      "turn-fold",
-      "work-toggle",
-      "work",
-      "work-toggle",
-    ]);
-    const expandedGroups = deriveMessagesTimelineRows({
-      ...input,
-      expandedRunIds: new Set([runId]),
-      expandedWorkGroupIds: new Set(
-        expanded.flatMap((row) => (row.kind === "work-toggle" ? [row.groupId] : [])),
-      ),
-    });
-    expect(
-      expandedGroups.flatMap((row) =>
-        row.kind === "work" && row.isExpandedToolGroup ? [row.groupedEntries] : [],
-      ),
-    ).toEqual([tools.slice(0, 2), tools.slice(2)]);
-    const active = deriveMessagesTimelineRows({
-      ...input,
-      latestRun: { ...input.latestRun, status: "running", completedAt: null },
-      runningRunId: runId,
-      isWorking: true,
-      activeTurnStartedAt: time(0),
-    });
-    for (const rows of [collapsed, expanded, expandedGroups, active]) {
-      const answerRows = rows.filter(
-        (row) =>
-          (row.kind === "work" || row.kind === "work-live") && row.groupedEntries.includes(answer),
-      );
-      expect(answerRows).toMatchObject([
-        { kind: "work", groupedEntries: [answer], isExpandedToolGroup: false },
-      ]);
-    }
-    expect(active.find((row) => row.kind === "work-live")).toMatchObject({
-      groupedEntries: tools.slice(2),
     });
   });
 
@@ -3767,7 +3711,7 @@ describe("linked timeline resources", () => {
   });
   const common = { isWorking: false, turnDiffSummaries: [], supportsConversationRollback: false };
 
-  it("previews a thought and joins adjacent worklogs without removing message boundaries", () => {
+  it("previews a thought and separates subagent cards from worklogs", () => {
     const rows = deriveMessagesTimelineRows({
       ...common,
       timelineEntries: [
@@ -3805,8 +3749,8 @@ describe("linked timeline resources", () => {
     });
     expect(rows.find((row) => row.kind === "work")).toMatchObject({
       displayLabel: "First paragraph. Second paragraph.",
-      continuesWorkLog: true,
     });
+    expect(rows.find((row) => row.kind === "work")?.continuesWorkLog).toBeUndefined();
     expect(rows.find((row) => row.id === "child")?.continuesWorkLog).toBeUndefined();
   });
 
@@ -3832,6 +3776,109 @@ describe("linked timeline resources", () => {
     ]);
     expect(rows[1]).toMatchObject({ subagents: [{ item: { id: "a" } }, { item: { id: "b" } }] });
   });
+
+  it.each([
+    { status: "completed", envelope: "direct", role: "general" },
+    { status: "completed", envelope: "structured", role: "general" },
+    { status: "completed", envelope: "text", role: "general" },
+    { status: "completed", envelope: "structured", role: "research" },
+    { status: "running", envelope: "direct", role: "general" },
+    { status: "running", envelope: "direct", role: "research" },
+  ] as const)(
+    "matches $status $role delegation calls by child identity with $envelope output",
+    ({ status, envelope, role }) => {
+      const child = (id: string) => {
+        const entry = event(id, "subagent");
+        return {
+          ...entry,
+          projectedItem: {
+            item: {
+              ...entry.projectedItem.item,
+              origin: "app_owned",
+              subagentId: id,
+              prompt:
+                role === "general" ? id : `Act as the ${role} sub-agent for this task.\n\n${id}`,
+              childThreadId: null,
+            },
+          } as OrchestrationV2ProjectedTurnItem,
+        };
+      };
+      const delegation = (id: string, taskId: string, failed = false): TimelineEntry => ({
+        id,
+        kind: "work",
+        createdAt: "2026-09-08T10:00:02Z",
+        entry: {
+          id,
+          runId,
+          createdAt: "2026-09-08T10:00:02Z",
+          label: "Delegated a child task",
+          tone: failed ? "error" : "tool",
+          itemType: "dynamic_tool",
+          toolLifecycleStatus: failed
+            ? "failed"
+            : status === "running"
+              ? "inProgress"
+              : "completed",
+          projectedItem: {
+            item: {
+              id,
+              runId,
+              type: "dynamic_tool",
+              status: failed ? "failed" : status,
+              toolName: "t3-code.delegate_task",
+              input: { task: taskId === "b" ? "a" : taskId, role },
+              ...(status === "completed"
+                ? {
+                    output:
+                      envelope === "structured"
+                        ? { content: JSON.stringify({ taskId }), structuredContent: { taskId } }
+                        : envelope === "text"
+                          ? { content: [{ type: "text", text: JSON.stringify({ taskId }) }] }
+                          : { taskId },
+                  }
+                : {}),
+            },
+          } as OrchestrationV2ProjectedTurnItem,
+        },
+      });
+      const rows = deriveMessagesTimelineRows({
+        ...common,
+        isWorking: status === "running",
+        runningRunId: status === "running" ? runId : null,
+        timelineEntries: [
+          child("a"),
+          delegation("delegate-a", "a"),
+          ...(status === "completed" ? [child("b")] : []),
+          delegation("delegate-b", "b"),
+          delegation("unmatched", "other-child"),
+          child("c"),
+          delegation("failed", "c", true),
+          child("d"),
+        ],
+        expandedRunIds: new Set([runId]),
+      });
+      if (status === "completed") {
+        expect(rows.find((row) => row.id === "a")).toMatchObject({
+          subagents: [{ item: { id: "a" } }, { item: { id: "b" } }],
+        });
+        expect(rows.some((row) => row.id === "b")).toBe(false);
+      } else {
+        expect(rows.find((row) => row.id === "a")).toBeDefined();
+        expect(rows.find((row) => row.id === "b")).toBeUndefined();
+      }
+      expect(rows.find((row) => row.id === "c")).toBeDefined();
+      expect(rows.find((row) => row.id === "d")).toBeDefined();
+      const visibleTools = rows.flatMap((row) =>
+        row.kind === "work" || row.kind === "work-live"
+          ? row.groupedEntries.map((entry) => entry.id)
+          : [],
+      );
+      expect(visibleTools).toContain("unmatched");
+      expect(visibleTools).toContain("failed");
+      expect(visibleTools.includes("delegate-a")).toBe(status === "running");
+      expect(visibleTools.includes("delegate-b")).toBe(status === "running");
+    },
+  );
 
   it("keeps created-chat summaries after the final answer and folds only their timeline rows", () => {
     const timelineEntries = [

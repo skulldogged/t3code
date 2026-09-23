@@ -62,9 +62,6 @@ const testLayer = Layer.mergeAll(
       clearAgentAwarenessRegistrationRecord: Effect.void,
       loadRecentThreadShortcuts: Effect.succeed([]),
       saveRecentThreadShortcuts: () => Effect.void,
-      loadBackgroundConnectionRetainedThread: Effect.succeed(null),
-      saveBackgroundConnectionRetainedThread: () => Effect.void,
-      clearBackgroundConnectionRetainedThread: Effect.void,
     }),
   ),
 );

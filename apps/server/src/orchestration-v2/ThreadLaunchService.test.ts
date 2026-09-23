@@ -95,8 +95,6 @@ const adapter = {
 } as ProviderAdapterV2Shape;
 
 interface HarnessOptions {
-  readonly isRepository?: boolean;
-  readonly hasCommit?: boolean;
   readonly createWorktree?: GitWorkflow.GitWorkflowService["Service"]["createWorktree"];
   readonly fetchRemote?: GitWorkflow.GitWorkflowService["Service"]["fetchRemote"];
   readonly renameBranch?: GitWorkflow.GitWorkflowService["Service"]["renameBranch"];
@@ -158,8 +156,6 @@ function makeHarness(options: HarnessOptions = {}) {
       snapshot: Effect.die("unused"),
     }),
     Layer.mock(GitWorkflow.GitWorkflowService)({
-      isRepository: () => Effect.succeed(options.isRepository ?? true),
-      hasCommit: () => Effect.succeed(options.hasCommit ?? true),
       createWorktree,
       renameBranch,
       fetchRemote: options.fetchRemote ?? (() => Effect.void),
@@ -324,7 +320,7 @@ for (const target of ["new", "existing"] as const) {
   }
 }
 
-it.effect("retains automation attribution while a message waits in the queue", () => {
+it.effect("retains automation and sender attribution while a message waits in the queue", () => {
   const harness = makeHarness({ runSetup: () => Effect.never });
   return Effect.gen(function* () {
     const launches = yield* ThreadLaunch.ThreadLaunchService;
@@ -337,12 +333,14 @@ it.effect("retains automation attribution while a message waits in the queue", (
       }),
     );
     const scheduledTaskId = ScheduledTaskId.make("scheduled-task:queued");
+    const senderThreadId = ThreadId.make("thread:agent-sender");
     const queued = yield* threads.sendToThread({
       projectId,
       commandId: CommandId.make("command:automation:queued"),
       threadId: launched.threadId,
       messageId: MessageId.make("message:automation:queued"),
       scheduledTaskId,
+      senderThreadId,
       text: "Run the audit",
       attachments: [],
       mode: "queue",
@@ -353,6 +351,7 @@ it.effect("retains automation attribution while a message waits in the queue", (
     const projection = yield* threads.getThreadProjection(launched.threadId);
     const message = projection.messages.find((item) => item.id === queued.message.id);
     assert.equal(message?.scheduledTaskId, scheduledTaskId);
+    assert.equal(message?.senderThreadId, senderThreadId);
     assert.equal(message?.text, "Run the audit");
   }).pipe(Effect.provide(harness.layer));
 });
@@ -1013,40 +1012,6 @@ it.effect("falls back when the source control writer is unavailable", () =>
     }).pipe(Effect.provide(harness.layer));
   }),
 );
-
-for (const unavailable of ["repository", "commit"] as const) {
-  it.effect(`launches in the project checkout when the ${unavailable} is unavailable`, () =>
-    Effect.gen(function* () {
-      const setupEntered = yield* Deferred.make<void>();
-      const harness = makeHarness({
-        isRepository: unavailable !== "repository",
-        hasCommit: unavailable !== "commit",
-        runSetup: () =>
-          Deferred.succeed(setupEntered, undefined).pipe(
-            Effect.as({ status: "no-script" as const }),
-          ),
-      });
-      yield* Effect.gen(function* () {
-        const launches = yield* ThreadLaunch.ThreadLaunchService;
-        const threads = yield* ThreadManagement.ThreadManagementService;
-        const launched = yield* launches.launch(
-          launchInput({
-            command: `command:launch:no-${unavailable}`,
-            thread: `thread:launch:no-${unavailable}`,
-            message: "Build in this folder",
-            workspace: { type: "worktree", baseRef: "main" },
-          }),
-        );
-        yield* Deferred.await(setupEntered);
-        const projection = yield* threads.getThreadProjection(launched.threadId);
-        assert.equal(projection.thread.worktreePath, null);
-        assert.equal(projection.thread.branch, null);
-        assert.equal(harness.createWorktree.mock.calls.length, 0);
-        assert.equal(harness.runSetup.mock.calls[0]?.[0].worktreePath, "/repo");
-      }).pipe(Effect.provide(harness.layer));
-    }),
-  );
-}
 
 it.effect("names the worktree itself when the client provides no branch", () =>
   Effect.gen(function* () {

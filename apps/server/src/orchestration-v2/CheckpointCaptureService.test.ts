@@ -185,7 +185,6 @@ it.layer(ProjectionStoreTestLayer)("CheckpointCaptureServiceV2", (it) => {
             modelSelection,
             runtimeMode: "full-access",
             interactionMode: "default",
-            pullRequests: [],
             branch: null,
             worktreePath: null,
             activeProviderThreadId: null,

@@ -1,3 +1,4 @@
+import { useChatCanvas } from "./ChatCanvasContext";
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./WorkLog";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
@@ -28,7 +29,9 @@ import {
   type ThreadId,
   type ToolActivityIcon,
 } from "@t3tools/contracts";
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { useAtomValue } from "@effect/atom-react";
+import { environmentThreadDetails } from "../../state/threads";
 import {
   isInternalThreadMessage,
   resolveUserMessagePresentation,
@@ -43,7 +46,10 @@ import {
 } from "@t3tools/client-runtime/work-log/presentation";
 import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/scroll-anchor";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
-import { subagentGroupSummary } from "@t3tools/client-runtime/state/subagent-display";
+import {
+  subagentGroupSummary,
+  summarizeSubagentStatuses,
+} from "@t3tools/client-runtime/state/subagent-display";
 
 const NOOP_USE_ARTIFACT_TEMPLATE = () => {};
 const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
@@ -140,7 +146,7 @@ import type {
   ComposerContextRecord,
   KnownComposerContextRecord,
 } from "@t3tools/contracts";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
@@ -212,6 +218,7 @@ import {
   ContextChipShell,
   FileChip,
   ImageChipButton,
+  PULL_REQUEST_CHIP_KINDS,
   PullRequestChip,
   UnresolvedChip,
 } from "../contextChipParts";
@@ -234,15 +241,7 @@ import {
   encodeComposerContextFragment,
 } from "@t3tools/shared/composerContextClipboard";
 import { chatMarkdownClipboardPayload } from "../../markdown-clipboard";
-import {
-  CHAT_INLINE_CHIP_CLASS_NAME,
-  CHAT_INLINE_CHIP_LABEL_CLASS_NAME,
-  COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
-  SKILL_CHIP_ICON_SVG,
-  CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES,
-  CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES,
-  PULL_REQUEST_INLINE_CHIP_TONE_CLASS_NAMES,
-} from "../composerInlineChip";
+import { ContextChip, ContextChipLabel, type ContextChipKind } from "../ContextChip";
 import { createContextPresentationRegistry } from "../contextPresentationRegistry";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
@@ -257,10 +256,18 @@ import {
 } from "../../timestampFormat";
 import { V2ItemInspector } from "./V2ItemInspector";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
-import { isV2LifecycleItem, V2LifecycleRow, type HandoffTimelineRun } from "./V2LifecycleRow";
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "../ui/collapsible";
+import {
+  isV2LifecycleItem,
+  SubagentAvatar,
+  SubagentElapsed,
+  V2LifecycleRow,
+  type HandoffTimelineRun,
+} from "./V2LifecycleRow";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
 
-import { SkillInlineText } from "./SkillInlineText";
+import { SkillChipIcon, SkillInlineText } from "./SkillInlineText";
+import * as DateTime from "effect/DateTime";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import {
   buildReviewCommentRenderablePatch,
@@ -1235,6 +1242,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
   }, [historyControls, onOpenThread, parentThreadLink, topFadeEnabled]);
 
+  const canvas = useChatCanvas();
+  const registerTimeline = canvas?.registerTimeline;
+  const setTimelineList = useCallback(
+    (list: LegendListRef | null) => {
+      listRef.current = list;
+      registerTimeline?.(list?.getScrollableNode() ?? null);
+    },
+    [listRef, registerTimeline],
+  );
+
   // Stable renderItem — no closure deps. Row components read shared state
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
@@ -1284,7 +1301,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             />
           ) : null}
           <LegendList<MessagesTimelineRow>
-            ref={listRef}
+            ref={setTimelineList}
             data={rows}
             extraData={`${listIdentityKey}:${rows.length}`}
             keyExtractor={keyExtractor}
@@ -1319,7 +1336,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             onScroll={handleScroll}
             onItemSizeChanged={reportContentOverflow}
             className={cn(
-              "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
+              "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
               topFadeEnabled && "topbar-scroll-fade",
             )}
             ListHeaderComponent={listHeader}
@@ -1933,6 +1950,7 @@ function MessageAuthorHeading({ children }: { children: string }) {
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const { onImageExpand, onFileOpen } = ctx;
+  const senderThreadId = row.message.senderThreadId;
   const resources = useMemo(
     () => selectMessageImageResources(row.message.attachments),
     [row.message.attachments],
@@ -2121,7 +2139,17 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           className="me-1 text-[11px] text-muted-foreground/70"
           data-user-message-attribution="agent"
         >
-          Sent by another agent
+          {senderThreadId ? (
+            <InlineButton
+              onClick={() => ctx.onOpenThread(senderThreadId)}
+              tone="muted"
+              aria-label="Open sending thread"
+            >
+              Sent by another agent
+            </InlineButton>
+          ) : (
+            "Sent by another agent"
+          )}
         </p>
       ) : null}
       {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (
@@ -2941,56 +2969,154 @@ function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event"
   );
 }
 
-function V2SubagentGroup({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
+/**
+ * One elapsed span for the whole group: first launch to last settle, ticking
+ * while any member works. A settled member without a completion time leaves
+ * the end unknown, so the span is withheld rather than cut short.
+ */
+function subagentGroupTiming(
+  agents: ReadonlyArray<{
+    status: OrchestrationV2TurnItem["status"];
+    startedAt: DateTime.Utc | null;
+    completedAt: DateTime.Utc | null;
+  }>,
+) {
+  let startMs: number | null = null;
+  let endMs: number | null = null;
+  let endUnknown = false;
+  for (const agent of agents) {
+    if (agent.startedAt) {
+      const ms = DateTime.toEpochMillis(agent.startedAt);
+      startMs = startMs === null ? ms : Math.min(startMs, ms);
+    }
+    if (agent.completedAt) {
+      const ms = DateTime.toEpochMillis(agent.completedAt);
+      endMs = endMs === null ? ms : Math.max(endMs, ms);
+    } else {
+      endUnknown = true;
+    }
+  }
+  const live = agents.some(
+    ({ status }) => status === "pending" || status === "running" || status === "waiting",
+  );
+  return {
+    status: live ? ("running" as const) : ("completed" as const),
+    startedAt: startMs === null ? null : new Date(startMs).toISOString(),
+    completedAt: live || endUnknown || endMs === null ? null : new Date(endMs).toISOString(),
+  };
+}
+
+const V2SubagentGroup = memo(function V2SubagentGroup({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "event" }>;
+}) {
   const ctx = use(TimelineRowCtx);
   const groupId = `subagent-group:${row.id}`;
   const [expanded, setExpanded] = useState(() =>
     ctx.workGroupViewState.expandedEntries.has(groupId),
   );
-  const members = row.subagents ?? [row.projectedItem];
-  const summary = subagentGroupSummary(members.map(({ item }) => item));
-  const toggleExpanded = () => {
+  const members = (row.subagents ?? [row.projectedItem]).flatMap(({ item }) =>
+    item.type === "subagent" ? [item] : [],
+  );
+  const liveAgents = useAtomValue(
+    environmentThreadDetails.threadAtom(
+      scopeThreadRef(ctx.activeThreadEnvironmentId, row.projectedItem.item.threadId),
+    ),
+    (thread) => thread?.projection.subagents,
+  );
+  const agents = members.map((item) => {
+    const live = liveAgents?.find((agent) => agent.id === item.subagentId);
+    return {
+      item,
+      status: live?.status ?? item.status,
+      startedAt: live?.startedAt ?? item.startedAt,
+      completedAt: live?.completedAt ?? item.completedAt,
+    };
+  });
+  const summary = subagentGroupSummary(agents);
+  const label = `${members.length} ${members.length === 1 ? "subagent" : "subagents"}`;
+  const statusSummary = summarizeSubagentStatuses(agents.map(({ status }) => status));
+  const toggleExpanded = (open: boolean) => {
     ctx.onToggleWorkEntry(row.id, expanded);
-    if (expanded) ctx.workGroupViewState.expandedEntries.delete(groupId);
-    else ctx.workGroupViewState.expandedEntries.add(groupId);
-    setExpanded(!expanded);
+    if (open) ctx.workGroupViewState.expandedEntries.add(groupId);
+    else ctx.workGroupViewState.expandedEntries.delete(groupId);
+    setExpanded(open);
   };
   return (
-    <WorkLogBlock
-      continues={row.continuesWorkLog}
-      layout={expanded ? "group-content" : "standalone"}
-    >
-      <div data-subagent-group>
-        <WorkGroupHeader
-          label={summary.label}
-          iconName="bot"
-          active={summary.active}
-          failed={summary.failed}
-          expanded={expanded}
-          createdAt={row.createdAt}
-          timestampFormat={ctx.timestampFormat}
-          onToggle={toggleExpanded}
-        />
-        {expanded ? (
-          <WorkLogList>
-            {members.map((projected) => (
-              <V2LifecycleRow
-                environmentId={ctx.activeThreadEnvironmentId}
-                key={projected.item.id}
-                item={projected.item}
-                createdAt={row.createdAt}
-                timestampFormat={ctx.timestampFormat}
-                providerStatuses={ctx.providerStatuses}
-                runs={ctx.runs}
-                onOpenThread={ctx.onOpenThread}
+    <WorkLogBlock continues={row.continuesWorkLog}>
+      <Collapsible open={expanded} onOpenChange={toggleExpanded} data-subagent-group>
+        <CollapsibleTrigger
+          aria-label={label}
+          aria-description={statusSummary}
+          className={cn(
+            "flex w-full min-w-0 items-center gap-3 py-2 text-left transition-opacity hover:opacity-100",
+            expanded || summary.active
+              ? "text-foreground opacity-100"
+              : "text-muted-foreground opacity-55",
+          )}
+        >
+          <span className="flex shrink-0 items-center -space-x-1.5" aria-hidden>
+            {agents.slice(0, 3).map(({ item, status }) => (
+              <SubagentAvatar
+                key={item.id}
+                driver={item.driver}
+                provider={ctx.providerStatuses.find(
+                  (provider) => provider.instanceId === item.providerInstanceId,
+                )}
+                status={agents.length === 1 ? status : undefined}
               />
             ))}
-          </WorkLogList>
-        ) : null}
-      </div>
+            {agents.length > 3 ? (
+              <span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-[9px] font-medium text-muted-foreground ring-2 ring-background">
+                +{agents.length - 3}
+              </span>
+            ) : null}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-semibold">{label}</span>
+            <span
+              className={cn(
+                "block truncate text-[10px] text-muted-foreground",
+                summary.active ? "text-info" : summary.failed && "text-destructive",
+              )}
+            >
+              {statusSummary}
+            </span>
+          </span>
+          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+            <SubagentElapsed agent={subagentGroupTiming(agents)} />
+          </span>
+          <ChevronDownIcon
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        </CollapsibleTrigger>
+        <CollapsiblePanel>
+          {expanded ? (
+            <div className="mt-1 mb-1 rounded-lg border border-border/60 bg-card/30 p-1">
+              {members.map((item) => (
+                <V2LifecycleRow
+                  environmentId={ctx.activeThreadEnvironmentId}
+                  key={item.id}
+                  item={item}
+                  createdAt={row.createdAt}
+                  timestampFormat={ctx.timestampFormat}
+                  providerStatuses={ctx.providerStatuses}
+                  runs={ctx.runs}
+                  onOpenThread={ctx.onOpenThread}
+                />
+              ))}
+            </div>
+          ) : null}
+        </CollapsiblePanel>
+      </Collapsible>
     </WorkLogBlock>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Extracted row sections — own their state / store subscriptions so changes
@@ -3312,8 +3438,9 @@ function BackgroundWorktreeSetupChip({ snapshot }: { snapshot: WorktreeSetupSnap
       <PopoverTrigger
         render={
           <Button
-            variant="chip"
-            className="ml-auto inline-flex h-5 min-w-0 shrink-0 items-center gap-1 rounded-full border border-border/70 px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            variant="ghost-muted"
+            size="micro"
+            className="ml-auto min-w-0 shrink-0"
             aria-label={`${scriptName} is still running. Show setup progress.`}
           />
         }
@@ -3321,12 +3448,7 @@ function BackgroundWorktreeSetupChip({ snapshot }: { snapshot: WorktreeSetupSnap
         <Spinner className="size-3 shrink-0" />
         <span className="truncate">{scriptName}</span>
       </PopoverTrigger>
-      <PopoverPopup
-        side="bottom"
-        align="end"
-        className="surface-glass! w-[28rem] max-w-[calc(100vw-2rem)]"
-        viewportClassName="py-3 [--viewport-inline-padding:--spacing(3)]"
-      >
+      <PopoverPopup side="bottom" align="end" width="lg" padding="compact">
         <WorktreeSetupCard
           snapshot={snapshot}
           embedded
@@ -3422,9 +3544,14 @@ function LiveActivityContent({
       icon={
         iconName ? (
           <span
-            className={
-              failed ? failedToolIconClassName : highlighted ? "text-foreground" : "text-icon-muted"
-            }
+            className={cn(
+              "flex size-4 items-center justify-center",
+              failed
+                ? failedToolIconClassName
+                : highlighted
+                  ? "text-foreground"
+                  : "text-icon-muted",
+            )}
             role={announceFailure ? "img" : undefined}
             aria-label={announceFailure ? "Tool call failed" : undefined}
           >
@@ -3707,14 +3834,10 @@ function UserMessageMentionChip(props: {
     <Tooltip>
       <TooltipTrigger
         render={
-          <button
-            type="button"
+          <ContextChip
+            kind="mention"
+            render={<button type="button" />}
             aria-label={`Preview ${props.record.path}`}
-            className={cn(
-              CHAT_INLINE_CHIP_CLASS_NAME,
-              CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES.mention,
-              "cursor-pointer focus-visible:outline-2",
-            )}
             data-markdown-copy={props.copyMarkdown}
             onClick={() => {
               if (ctx.threadRef)
@@ -3725,10 +3848,9 @@ function UserMessageMentionChip(props: {
               pathValue={props.record.path}
               kind={inferEntryKindFromPath(props.record.path)}
               theme={ctx.resolvedTheme}
-              className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
             />
-            <span className={CHAT_INLINE_CHIP_LABEL_CLASS_NAME}>{props.record.label}</span>
-          </button>
+            <ContextChipLabel>{props.record.label}</ContextChipLabel>
+          </ContextChip>
         }
       />
       <TooltipPopup>{props.record.path}</TooltipPopup>
@@ -3742,21 +3864,16 @@ function UserMessageContextChip(props: {
   kindLabel?: string;
   copyMarkdown: string;
   tooltip?: string;
-  toneClassName?: string;
-  interactive?: boolean;
-  unresolved?: boolean;
+  kind: ContextChipKind;
 }) {
   return (
     <ContextChipShell
+      kind={props.kind}
       icon={props.icon}
       label={props.label}
-      className={cn(CHAT_INLINE_CHIP_CLASS_NAME, props.toneClassName)}
-      labelClassName={CHAT_INLINE_CHIP_LABEL_CLASS_NAME}
       aria-label={props.kindLabel ? `${props.kindLabel}, ${props.label}` : undefined}
       data-markdown-copy={props.copyMarkdown}
       tooltip={props.tooltip}
-      interactive={props.interactive === true}
-      unresolved={props.unresolved === true}
     />
   );
 }
@@ -3764,7 +3881,7 @@ function UserMessageContextChip(props: {
 function UserMessagePullRequestContextChip(props: {
   record: Extract<KnownComposerContextRecord, { kind: "review-comment" }>;
   copyMarkdown: string;
-  toneClassName: string;
+  kind: ContextChipKind;
 }) {
   const { activeThreadEnvironmentId, openPullRequest } = use(TimelineRowCtx);
   const metadata = props.record.pullRequest;
@@ -3775,8 +3892,7 @@ function UserMessagePullRequestContextChip(props: {
       environmentId={activeThreadEnvironmentId}
       label={reviewCommentContextLabel(props.record)}
       kindLabel={pullRequestContextKindLabel(props.record)}
-      className={cn(CHAT_INLINE_CHIP_CLASS_NAME, props.toneClassName)}
-      labelClassName={CHAT_INLINE_CHIP_LABEL_CLASS_NAME}
+      kind={props.kind}
       copyMarkdown={props.copyMarkdown}
       onOpen={openPullRequest}
     />
@@ -3929,11 +4045,8 @@ function UnavailableUserMessageContextChip(props: UserMessageContextRenderContex
   return (
     <UnresolvedChip
       label={props.reference.label}
-      className={CHAT_INLINE_CHIP_CLASS_NAME}
-      labelClassName={CHAT_INLINE_CHIP_LABEL_CLASS_NAME}
       copyMarkdown={props.copyMarkdown}
       tooltip="This context is no longer available."
-      tooltipClassName="max-w-96 whitespace-pre-wrap leading-tight"
     />
   );
 }
@@ -3961,18 +4074,12 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
       render: (record, context) =>
         record.kind === "skill" ? (
           <UserMessageContextChip
-            icon={
-              <span
-                aria-hidden="true"
-                className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
-                dangerouslySetInnerHTML={{ __html: SKILL_CHIP_ICON_SVG }}
-              />
-            }
+            icon={<SkillChipIcon />}
             label={record.label || record.name}
             kindLabel="Skill"
             tooltip={`$${record.name}`}
             copyMarkdown={context.copyMarkdown}
-            toneClassName={CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES.skill}
+            kind="skill"
           />
         ) : (
           <UnavailableUserMessageContextChip {...context} />
@@ -3983,12 +4090,7 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
       canRender: (record) => record.kind === "thread",
       render: (record, context) =>
         record.kind === "thread" ? (
-          <ThreadContextChip
-            record={record}
-            className={CHAT_INLINE_CHIP_CLASS_NAME}
-            labelClassName={CHAT_INLINE_CHIP_LABEL_CLASS_NAME}
-            copyMarkdown={context.copyMarkdown}
-          />
+          <ThreadContextChip record={record} copyMarkdown={context.copyMarkdown} />
         ) : (
           <UnavailableUserMessageContextChip {...context} />
         ),
@@ -4012,8 +4114,6 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
           <ImageChipButton
             name={record.name}
             previewUrl={attachment.previewUrl}
-            className={CHAT_INLINE_CHIP_CLASS_NAME}
-            labelClassName={CHAT_INLINE_CHIP_LABEL_CLASS_NAME}
             size={formatAttachmentSize(record.sizeBytes)}
             data-markdown-copy={context.copyMarkdown}
             onClick={() => context.onExpandImage(attachment)}
@@ -4046,8 +4146,6 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
             size={size}
             isVideo={isVideo}
             theme={context.resolvedTheme}
-            className={CHAT_INLINE_CHIP_CLASS_NAME}
-            labelClassName={CHAT_INLINE_CHIP_LABEL_CLASS_NAME}
             disabled={disabled}
             accessibleLabel={`${isVideo ? "Video" : "File"} attachment, ${record.name}, ${size}`}
             copyMarkdown={context.copyMarkdown}
@@ -4066,7 +4164,6 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
         record.kind === "terminal" ? (
           <span data-markdown-copy={context.copyMarkdown}>
             <TerminalContextInlineChip
-              surface="transcript"
               label={record.label}
               terminalLabel={record.terminalLabel}
               lineStart={record.lineStart}
@@ -4087,24 +4184,9 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
           <UserMessageContextPopover
             copyMarkdown={context.copyMarkdown}
             accessibleLabel={`Browser element, ${record.label}`}
-            chip={
-              <UserMessageContextChip
-                icon={
-                  <MousePointerClickIcon
-                    className={cn(
-                      COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
-                      CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES.element,
-                      "size-3.5",
-                    )}
-                  />
-                }
-                label={record.label}
-                kindLabel="Browser element"
-                copyMarkdown={context.copyMarkdown}
-                interactive
-                toneClassName={CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES.element}
-              />
-            }
+            kind="element"
+            icon={<MousePointerClickIcon />}
+            label={record.label}
           >
             <UserMessageElementDetails record={record} />
           </UserMessageContextPopover>
@@ -4128,7 +4210,7 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
             <UserMessagePullRequestContextChip
               record={record}
               copyMarkdown={context.copyMarkdown}
-              toneClassName={PULL_REQUEST_INLINE_CHIP_TONE_CLASS_NAMES[pullRequestState]}
+              kind={PULL_REQUEST_CHIP_KINDS[pullRequestState]}
             />
           );
         }
@@ -4136,38 +4218,9 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
           <UserMessageContextPopover
             copyMarkdown={context.copyMarkdown}
             accessibleLabel={`${kindLabel}, ${label}${record.pullRequest ? `, ${record.pullRequest.title}` : ""}`}
-            chip={
-              <UserMessageContextChip
-                icon={
-                  isPullRequest ? (
-                    <PullRequestGlyph.pullRequest
-                      className={cn(
-                        COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
-                        CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES["pull-request"],
-                        "size-3.5",
-                      )}
-                    />
-                  ) : (
-                    <MessageCircleIcon
-                      className={cn(
-                        COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
-                        CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES["review-comment"],
-                        "size-3.5",
-                      )}
-                    />
-                  )
-                }
-                label={label}
-                kindLabel={kindLabel}
-                copyMarkdown={context.copyMarkdown}
-                interactive
-                toneClassName={
-                  isPullRequest
-                    ? PULL_REQUEST_INLINE_CHIP_TONE_CLASS_NAMES[pullRequestState]
-                    : CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES["review-comment"]
-                }
-              />
-            }
+            kind={isPullRequest ? PULL_REQUEST_CHIP_KINDS[pullRequestState] : "review-comment"}
+            icon={isPullRequest ? <PullRequestGlyph.pullRequest /> : <MessageCircleIcon />}
+            label={label}
           >
             <UserMessageReviewCommentCard
               comment={{
@@ -4198,24 +4251,9 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
           <UserMessageContextPopover
             copyMarkdown={context.copyMarkdown}
             accessibleLabel={`Preview annotation, ${record.label}`}
-            chip={
-              <UserMessageContextChip
-                icon={
-                  <MousePointerClickIcon
-                    className={cn(
-                      COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
-                      CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES["preview-annotation"],
-                      "size-3.5",
-                    )}
-                  />
-                }
-                label={record.label}
-                kindLabel="Preview annotation"
-                copyMarkdown={context.copyMarkdown}
-                interactive
-                toneClassName={CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES["preview-annotation"]}
-              />
-            }
+            kind="preview-annotation"
+            icon={<MousePointerClickIcon />}
+            label={record.label}
           >
             <UserMessagePreviewAnnotationDetails record={record} image={context.annotationImage} />
           </UserMessageContextPopover>
@@ -4321,11 +4359,11 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
             <Button
               type="button"
               size="xs"
-              variant="ghost"
+              variant="ghost-muted"
               aria-expanded={expanded}
               data-scroll-anchor-ignore
               onClick={() => setExpanded((value) => !value)}
-              className="-ml-1 h-6 rounded-md px-1.5 text-xs text-muted-foreground/72 hover:bg-muted/55 hover:text-foreground/85"
+              className="-ml-1"
             >
               {expanded ? "Show less" : "Show full message"}
             </Button>
@@ -4594,7 +4632,7 @@ function ToolActivityIconView(props: {
     <NativeAppToolActivityIcon
       app={props.icon.app}
       fallbackName={props.fallbackName}
-      className={props.className}
+      className={cn(props.className, "size-5")}
       muted={props.muted}
     />
   );
@@ -4757,7 +4795,7 @@ function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   if (tone === "thinking") {
     return {
       iconName: "brain",
-      className: "text-foreground",
+      className: "text-icon-muted",
     };
   }
   if (tone === "info") {
@@ -5037,6 +5075,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const canExpandProjectedItem = canExpand || workEntry.projectedItem !== undefined;
   // Reserve destructive row styling for severe failures, not routine tool errors.
   const iconWrapperClass = cn(
+    "flex size-4 items-center justify-center",
     showWarningIndicator
       ? "text-warning"
       : showDestructiveRowStyle

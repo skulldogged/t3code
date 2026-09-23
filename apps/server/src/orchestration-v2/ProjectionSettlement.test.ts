@@ -52,7 +52,6 @@ const createThread = Effect.fn(function* (
     modelSelection,
     runtimeMode: "full-access",
     interactionMode: "default",
-    pullRequests: [],
     branch: "feature",
     worktreePath: null,
     activeProviderThreadId: null,
@@ -262,7 +261,7 @@ for (const [name, testLayer] of [
         );
         assert.deepEqual(
           new Set(eligible.map((thread) => thread.id)),
-          new Set([idle, completed, queued, woke, persistent, rolledBack]),
+          new Set([idle, completed, queued, woke, background, persistent, rolledBack]),
         );
         assert.deepEqual(
           new Set(eligible.map((thread) => thread.id)),

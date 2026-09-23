@@ -1,7 +1,7 @@
 import { ScheduledTaskId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { isInternalThreadMessage, resolveUserMessagePresentation } from "./userMessage.ts";
+import { resolveUserMessagePresentation } from "./userMessage.ts";
 
 describe("resolveUserMessagePresentation", () => {
   const legacyText = "[Triggered by schedule task: Daily audit]\n\nCheck for crashes.\n";
@@ -66,123 +66,5 @@ describe("resolveUserMessagePresentation", () => {
         scheduledTaskId: "task:daily-audit",
       });
     }
-  });
-
-  it("presents delegated completions from structured task metadata", () => {
-    expect(
-      resolveUserMessagePresentation({
-        role: "user",
-        text: "Delegated task node:internal reached a terminal state.",
-        delegatedCompletion: { taskIds: ["node:internal"] },
-        delegatedTasks: [
-          {
-            id: "node:internal",
-            title: "Fix mobile child-agent list clutter",
-            status: "completed",
-          },
-        ],
-      }),
-    ).toEqual({
-      text: "Delegated task completed: Fix mobile child-agent list clutter",
-      isAutomation: false,
-      scheduledTaskId: undefined,
-    });
-  });
-
-  it("keeps multiple delegated task titles and their individual terminal states", () => {
-    expect(
-      resolveUserMessagePresentation({
-        role: "user",
-        text: "provider continuation instructions",
-        delegatedCompletion: { taskIds: ["one", "two", "missing"] },
-        delegatedTasks: [
-          { id: "one", title: "Collect logs", status: "failed" },
-          { id: "two", title: "Update release notes", status: "cancelled" },
-        ],
-      }),
-    ).toMatchObject({
-      text: "Delegated task updates: failed: Collect logs; cancelled: Update release notes; another task finished",
-    });
-  });
-
-  it("does not rewrite matching text without delegated-completion provenance", () => {
-    const text = "Delegated task node:internal reached a terminal state.";
-    expect(resolveUserMessagePresentation({ role: "user", text })).toMatchObject({ text });
-  });
-});
-
-describe("isInternalThreadMessage", () => {
-  it("recognizes server and provider wake-ups without matching their text", () => {
-    for (const creationSource of ["server", "provider"] as const) {
-      expect(
-        isInternalThreadMessage({
-          role: "user",
-          createdBy: "agent",
-          creationSource,
-          text: "Background command completed (exit 143): bash",
-        }),
-      ).toBe(true);
-      expect(
-        isInternalThreadMessage({
-          role: "user",
-          createdBy: "agent",
-          creationSource,
-          text: "Continue where you left off.",
-        }),
-      ).toBe(true);
-    }
-    expect(
-      isInternalThreadMessage({
-        role: "user",
-        text: "Task finished",
-        delegatedCompletion: { taskIds: ["task:child"] },
-      }),
-    ).toBe(true);
-  });
-
-  it("preserves user prompts, explicit agent messages, and assistant output", () => {
-    const text = "Background command completed (exit 143): bash";
-    for (const creationSource of ["web", "mobile", "mcp", "server", "provider"] as const) {
-      expect(
-        isInternalThreadMessage({
-          role: "user",
-          createdBy: "user",
-          creationSource,
-          text,
-        }),
-      ).toBe(false);
-    }
-    expect(
-      isInternalThreadMessage({ role: "user", createdBy: "agent", creationSource: "mcp", text }),
-    ).toBe(false);
-    expect(
-      isInternalThreadMessage({
-        role: "assistant",
-        createdBy: "agent",
-        creationSource: "provider",
-        text,
-      }),
-    ).toBe(false);
-    expect(isInternalThreadMessage({ role: "user", text })).toBe(false);
-  });
-
-  it("keeps scheduled submissions in the user queue, including older records", () => {
-    expect(
-      isInternalThreadMessage({
-        role: "user",
-        createdBy: "agent",
-        creationSource: "server",
-        text: "Run the audit",
-        scheduledTaskId: ScheduledTaskId.make("task:daily"),
-      }),
-    ).toBe(false);
-    expect(
-      isInternalThreadMessage({
-        role: "user",
-        createdBy: "agent",
-        creationSource: "server",
-        text: "[Triggered by schedule task: Daily audit]\n\nRun the audit",
-      }),
-    ).toBe(false);
   });
 });

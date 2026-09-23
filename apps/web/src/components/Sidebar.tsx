@@ -241,7 +241,7 @@ import {
 } from "../providerInstances";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { Button } from "./ui/button";
+import { Button, InlineButton } from "./ui/button";
 import {
   Combobox,
   ComboboxEmpty,
@@ -255,7 +255,7 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
-import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import {
@@ -448,7 +448,7 @@ function SidebarThreadTooltip({
         {thread.branch ? (
           <div className="flex min-w-0 items-center gap-2">
             <GitBranchIcon className="size-3 shrink-0 stroke-muted-foreground" />
-            <MiddleTruncate value={thread.branch} className="flex text-foreground/75" />
+            <MiddleTruncate value={thread.branch} className="flex" />
           </div>
         ) : null}
         {branchMismatch ? (
@@ -528,7 +528,7 @@ function SidebarThreadTooltip({
  * Controlled by the row (which also uses the open state to pin its hover
  * actions while the menu is up).
  */
-function SnoozePopoverButton(props: {
+function SnoozeMenuButton(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSnooze: (preset: Pick<SnoozePreset, "snoozedUntil">) => void;
@@ -542,11 +542,11 @@ function SnoozePopoverButton(props: {
     [open, timestampFormat],
   );
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    <Menu open={open} onOpenChange={onOpenChange}>
       <Tooltip>
         <TooltipTrigger
           render={
-            <PopoverTrigger
+            <MenuTrigger
               render={
                 <button
                   type="button"
@@ -563,39 +563,31 @@ function SnoozePopoverButton(props: {
         </TooltipTrigger>
         <TooltipPopup>Snooze thread</TooltipPopup>
       </Tooltip>
-      <PopoverPopup side="bottom" align="end" className="w-56" viewportClassName="p-1">
+      <MenuPopup side="bottom" align="end">
         {presets.map((preset) => (
-          <button
+          <MenuItem
             key={preset.id}
-            type="button"
             onClick={(event) => {
               event.stopPropagation();
-              onOpenChange(false);
               onSnooze(preset);
             }}
-            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
           >
-            <span className="flex-1">{preset.label}</span>
-            <span className="font-mono text-[10px] text-muted-foreground/60 tabular-nums">
-              {preset.whenLabel}
-            </span>
-          </button>
+            {preset.label}
+            <MenuShortcut>{preset.whenLabel}</MenuShortcut>
+          </MenuItem>
         ))}
-        <div className="my-1 border-t border-border/60" />
-        <button
-          type="button"
-          className="flex w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
+        <MenuSeparator />
+        <MenuItem
           onClick={async (event) => {
             event.stopPropagation();
-            onOpenChange(false);
             const choice = await requestCustomSnooze();
             if (choice) onSnooze(choice);
           }}
         >
           Custom…
-        </button>
-      </PopoverPopup>
-    </Popover>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -612,6 +604,7 @@ type SortableThreadRowBag = Pick<
 function SortableThreadRow(props: {
   id: string;
   disabled: boolean;
+  contextDrag: boolean;
   children: (bag: SortableThreadRowBag) => ReactNode;
 }) {
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -622,8 +615,16 @@ function SortableThreadRow(props: {
   // dnd-kit memoizes each field but not the bag, so the memoized row would
   // rerender on every shell update without this.
   const bag = useMemo(
-    () => ({ listeners, setNodeRef, transform, transition, isDragging }),
-    [listeners, setNodeRef, transform, transition, isDragging],
+    () => ({
+      listeners,
+      setNodeRef,
+      transform: props.contextDrag ? null : transform,
+      // The lifted row normally follows the pointer without a transition.
+      // When it becomes a context ghost, glide its sidebar copy back home.
+      transition: props.contextDrag && isDragging ? "transform 150ms ease-out" : transition,
+      isDragging: isDragging && !props.contextDrag,
+    }),
+    [listeners, setNodeRef, transform, transition, isDragging, props.contextDrag],
   );
   return props.children(bag);
 }
@@ -1448,7 +1449,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     if (!showSnoozeButton) setSnoozeMenuOpen(false);
   }, [showSnoozeButton]);
   const handlePrClick = useCallback(
-    (event: ReactMouseEvent<HTMLAnchorElement>, targetUrl?: string) => {
+    (event: ReactMouseEvent<HTMLElement>, targetUrl?: string) => {
       const url = targetUrl ?? pr?.url ?? currentLinkedPr?.url;
       if (!url) return;
       const showInRightPanel = targetUrl !== undefined || openPullRequestsInRightPanel;
@@ -1580,7 +1581,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const prBadge =
     prBadgeShape?.kind === "stack" || pr || currentLinkedPr ? (
       <ThreadPullRequestBadgeControl
-        variant="underline"
+        render={<InlineButton />}
         badge={prBadgeShape}
         pullRequests={thread.pullRequests}
         number={pr?.number ?? currentLinkedPr?.number}
@@ -1952,7 +1953,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                         </Tooltip>
                       ) : null}
                       {showSnoozeButton ? (
-                        <SnoozePopoverButton
+                        <SnoozeMenuButton
                           open={snoozeMenuOpen}
                           onOpenChange={setSnoozeMenuOpen}
                           onSnooze={handleSnoozePreset}
@@ -1997,11 +1998,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
-                  <MiddleTruncate
-                    value={thread.branch}
-                    showTitle={false}
-                    className="flex-1 text-muted-foreground/40"
-                  />
+                  <span className="flex min-w-0 flex-1 text-muted-foreground/40">
+                    <MiddleTruncate value={thread.branch} showTitle={false} />
+                  </span>
                 </>
               ) : (
                 <span className="flex-1" />
@@ -3105,9 +3104,7 @@ export default function Sidebar() {
         settlingThreadKeysRef.current.add(threadKey);
         try {
           const navigateAfterSettle = planForwardNavigation(threadKey, opts.coSettlingKeys);
-          const result = await settleThread(threadRef, {
-            undoToast: opts.coSettlingKeys === undefined,
-          });
+          const result = await settleThread(threadRef);
           if (result._tag === "Failure") {
             // Never navigate away from a thread that did not settle.
             if (!isAtomCommandInterrupted(result)) {
@@ -3201,8 +3198,10 @@ export default function Sidebar() {
     readonly occurredAt: string;
     readonly activationY: number | null;
     readonly targetSection: SidebarSection | null;
+    readonly contextDrag: boolean;
   } | null>(null);
-  const dragTargetSection = dragState?.targetSection ?? null;
+  const isContextDrag = dragState?.contextDrag === true;
+  const dragTargetSection = isContextDrag ? null : (dragState?.targetSection ?? null);
   const dragSensorRef = useRef<SidebarPointerSensor | null>(null);
   const contextDragKeyRef = useRef<string | null>(null);
   const finishThreadDrag = useCallback((started: boolean) => {
@@ -3237,7 +3236,13 @@ export default function Sidebar() {
   }, []);
   const moveThreadContextDrag = useCallback(
     (point: { x: number; y: number }) => {
-      if (!pointerOutsideThreadList(point)) {
+      const contextDrag = pointerOutsideThreadList(point);
+      setDragState((current) =>
+        current === null || current.contextDrag === contextDrag
+          ? current
+          : { ...current, contextDrag },
+      );
+      if (!contextDrag) {
         endThreadContextDrag();
         return false;
       }
@@ -3426,6 +3431,7 @@ export default function Sidebar() {
         activeKey,
         activeSection,
         targetSection: activeSection,
+        contextDrag: false,
         occurredAt: new Date().toISOString(),
         activationY:
           event.activatorEvent instanceof PointerEvent ? event.activatorEvent.clientY : null,
@@ -3540,6 +3546,7 @@ export default function Sidebar() {
     () =>
       createSidebarSortingStrategy({
         items: sidebarListItems,
+        enabled: !isContextDrag,
         boundaryLabelHeight: SIDEBAR_DRAG_LABEL_HEIGHT,
         settledOrder: draggedSettledOrder,
         settledExpanded: settledShelfExpanded,
@@ -3549,6 +3556,7 @@ export default function Sidebar() {
       }),
     [
       draggedSettledOrder,
+      isContextDrag,
       routeThreadKey,
       settledShelfExpanded,
       settledVisibleCount,
@@ -3803,9 +3811,7 @@ export default function Sidebar() {
         // Snoozing the open thread moves you forward, same as settle —
         // both park the thread you're done with for now.
         const navigateAfterSnooze = planForwardNavigation(threadKey, opts.coSnoozingKeys);
-        const result = await snoozeThread(threadRef, preset.snoozedUntil, {
-          undoToast: opts.coSnoozingKeys === undefined,
-        });
+        const result = await snoozeThread(threadRef, preset.snoozedUntil);
         if (result._tag === "Failure") {
           // Never navigate away from a thread that did not snooze.
           return isAtomCommandInterrupted(result)
@@ -3959,35 +3965,15 @@ export default function Sidebar() {
             outcome.status === "failure" ? [outcome.error] : [],
           );
 
-          if (snoozedThreadRefs.length > 0) {
-            const snoozedCount = snoozedThreadRefs.length;
-            const failedCount = failures.length;
-            toastManager.add(
-              stackedThreadToast({
-                type: failedCount > 0 ? "warning" : "success",
-                title:
-                  failedCount > 0
-                    ? `Snoozed ${snoozedCount} of ${selectedThreads.length} threads`
-                    : `Snoozed ${snoozedCount} thread${snoozedCount === 1 ? "" : "s"}`,
-                description:
-                  failedCount > 0
-                    ? `${failedCount} thread${failedCount === 1 ? "" : "s"} couldn't be snoozed.`
-                    : undefined,
-                timeout: 5_000,
-                actionProps: {
-                  children: "Undo",
-                  onClick: () => {
-                    for (const threadRef of snoozedThreadRefs) attemptUnsnooze(threadRef);
-                  },
-                },
-              }),
-            );
-          } else if (failures.length > 0) {
+          if (failures.length > 0) {
             const firstError = failures[0];
             toastManager.add(
               stackedThreadToast({
                 type: "error",
-                title: "Failed to snooze threads",
+                title:
+                  snoozedThreadRefs.length > 0
+                    ? `Failed to snooze ${failures.length} thread${failures.length === 1 ? "" : "s"}`
+                    : "Failed to snooze threads",
                 description:
                   firstError instanceof Error ? firstError.message : "An error occurred.",
               }),
@@ -4091,7 +4077,6 @@ export default function Sidebar() {
     },
     [
       attemptSettle,
-      attemptSnooze,
       attemptUnpin,
       clearSelection,
       confirmThreadDelete,
@@ -4100,7 +4085,6 @@ export default function Sidebar() {
       performSnooze,
       removeFromSelection,
       serverConfigs,
-      attemptUnsnooze,
       updateThreadMetadata,
       timestampFormat,
     ],
@@ -4493,11 +4477,11 @@ export default function Sidebar() {
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
-        className="gap-0 min-h-full"
+        className="min-h-full"
         fixedHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
-          <SidebarGroup className="relative z-[1] p-[var(--sidebar-content-inset)] pt-1">
+          <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
@@ -4593,8 +4577,6 @@ export default function Sidebar() {
                             key={item.value}
                             hideIndicator
                             value={item}
-                            className="h-8 min-h-8 py-0 font-medium"
-                            contentClassName="flex min-w-0 items-center gap-2"
                             onContextMenu={(event) => {
                               if (project) handleProjectSettings(event, project);
                             }}
@@ -4619,7 +4601,7 @@ export default function Sidebar() {
                                 tabIndex={-1}
                                 aria-hidden="true"
                                 title={`Project settings for ${project.displayName}`}
-                                className="ml-auto size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
+                                className="ml-auto"
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                   void handleProjectSettings(event, project);
@@ -4656,7 +4638,7 @@ export default function Sidebar() {
           </SidebarGroup>
         }
       >
-        <SidebarGroup className="ps-[calc(var(--sidebar-content-inset)+1px)] pe-[var(--sidebar-content-inset)] pb-1 pt-0 flex-1">
+        <SidebarGroup className="flex-1">
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -4733,6 +4715,7 @@ export default function Sidebar() {
             >
               <DndContext
                 sensors={dndSensors}
+                autoScroll={!isContextDrag}
                 collisionDetection={dndCollisionDetection}
                 modifiers={[
                   restrictToVerticalAxis,
@@ -4877,15 +4860,18 @@ export default function Sidebar() {
                           <SortableThreadRow
                             key={threadKey}
                             id={threadKey}
+                            contextDrag={isContextDrag}
                             disabled={
-                              !draggableThreadKeys.has(threadKey) || optimisticDrop !== null
+                              renamingThreadKey === threadKey ||
+                              !draggableThreadKeys.has(threadKey) ||
+                              optimisticDrop !== null
                             }
                           >
                             {(bag) => renderThreadRowInner(thread, section, bag)}
                           </SortableThreadRow>
                         );
                       };
-                      const from = dragState?.activeSection ?? null;
+                      const from = isContextDrag ? null : (dragState?.activeSection ?? null);
                       const items: ReactNode[] = [
                         <SidebarDraftBlock
                           key="draft-sessions"

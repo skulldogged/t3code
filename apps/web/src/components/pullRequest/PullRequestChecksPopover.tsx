@@ -1,3 +1,4 @@
+import type * as React from "react";
 import type {
   EnvironmentId,
   PullRequestCheck,
@@ -138,6 +139,7 @@ export function PullRequestChecksPopover({
   threadRef = null,
   variant = "icon",
   className,
+  render,
 }: {
   checksState: PullRequestChecksState;
   /** The checks already in hand, for the detail header. Absent on a listing row. */
@@ -149,6 +151,7 @@ export function PullRequestChecksPopover({
   threadRef?: ScopedThreadRef | null;
   variant?: "icon" | "count";
   className?: string;
+  render?: React.ReactElement;
 }) {
   const presentation = pullRequestChecksStatePresentation(checksState);
   // Counts beat the rollup's own wording where they are known, the way GitHub's own header reads.
@@ -168,7 +171,7 @@ export function PullRequestChecksPopover({
         }
         render={
           variant === "count" ? (
-            <Button variant="ghost" size="sm" className={className} />
+            (render ?? <Button variant="ghost" size="sm" className={className} />)
           ) : (
             <span
               role="button"
@@ -191,7 +194,7 @@ export function PullRequestChecksPopover({
           </>
         ) : null}
       </PopoverTrigger>
-      <PopoverPopup align="start" className="w-80 max-w-full" side="bottom">
+      <PopoverPopup align="start" width="md" side="bottom">
         <p className="mb-2 font-medium text-sm">{presentation.label}</p>
         {summary === null ? null : <p className="mb-2 text-muted-foreground text-xs">{summary}</p>}
         {stale ? (

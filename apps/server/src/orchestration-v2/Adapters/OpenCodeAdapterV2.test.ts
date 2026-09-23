@@ -185,7 +185,6 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
   const startTurn = (text = "hello") =>
     runtime.startTurn({
       appThread: {
-        pullRequests: [],
         id: threadId,
         projectId: ProjectId.make(`project-opencode-${suffix}`),
         title: suffix,
@@ -1085,7 +1084,6 @@ describe("OpenCodeAdapterV2", () => {
       const start = yield* runtime
         .startTurn({
           appThread: {
-            pullRequests: [],
             id: threadId,
             projectId: ProjectId.make("project-opencode-admission-race"),
             title: "race",
@@ -1384,7 +1382,6 @@ describe("OpenCodeAdapterV2", () => {
       const start = yield* runtime
         .startTurn({
           appThread: {
-            pullRequests: [],
             id: threadId,
             projectId: ProjectId.make("project-opencode-initial-stop"),
             title: "initial stop",

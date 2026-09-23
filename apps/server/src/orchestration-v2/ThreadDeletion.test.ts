@@ -44,7 +44,6 @@ function makeProjection(): OrchestrationV2ThreadProjection {
     threadId,
     occurredAt: createdAt,
     payload: {
-      pullRequests: [],
       id: threadId,
       createdBy: "user",
       creationSource: "web",

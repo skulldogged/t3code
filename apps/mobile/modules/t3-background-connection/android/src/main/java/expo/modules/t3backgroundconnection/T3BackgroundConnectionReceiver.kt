@@ -24,5 +24,3 @@ class T3BackgroundConnectionReceiver : BroadcastReceiver() {
     }
   }
 }
-
-

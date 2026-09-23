@@ -159,7 +159,6 @@ function makeThreadCreatedEvent(input: {
       nativeThreadId: "native-thread",
     });
     const thread: OrchestrationV2AppThread = {
-      pullRequests: [],
       createdBy: "user",
       creationSource: "web",
       id: input.threadId,
