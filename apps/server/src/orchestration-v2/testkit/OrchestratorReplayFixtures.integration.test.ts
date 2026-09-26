@@ -11,11 +11,13 @@ import { CursorOrchestratorReplayHarness } from "../Adapters/CursorAdapterV2.tes
 import { AcpRegistryOrchestratorReplayHarness } from "../Adapters/AcpRegistryAdapterV2.testkit.ts";
 import { GrokOrchestratorReplayHarness } from "../Adapters/GrokAdapterV2.testkit.ts";
 import { OpenCodeOrchestratorReplayHarness } from "../Adapters/OpenCodeAdapterV2.testkit.ts";
+import { PiOrchestratorReplayHarness } from "../Adapters/PiAdapterV2.testkit.ts";
 import { layer as idAllocatorLayer } from "../IdAllocator.ts";
 import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
 import { ORCHESTRATOR_REPLAY_FIXTURES } from "./fixtures/index.ts";
 import { messageRestartInput } from "./fixtures/message_steering/input.ts";
 import {
+  assertProviderNativeSubagentRootTurns,
   materializeFixtureInput,
   type OrchestratorFixtureInput,
   type ProviderOrchestratorReplayVariant,
@@ -85,7 +87,8 @@ const runFixtureProvider = Effect.fn("runOrchestratorReplayFixture")(function* <
     transcriptEntriesThroughLabel(rawTranscript, input.driver.transcriptEntriesThroughLabel),
     { driver: input.driver.driver, model: input.driver.modelSelection.model },
   );
-  const workspace = yield* checkpointWorkspace(input.fixtureName);
+  const fixtureInput = input.buildInput();
+  const workspace = yield* checkpointWorkspace(input.fixtureName, fixtureInput.workspaceFiles);
   const transcript = yield* input.harness.decodeTranscript(
     input.driver.driver === "codex"
       ? materializeReplayTranscriptWorkspace(replayTranscript, workspace)
@@ -93,7 +96,7 @@ const runFixtureProvider = Effect.fn("runOrchestratorReplayFixture")(function* <
   );
   const materialized = yield* materializeFixtureInput({
     scenario: input.fixtureName,
-    fixtureInput: input.buildInput(),
+    fixtureInput,
     driver: input.driver.driver,
     modelSelection: input.driver.modelSelection,
   }).pipe(Effect.provide(idAllocatorLayer), provideDeterministicTestRuntime);
@@ -109,10 +112,13 @@ const runFixtureProvider = Effect.fn("runOrchestratorReplayFixture")(function* <
     },
   };
 
-  const result = yield* runOrchestratorV2ProviderReplayScenario(scenario, input.harness).pipe(
-    provideDeterministicTestRuntime,
-  );
+  const result = yield* runOrchestratorV2ProviderReplayScenario(
+    scenario,
+    input.harness,
+    input.driver.runContinuationWorker === true ? { runContinuationWorker: true } : {},
+  ).pipe(provideDeterministicTestRuntime);
   input.driver.assertOutput(result, transcript);
+  assertProviderNativeSubagentRootTurns(result);
   const expectedAbsentWorkspacePaths = input.driver.expectedAbsentWorkspacePaths;
   if (expectedAbsentWorkspacePaths !== undefined) {
     yield* Effect.gen(function* () {
@@ -184,6 +190,11 @@ function runFixtureProviderWithRegisteredHarness(input: {
       return runFixtureProvider({
         ...input,
         harness: OpenCodeOrchestratorReplayHarness,
+      }).pipe(Effect.mapError(normalizeTestError), Effect.scoped);
+    case "pi":
+      return runFixtureProvider({
+        ...input,
+        harness: PiOrchestratorReplayHarness,
       }).pipe(Effect.mapError(normalizeTestError), Effect.scoped);
     default:
       return Effect.die(

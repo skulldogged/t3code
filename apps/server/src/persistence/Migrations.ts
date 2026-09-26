@@ -67,8 +67,9 @@ import Migration0050 from "./Migrations/050_ProjectionThreadPullRequests.ts";
 import Migration0051 from "./Migrations/051_ProjectionThreadMessageContext.ts";
 import Migration0052 from "./Migrations/052_ProjectionThreadTitleState.ts";
 import Migration0053 from "./Migrations/053_PullRequestFilesViewed.ts";
-import Migration0055 from "./Migrations/055_RemoveRedundantProjectionIndexes.ts";
-import Migration0054, { OrchestrationV2Base } from "./Migrations/054_OrchestrationV2.ts";
+import Migration0054 from "./Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts";
+import Migration0055, { OrchestrationV2Base } from "./Migrations/055_OrchestrationV2.ts";
+import Migration0056 from "./Migrations/056_RemoveRedundantProjectionIndexes.ts";
 import ApplicationEventSequenceIndexes from "./Migrations/OrchestrationV2/ApplicationEventSequenceIndexes.ts";
 import ApplicationEventSource from "./Migrations/OrchestrationV2/ApplicationEventSource.ts";
 import OrchestrationV2EffectCancellation from "./Migrations/OrchestrationV2/EffectCancellation.ts";
@@ -145,10 +146,11 @@ export const migrationEntries = [
   [51, "ProjectionThreadMessageContext", Migration0051],
   [52, "ProjectionThreadTitleState", Migration0052],
   [53, "PullRequestFilesViewed", Migration0053],
-  // Released as 53 in V2 previews; reconcileV2PreviewMigration handles that collision.
+  [54, "ProjectionThreadsAutoSettleDisabledAt", Migration0054],
+  // Released as 53 and 54 in V2 previews; reconcileV2PreviewMigration preserves their ledger.
   // Preserve this migration's schema. Future V2 schema changes need new migrations.
-  [54, "OrchestrationV2", Migration0054],
-  [55, "RemoveRedundantProjectionIndexes", Migration0055],
+  [55, "OrchestrationV2", Migration0055],
+  [56, "RemoveRedundantProjectionIndexes", Migration0056],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -203,7 +205,7 @@ const runHistoricalMigration = <E, R>(
 // Private V2 builds used IDs 44, 45, 48, or 50 for the V2 foundation and
 // recorded its later setup as individual migrations. Match a complete prefix,
 // finish a partial prefix without repeating its CREATE statements, then retain
-// the foundation date under the consolidated public migration 54.
+// the foundation date under the consolidated public migration 55.
 const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
   toMigrationInclusive?: number,
 ) {
@@ -223,8 +225,8 @@ const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
     if (!valid) return yield* migrationError("Unrecognized migration manifest");
     return [];
   }
-  if (firstV2.migration_id === 53) return [];
-  if (firstV2.migration_id === 54) {
+  if (firstV2.migration_id === 53 || firstV2.migration_id === 54) return [];
+  if (firstV2.migration_id === 55) {
     const valid = rows.every(
       (row, index) => row.migration_id === index + 1 && migrationEntries[index]?.[1] === row.name,
     );
@@ -262,21 +264,21 @@ const reconcileHistoricalV2 = Effect.fn("reconcileHistoricalV2")(function* (
     yield* runHistoricalMigration(v2Start + index, name, migration);
   }
   for (const [id, name, migration] of migrationEntries) {
-    if (id < v2Start || id > 53) continue;
+    if (id < v2Start || id > 54) continue;
     yield* runHistoricalMigration(id, name, migration);
     executed.push([id, name]);
   }
 
   yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= ${v2Start}`;
   for (const [id, name] of migrationEntries) {
-    if (id < v2Start || id > 53) continue;
+    if (id < v2Start || id > 54) continue;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
   }
   yield* sql`
     INSERT INTO effect_sql_migrations (migration_id, name, created_at)
-    VALUES (54, 'OrchestrationV2', ${firstV2.created_at})
+    VALUES (55, 'OrchestrationV2', ${firstV2.created_at})
   `;
-  executed.push([54, "OrchestrationV2"]);
+  executed.push([55, "OrchestrationV2"]);
   return executed;
 });
 
@@ -302,7 +304,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     Effect.gen(function* () {
       const reconciled = yield* reconcileHistoricalV2(toMigrationInclusive);
       const preview =
-        toMigrationInclusive === undefined || toMigrationInclusive >= 54
+        toMigrationInclusive === undefined || toMigrationInclusive >= 55
           ? yield* reconcileV2PreviewMigration()
           : [];
       const pending = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });

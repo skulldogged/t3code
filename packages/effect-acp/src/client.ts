@@ -145,6 +145,14 @@ export class AcpClient extends Context.Service<
       readonly setSessionModel: (
         payload: AcpSchema.SetSessionModelRequest,
       ) => Effect.Effect<AcpSchema.SetSessionModelResponse, AcpError.AcpError>;
+      /**
+       * Selects a session mode on ACP v1 agents, which predate mode config
+       * options. ACP v2 fails with method-not-found; use `setSessionConfigOption`.
+       * @see https://agentclientprotocol.com/protocol/schema#session/set_mode
+       */
+      readonly setSessionMode: (
+        payload: AcpSchemaV1.SetSessionModeRequest,
+      ) => Effect.Effect<AcpSchemaV1.SetSessionModeResponse, AcpError.AcpError>;
       readonly setSessionConfigOption: (
         payload: AcpSchema.SetSessionConfigOptionRequest,
       ) => Effect.Effect<AcpSchema.SetSessionConfigOptionResponse, AcpError.AcpError>;
@@ -830,11 +838,9 @@ export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
     registration: BufferedNotificationHandler<A>,
     notification: A,
   ) =>
-    Effect.forEach(
-      registration.handlers,
-      (handler) => handler(notification).pipe(Effect.catch(() => Effect.void)),
-      { discard: true },
-    );
+    Effect.forEach(registration.handlers, (handler) => handler(notification).pipe(Effect.ignore), {
+      discard: true,
+    });
 
   const flushBufferedNotifications = <A>(registration: BufferedNotificationHandler<A>) =>
     Effect.suspend(() => {
@@ -1245,6 +1251,15 @@ export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
             )
           : Effect.fail(
               AcpError.AcpRequestError.methodNotFound(AcpRpcs.V1_AGENT_METHODS.session_set_model),
+            ),
+      setSessionMode: (payload) =>
+        negotiatedProtocolGeneration === 1
+          ? callRpc(
+              AcpRpcs.V1_AGENT_METHODS.session_set_mode,
+              rpc[AcpRpcs.V1_AGENT_METHODS.session_set_mode](payload),
+            )
+          : Effect.fail(
+              AcpError.AcpRequestError.methodNotFound(AcpRpcs.V1_AGENT_METHODS.session_set_mode),
             ),
       setSessionConfigOption: (payload) =>
         negotiatedProtocolGeneration === 1

@@ -21,6 +21,7 @@ import * as Stream from "effect/Stream";
 import * as GitManager from "../git/GitManager.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as TerminalManager from "../terminal/Manager.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestratorV2 } from "./Orchestrator.ts";
@@ -134,7 +135,7 @@ export function isAutoSettlementCandidate(
   nowMs: number,
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
-  if (thread.pinnedAt != null) return false;
+  if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
   // Blocked-on-you work must never park behind a settled override.
   if (thread.pendingRuntimeRequest !== null) return false;
   // A live run — or post-settlement background work — is not staleness.
@@ -257,6 +258,7 @@ export const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
+  const terminals = yield* TerminalManager.TerminalManager;
 
   const sweep = Effect.fn("ThreadSettlementServiceV2.sweep")(function* (
     mergedPullRequest: PullRequestService.PullRequestMergeEvent | null,
@@ -280,7 +282,7 @@ export const make = Effect.gen(function* () {
         isAutoSettlementCandidate(thread, nowMs),
     );
 
-    const settleThread = Effect.fn("ThreadSettlementServiceV2.settleThread")(
+    const settleThread = Effect.fnUntraced(
       function* (thread: (typeof candidates)[number], pullRequest: SettlementPullRequest | null) {
         const currentSettings = resolveProjectSettings(
           yield* settingsService.getSettings,
@@ -508,6 +510,21 @@ export const make = Effect.gen(function* () {
 
   const processEvent = (event: OrchestrationV2DomainEvent) => {
     switch (event.type) {
+      case "thread.settled":
+        return orchestrator.getThreadShell(event.threadId).pipe(
+          Effect.flatMap((thread) =>
+            thread?.settledOverride === "settled"
+              ? terminals.closeIdle({ threadId: event.threadId })
+              : Effect.void,
+          ),
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) => Effect.logWarning("settled thread idle terminal cleanup failed", {
+              threadId: event.threadId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
       case "thread.pull-request-synced":
       case "provider-session.detached":
         return worker.enqueue(event.threadId);

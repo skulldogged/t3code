@@ -166,7 +166,9 @@ function writeDatabaseValue(
 ) {
   return Effect.callback<void, ConnectionTransientError>((resume) => {
     const transaction = database.transaction(storeName, "readwrite");
-    transaction.addEventListener("error", () => {
+    // Every failed write fires "abort". A failed commit, such as
+    // QuotaExceededError, fires only "abort" and no "error".
+    transaction.addEventListener("abort", () => {
       resume(
         Effect.fail(catalogError("write", transaction.error ?? "Unknown IndexedDB write error")),
       );
@@ -565,7 +567,7 @@ export const connectionStorageLayer = Layer.effectContext(
           Effect.tap(() => Effect.promise(() => projectFaviconCache.hydrate())),
           Effect.flatMap((raw) => {
             if (typeof raw !== "string") {
-              return Effect.succeed(Option.none());
+              return Effect.succeedNone;
             }
             return decodeOrDiscardOrchestrationCache(
               decodeStoredShellSnapshot(raw).pipe(
@@ -600,7 +602,7 @@ export const connectionStorageLayer = Layer.effectContext(
         readDatabaseValue(database, SERVER_CONFIG_STORE_NAME, environmentId).pipe(
           Effect.flatMap((raw) => {
             if (typeof raw !== "string") {
-              return Effect.succeed(Option.none());
+              return Effect.succeedNone;
             }
             return decodeStoredServerConfig(raw).pipe(
               Effect.mapError((cause) => persistenceError("load-server-config", cause)),
@@ -638,7 +640,7 @@ export const connectionStorageLayer = Layer.effectContext(
         ).pipe(
           Effect.flatMap((raw) => {
             if (typeof raw !== "string") {
-              return Effect.succeed(Option.none());
+              return Effect.succeedNone;
             }
             return decodeOrDiscardOrchestrationCache(
               decodeStoredThreadSnapshot(raw).pipe(
@@ -683,7 +685,7 @@ export const connectionStorageLayer = Layer.effectContext(
         readDatabaseValue(database, VCS_REFS_STORE_NAME, vcsRefsCacheKey(environmentId, cwd)).pipe(
           Effect.flatMap((raw) => {
             if (typeof raw !== "string") {
-              return Effect.succeed(Option.none());
+              return Effect.succeedNone;
             }
             return decodeStoredVcsRefs(raw).pipe(
               Effect.mapError((cause) => persistenceError("load-vcs-refs", cause)),

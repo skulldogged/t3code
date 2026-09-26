@@ -30,16 +30,14 @@ export function SubagentTooltipContent(props: {
   driver?: ProviderDriverKind | undefined;
   elapsed?: ReactNode;
   parentThread?: Pick<OrchestrationV2ThreadShell, "projectId" | "worktreePath"> | undefined;
-  childThread?:
-    | Pick<OrchestrationV2ThreadShell, "branch" | "worktreePath" | "modelSelection">
-    | undefined;
+  childThread?: Pick<OrchestrationV2ThreadShell, "branch" | "worktreePath"> | undefined;
   parentProject?: Pick<OrchestrationProjectShell, "workspaceRoot"> | undefined;
   childProject?: Pick<OrchestrationProjectShell, "id" | "title" | "workspaceRoot"> | undefined;
   status: string;
   result?: string | null | undefined;
   progress?: string | null | undefined;
 }) {
-  const model = props.model?.trim() || props.childThread?.modelSelection.model.trim();
+  const model = props.model?.trim();
   const modelSlug = props.provider
     ? resolveSelectableModel(props.provider.driver, model, props.provider.models)
     : model;
@@ -107,11 +105,11 @@ export function SubagentTooltipContent(props: {
           className={cn(
             "inline-flex items-center gap-1 rounded-sm font-medium capitalize",
             working
-              ? "text-sky-600 dark:text-sky-400"
+              ? "text-info"
               : failed
-                ? "text-red-700 dark:text-red-300"
+                ? "text-error"
                 : props.status === "completed"
-                  ? "text-emerald-700 dark:text-emerald-300"
+                  ? "text-success"
                   : "text-muted-foreground",
           )}
         >

@@ -51,7 +51,7 @@ async function runTask(): Promise<void> {
     // Relay authentication owns its own retry loop. Direct/Tailscale
     // connections are operational once these leases are mounted, even if
     // Clerk is slow or temporarily unavailable.
-    // Queued-message dispatch remains owned by the foreground React tree.
+    // V2 queued messages are dispatched by the server independently of this lease.
     setBackgroundConnectionRuntimeReady(true);
     await stopRequested;
   } catch (error) {

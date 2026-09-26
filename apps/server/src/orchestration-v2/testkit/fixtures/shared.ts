@@ -2,6 +2,7 @@ import { assert } from "@effect/vitest";
 import {
   type ChatAttachment,
   CommandId,
+  isOrchestrationV2WorkActive,
   MessageId,
   ProjectId,
   ThreadId,
@@ -17,6 +18,7 @@ import {
   type ProviderDriverKind,
   type ProviderReplayTranscript,
   type ProviderUserInputAnswers,
+  type RuntimeMode,
 } from "@t3tools/contracts";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -47,13 +49,20 @@ export const MESSAGE_STEERING_INITIAL_PROMPT =
   "Respond with exactly: steering fixture initial response";
 export const SUBAGENT_PROMPT =
   "Spawn 2 subagents, one to read package.json and one to read tsconfig.json";
-export const SUBAGENT_V2_PROMPT = "just say hello";
+export const SUBAGENT_V2_NESTED_PROMPT =
+  "Spawn one subagent and tell it to spawn its own subagent, which must in turn spawn one more subagent whose only task is to reply with exactly: Hello. Each agent waits for its child and replies with exactly what the child said. Wait for your subagent, then reply with exactly what it said.";
+export const SUBAGENT_V2_PROMPT =
+  "Spawn one subagent whose only task is to reply with exactly: Hello. Wait for it to finish, then reply with exactly what it said.";
+export const SUBAGENT_V2_APPROVAL_PROMPT =
+  "Do not run any commands yourself. Spawn one subagent whose only task is to run this exact shell command: printf 'subagent approval fixture' > subagent-approval.txt and then reply with exactly: Written. Wait for it to finish, then reply with exactly what it said.";
+export const SUBAGENT_V2_NESTED_APPROVAL_PROMPT =
+  "Do not run any commands yourself. Spawn one subagent and tell it not to run any commands itself but to spawn its own subagent, whose only task is to run this exact shell command: printf 'nested approval fixture' > nested-approval.txt and then reply with exactly: Written. Each agent waits for its child and replies with exactly what the child said. Wait for your subagent, then reply with exactly what it said.";
 export const OPENCODE_SUBAGENT_PROMPT =
   "Use the task tool exactly once. Delegate to the general subagent with this prompt: Respond exactly CHILD_OK. After the task completes, respond exactly PARENT_OK.";
 export const SUBAGENT_CONTINUE_PROMPT =
   "Spawn one subagent and have it reply exactly: initial subagent response";
 export const SUBAGENT_CONTINUE_PARENT_PROMPT =
-  "@hooke have the same subagent reply exactly: continued subagent response";
+  "Have the same subagent you spawned earlier reply exactly: continued subagent response";
 export const SUBAGENT_CONTINUE_CHILD_PROMPT = "Reply exactly: continued subagent response";
 export const TURN_INTERRUPT_PROMPT =
   "Do not answer immediately. First run the local shell command `sleep 30`, then respond with exactly: interrupt fixture should not finish naturally.";
@@ -151,6 +160,9 @@ export const PROPOSED_PLAN_PROMPT =
   "Create a short implementation plan for adding deterministic replay fixtures. Do not ask questions. Present the final plan in a proposed plan block.";
 export const WEB_SEARCH_PROMPT =
   "Search the web for FIFA World Cup ticket pricing, then answer exactly: web search fixture complete";
+export const SKILL_INVOCATION_PROMPT = "$review README.md";
+/** What Cursor receives once the adapter rewrites a discovered `$skill` mention. */
+export const SKILL_INVOCATION_CURSOR_MESSAGE = "/review README.md";
 
 export type OrchestratorFixtureInputStep =
   | {
@@ -177,6 +189,17 @@ export type OrchestratorFixtureInputStep =
     }
   | {
       readonly type: "await_run_status";
+      readonly targetRunIndex: number;
+      readonly status: OrchestrationV2RunStatus;
+      /** Then also wait until that run has projected an item of this type. */
+      readonly waitForTurnItemType?: OrchestrationV2TurnItem["type"];
+    }
+  | {
+      /**
+       * A run held open for background work finishes through the adapter's
+       * debounce, which replay passes on the adapter's receipt.
+       */
+      readonly type: "finish_held_run";
       readonly targetRunIndex: number;
       readonly status: OrchestrationV2RunStatus;
     }
@@ -216,6 +239,8 @@ export type OrchestratorFixtureInputStep =
         OrchestrationV2Command,
         { readonly type: "runtime-request.respond" }
       >["decision"];
+      /** Captures the shell snapshot under this key while the request is pending. */
+      readonly shellSnapshotKeyWhilePending?: string;
     }
   | {
       readonly type: "answer_next_user_input_request";
@@ -237,6 +262,15 @@ export type OrchestratorFixtureInputStep =
 
 export interface OrchestratorFixtureInput {
   readonly interactionMode?: ProviderInteractionMode;
+  /** The thread's permission mode; fixtures default to full access. */
+  readonly runtimeMode?: RuntimeMode;
+  /**
+   * Files committed into the replay workspace before the scenario runs, keyed
+   * by workspace-relative path. A recorder must seed the same files so adapter
+   * logic that reads the workspace (e.g. skill discovery) sees what the
+   * provider saw.
+   */
+  readonly workspaceFiles?: Readonly<Record<string, string>>;
   readonly steps: ReadonlyArray<OrchestratorFixtureInputStep>;
 }
 
@@ -247,6 +281,8 @@ export interface ProviderOrchestratorReplayVariant {
   readonly transcriptEntriesThroughLabel?: string;
   readonly modelSelection: ModelSelection;
   readonly runtimePolicyOverride?: RuntimePolicyV2Override;
+  /** Replays a provider wake turn as a continuation run, as the live runtime does. */
+  readonly runContinuationWorker?: boolean;
   /**
    * Workspace-relative paths that must not exist once the scenario finishes,
    * e.g. the target of a tool call the run was configured to deny.
@@ -277,7 +313,7 @@ export interface FixtureIds {
 
 export const CODEX_MODEL_SELECTION = {
   instanceId: ProviderInstanceId.make("codex"),
-  model: "gpt-5.4",
+  model: "gpt-6-luna",
 } satisfies ModelSelection;
 
 export const CLAUDE_MODEL_SELECTION = {
@@ -299,6 +335,12 @@ export const OPENCODE_MODEL_SELECTION = {
   instanceId: ProviderInstanceId.make("opencode"),
   model: "openai/gpt-5.4-mini",
   options: [{ id: "agent", value: "build" }],
+} satisfies ModelSelection;
+
+/** Pi fixtures are recorded against this pinned OpenRouter model; the slug is `provider/model`. */
+export const PI_MODEL_SELECTION = {
+  instanceId: ProviderInstanceId.make("pi"),
+  model: "openrouter/deepseek/deepseek-v4-flash",
 } satisfies ModelSelection;
 
 export const ACP_REGISTRY_MODEL_SELECTION = {
@@ -361,6 +403,7 @@ function createThreadCommand(input: {
   readonly scenario: string;
   readonly modelSelection: ModelSelection;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly runtimeMode?: RuntimeMode;
 }): OrchestrationV2Command {
   return {
     type: "thread.create",
@@ -371,7 +414,7 @@ function createThreadCommand(input: {
     projectId: input.ids.projectId,
     title: `Replay fixture: ${input.scenario}`,
     modelSelection: input.modelSelection,
-    runtimeMode: "full-access",
+    runtimeMode: input.runtimeMode ?? "full-access",
     interactionMode: input.interactionMode ?? "default",
     branch: null,
     worktreePath: null,
@@ -467,6 +510,9 @@ export function materializeFixtureInput(input: {
         ...(input.fixtureInput.interactionMode === undefined
           ? {}
           : { interactionMode: input.fixtureInput.interactionMode }),
+        ...(input.fixtureInput.runtimeMode === undefined
+          ? {}
+          : { runtimeMode: input.fixtureInput.runtimeMode }),
       }),
     );
 
@@ -483,7 +529,12 @@ export function materializeFixtureInput(input: {
                   nextStep.type === "queue_message" ||
                   (nextStep.type === "restart" && nextStep.targetRunIndex === runIndex) ||
                   (nextStep.type === "release_replay_gate_after_waiting" &&
-                    nextStep.targetRunIndex === runIndex))) ||
+                    nextStep.targetRunIndex === runIndex) ||
+                  // A provider continuation run starts while this thread is
+                  // busy, so waiting for idle first would never return.
+                  (nextStep.type === "await_run_status" && nextStep.targetRunIndex > runIndex) ||
+                  // Held open until the test clock moves, so it cannot go idle first.
+                  nextStep.type === "finish_held_run")) ||
               nextStep?.type === "approve_next_runtime_request" ||
               nextStep?.type === "answer_next_user_input_request";
             const key = `run:${runIndex}`;
@@ -570,6 +621,22 @@ export function materializeFixtureInput(input: {
             runId: runIdFor(step.targetRunIndex),
             status: step.status,
           });
+          if (step.waitForTurnItemType !== undefined) {
+            steps.push({
+              type: "await_run_turn_item",
+              threadId: ids.threadId,
+              runId: runIdFor(step.targetRunIndex),
+              itemType: step.waitForTurnItemType,
+            });
+          }
+          break;
+        case "finish_held_run":
+          steps.push({
+            type: "finish_held_run",
+            threadId: ids.threadId,
+            runId: runIdFor(step.targetRunIndex),
+            status: step.status,
+          });
           break;
         case "capture_shell_snapshot":
           steps.push({ type: "capture_shell_snapshot", key: step.key });
@@ -625,6 +692,9 @@ export function materializeFixtureInput(input: {
             threadId: ids.threadId,
             commandId: commands.at(-1)!.commandId,
             decision: step.decision ?? "accept",
+            ...(step.shellSnapshotKeyWhilePending === undefined
+              ? {}
+              : { shellSnapshotKeyWhilePending: step.shellSnapshotKeyWhilePending }),
           };
           steps.push({ type: "advance_clock", duration: "1 millis" });
           steps.push({ type: "await_thread_idle", threadId: ids.threadId });
@@ -1010,6 +1080,66 @@ export function assertNoExtraAppRunsForProviderChildren(input: {
   );
 }
 
+/**
+ * Provider-native subagent threads have no runs; clients show them working
+ * from the child's runless root turn. Pin that contract for every recorded
+ * native subagent: the child hangs off the subagent node, every root turn is
+ * runless, the root turn is live before the child's first item, and its
+ * activity mirrors the subagent's (including a resume re-opening it).
+ */
+export function assertProviderNativeSubagentRootTurns(result: OrchestratorV2ScenarioResult) {
+  const activity = (statuses: ReadonlyArray<OrchestrationV2ExecutionNode["status"]>) =>
+    statuses
+      .map((status) => (isOrchestrationV2WorkActive(status) ? "active" : status))
+      .filter((status, index, all) => status !== all[index - 1]);
+  for (const projection of result.projections.values()) {
+    for (const subagent of projection.subagents) {
+      if (subagent.origin !== "provider_native" || subagent.childThreadId === null) continue;
+      const childThreadId = subagent.childThreadId;
+      const child = result.projections.get(childThreadId);
+      assert.isDefined(child, `missing child thread for subagent ${subagent.id}`);
+      assert.equal(child.thread.creationSource, "provider");
+      assert.deepEqual(child.thread.forkedFrom, { type: "node", nodeId: subagent.id });
+      assert.lengthOf(child.runs, 0);
+      const roots = child.nodes.filter((node) => node.kind === "root_turn");
+      assert.isNotEmpty(roots, `child ${childThreadId} must have a root turn`);
+      for (const root of roots) assert.isNull(root.runId);
+
+      const rootEvents = result.domainEvents.flatMap((event, index) =>
+        event.type === "node.updated" &&
+        event.payload.threadId === childThreadId &&
+        event.payload.kind === "root_turn"
+          ? [{ index, status: event.payload.status }]
+          : [],
+      );
+      const firstItemIndex = result.domainEvents.findIndex(
+        (event) =>
+          event.type === "turn-item.updated" &&
+          event.payload.threadId === childThreadId &&
+          event.payload.type !== "user_message",
+      );
+      assert.equal(rootEvents[0]?.status, "running");
+      if (firstItemIndex !== -1) {
+        assert.isBelow(
+          rootEvents[0]?.index ?? Infinity,
+          firstItemIndex,
+          `child ${childThreadId} must be working before its first item`,
+        );
+      }
+      const subagentStatuses = result.domainEvents.flatMap((event) =>
+        event.type === "subagent.updated" && event.payload.id === subagent.id
+          ? [event.payload.status]
+          : [],
+      );
+      assert.deepEqual(
+        activity(rootEvents.map((event) => event.status)),
+        activity(subagentStatuses),
+        `child ${childThreadId} root turn must follow subagent ${subagent.id}`,
+      );
+    }
+  }
+}
+
 export function assertExecutionNodeKinds(
   projection: OrchestrationV2ThreadProjection,
   expectedKinds: ReadonlyArray<OrchestrationV2ExecutionNode["kind"]>,
@@ -1113,6 +1243,32 @@ export function assertConversationMessageRoles(
   assert.deepEqual(
     projection.messages.map((message) => message.role),
     expectedRoles,
+  );
+}
+
+/**
+ * ACP agents run their own file and shell work: T3 advertises neither
+ * capability (the transcript pins its initialize) and the agent never asks.
+ */
+export function assertNoAcpClientFileOrTerminalRequests(transcript: ProviderReplayTranscript) {
+  const frames = transcript.entries.flatMap((entry) =>
+    entry.type === "runtime_exit"
+      ? []
+      : [entry.frame as { method?: unknown; params?: { clientCapabilities?: unknown } }],
+  );
+  assert.deepInclude(
+    frames.find((frame) => frame.method === "initialize")?.params?.clientCapabilities ?? {},
+    { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    "T3 must not advertise client fs or terminals",
+  );
+  assert.deepEqual(
+    frames.flatMap((frame) =>
+      typeof frame.method === "string" && /^(fs|terminal)\//u.test(frame.method)
+        ? [frame.method]
+        : [],
+    ),
+    [],
+    "the agent must not route file or terminal work through T3",
   );
 }
 
