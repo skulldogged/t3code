@@ -42,6 +42,51 @@ export const NodePtyModuleLoaderRef = Context.Reference<NodePtyModuleLoader>(
 
 let didEnsureSpawnHelperExecutable = false;
 
+// node-pty's Windows pipe connects asynchronously. Its legacy socket event fires
+// after the PID is assigned, before output; the typed API has no ready event.
+type WindowsPty = import("node-pty").IPty & {
+  on(event: "ready_datapipe", listener: () => void): void;
+  removeListener(event: "ready_datapipe", listener: () => void): void;
+};
+
+const awaitWindowsPtyReady = (process: WindowsPty, shell: string) =>
+  Effect.callback<void, PtyAdapter.PtySpawnError>((resume) => {
+    if (process.pid > 0) {
+      resume(Effect.void);
+      return;
+    }
+
+    // Keep the prompt in the socket until the manager installs its data handler.
+    process.pause();
+    const onReady = () => {
+      cleanup();
+      resume(Effect.void);
+    };
+    const exitSubscription = process.onExit(({ exitCode }) => {
+      cleanup();
+      resume(
+        Effect.fail(
+          new PtyAdapter.PtySpawnError({
+            adapter: "node-pty",
+            shell,
+            cause: new Error(`ConPTY exited before becoming ready (code ${exitCode}).`),
+          }),
+        ),
+      );
+    });
+    const cleanup = () => {
+      process.removeListener("ready_datapipe", onReady);
+      exitSubscription.dispose();
+    };
+    process.on("ready_datapipe", onReady);
+
+    return Effect.sync(() => {
+      cleanup();
+      process.resume();
+      process.kill();
+    });
+  });
+
 const resolveNodePtySpawnHelperPath = Effect.gen(function* () {
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
@@ -110,6 +155,7 @@ class NodePtyProcess implements PtyAdapter.PtyProcess {
 
   onData(callback: (data: string) => void): () => void {
     const disposable = this.process.onData(callback);
+    if (this.platform === "win32") this.process.resume();
     return () => {
       disposable.dispose();
     };
@@ -181,6 +227,9 @@ export const make = Effect.fn("NodePtyAdapter.make")(function* () {
             cause,
           }),
       });
+      if (platform === "win32") {
+        yield* awaitWindowsPtyReady(ptyProcess as WindowsPty, input.shell);
+      }
       return new NodePtyProcess(ptyProcess, platform);
     }),
   });
