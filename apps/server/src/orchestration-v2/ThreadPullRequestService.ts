@@ -67,8 +67,11 @@ export const resolveProjectForPullRequestDiscovery = Effect.fn(
 )(function* (
   project: OrchestrationProjectShell,
   repositoryIdentities: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"],
+  refresh = false,
 ) {
-  const repositoryIdentity = yield* repositoryIdentities.resolve(project.workspaceRoot);
+  const repositoryIdentity =
+    (yield* repositoryIdentities.resolve(project.workspaceRoot, { refresh })) ??
+    project.repositoryIdentity;
   return {
     project: { ...project, repositoryIdentity },
     repository: sourceControlRepositorySelector(repositoryIdentity),
@@ -118,7 +121,15 @@ export const make = Effect.gen(function* () {
     request: RefreshRequest,
   ) {
     const [threadSnapshot, projectShells] = yield* Effect.all([
-      orchestrator.getShellSnapshot(),
+      request.threadId === null
+        ? orchestrator.getShellSnapshot({ location: "active" })
+        : Effect.gen(function* () {
+            const threadId = request.threadId!;
+            // Read the sequence first so a concurrent change rejects the guarded sync.
+            const snapshotSequence = yield* orchestrator.getThreadEventSequence(threadId);
+            const thread = yield* orchestrator.getThreadShell(threadId);
+            return { snapshotSequence, threads: thread === null ? [] : [thread] };
+          }),
       snapshots.getProjectShellsWithoutEnrichment(),
     ]);
     const projects = new Map(projectShells.map((project) => [project.id, project]));
@@ -132,9 +143,12 @@ export const make = Effect.gen(function* () {
         }
       }
     }
-    const visibleThreadIds = new Set(threadSnapshot.threads.map((thread) => thread.id));
-    for (const threadId of pendingBackfill.keys()) {
-      if (!visibleThreadIds.has(threadId)) pendingBackfill.delete(threadId);
+    const branchThreadIds = new Set(
+      threadSnapshot.threads.filter((thread) => thread.branch !== null).map((thread) => thread.id),
+    );
+    const checkedIds = request.threadId === null ? pendingBackfill.keys() : [request.threadId];
+    for (const threadId of checkedIds) {
+      if (!branchThreadIds.has(threadId)) pendingBackfill.delete(threadId);
     }
     const threads = threadSnapshot.threads.filter(
       (thread) =>
@@ -157,7 +171,7 @@ export const make = Effect.gen(function* () {
           const project = projects.get(first.projectId);
           if (project === undefined) return finishBackfill(group);
           const { project: resolvedProject, repository } =
-            yield* resolveProjectForPullRequestDiscovery(project, repositoryIdentities);
+            yield* resolveProjectForPullRequestDiscovery(project, repositoryIdentities, request.refresh);
           if (first.branch !== null && repository === null) return finishBackfill(group);
           const worktreeExists =
             first.worktreePath !== null && (yield* fileSystem.exists(first.worktreePath));

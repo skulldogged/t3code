@@ -280,7 +280,7 @@ export const make = Effect.gen(function* () {
         isAutoSettlementCandidate(thread, nowMs),
     );
 
-    const settleThread = Effect.fn("ThreadSettlementServiceV2.settleThread")(
+    const settleThread = Effect.fnUntraced(
       function* (thread: (typeof candidates)[number], pullRequest: SettlementPullRequest | null) {
         const currentSettings = resolveProjectSettings(
           yield* settingsService.getSettings,
