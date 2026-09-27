@@ -9,7 +9,9 @@ import {
 
 const T3_CODE_DEVICE_TOOL_INSTRUCTIONS = `## T3 Code devices
 
-The \`t3-code\` MCP server also exposes \`device_*\` tools for iOS Simulators and Android Emulators on this environment. For mobile verification, call \`device_list\`, then \`device_open\` so the user can watch the device in their Device panel; its result explains how to drive the device. Driving happens through the \`agent-device\` CLI, using the exact launcher path returned by \`device_open\`. Keep the host config and session flags returned by \`device_open\` on every command so concurrent devices stay independent: prefer \`agent-device snapshot -i\` refs over coordinates, and use \`device_screenshot\` when you need to see the screen. Do not call simctl, adb, xcrun, or serve-sim directly while these tools are present. If \`device_list\` reports a platform as unavailable, say so instead of trying another route.`;
+The \`t3-code\` MCP server exposes \`device_*\` tools for iOS Simulators and Android Emulators on this environment. For supported simulator or emulator UI automation, prefer \`device_list\`, then \`device_open\` so the user can watch the device in their Device panel. Its result explains how to drive the device through \`agent-device\`; use the exact launcher path, host config, and session flags it returns so concurrent devices stay independent. Prefer \`agent-device snapshot -i\` refs over coordinates, and use \`device_screenshot\` when you need to see the screen.
+
+These tools are a preferred workflow, not a restriction on native device tools. Use adb, simctl, xcrun, or other appropriate tools directly when the user requests them, when working with a physical device, or when T3's tools cannot support or access the target or operation. An unavailable platform or missing device in \`device_list\` describes T3's integration, not whether a phone is connected or reachable through native tools. Inspect native device discovery on the intended host before asking the user to reconnect a device. Pin commands to the intended host and device identifier (for example, \`adb -s <serial>\`), and complete authorized installation, launch, debugging, or port forwarding work rather than handing commands back solely because T3's device tools cannot do it.`;
 
 export interface T3CodeToolAvailability {
   readonly browser: boolean;
@@ -24,9 +26,8 @@ const normalizeAvailability = (
 /**
  * Each block is omitted entirely when its tools aren't attached. Describing
  * `preview_*` or `device_*` tools that aren't in the turn's tool list would be
- * worse than saying nothing: the instructions actively steer the model away
- * from Playwright, agent-browser, and raw simctl/adb, so leaving them in would
- * talk it out of the only automation it still has.
+ * misleading: the instructions prefer those integrations, so leaving them in
+ * would send the model looking for tools it cannot call.
  */
 const toolInstructions = (availability: boolean | T3CodeToolAvailability): string => {
   const tools = normalizeAvailability(availability);
