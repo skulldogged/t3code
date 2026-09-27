@@ -2623,7 +2623,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
             );
 
-            const snapshot = {
+            return {
               snapshotSequence: computeSnapshotSequence(stateRows),
               projects: Arr.filterMap(projectRows, (row) =>
                 row.deletedAt === null && activeProjectIds.has(row.projectId)
@@ -2665,15 +2665,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 planProgress: threadPlanProgress.getThreadPlanProgress(row.threadId),
               })),
               updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
-            };
-
-            return yield* decodeShellSnapshot(snapshot).pipe(
-              Effect.mapError(
-                toPersistenceDecodeError(
-                  "ProjectionSnapshotQuery.getArchivedShellSnapshot:decodeShellSnapshot",
-                ),
-              ),
-            );
+            } satisfies OrchestrationShellSnapshot;
           }),
         ),
         Effect.mapError((error) => {

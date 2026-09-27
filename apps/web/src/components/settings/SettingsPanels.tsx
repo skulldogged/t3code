@@ -1389,6 +1389,7 @@ export function AppearanceSettingsPanel() {
             />
           }
         />
+
         <SettingsRow
           {...searchableSetting("chat-width")}
           description="Set how wide messages and the composer can grow on large screens."

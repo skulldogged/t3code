@@ -414,6 +414,15 @@ export const OrchestrationV2AppThread = Schema.Struct({
       }),
     ),
   ),
+  /** Latest rollback that failed after every retry; cleared when the next rollback starts. */
+  rollbackFailure: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        requestId: CommandId,
+        message: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -2496,6 +2505,7 @@ export const OrchestrationV2Command = Schema.Union([
     sourcePlanRef: Schema.optional(Schema.Struct({ threadId: ThreadId, planId: PlanId })),
     restartContinuationOfRunId: Schema.optional(RunId),
     usageLimitContinuationOfRunId: Schema.optional(RunId),
+    manualContinuationOfRunId: Schema.optional(RunId),
     usageLimitRecoveryRequestId: Schema.optional(CommandId),
     /** Resolve untargeted delivery against the server's serialized thread state. */
     deliveryIntent: Schema.optional(Schema.Literals(["auto", "steer", "restart"])),
@@ -2547,6 +2557,7 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     runId: RunId,
     reason: Schema.optional(Schema.String),
+    holdQueue: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("queued-message.promote-to-steer"),
@@ -2606,6 +2617,14 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     scopeId: CheckpointScopeId,
     checkpointId: CheckpointId,
+  }),
+  /** Server-only: records that the provider rollback for `requestId` failed for good. */
+  Schema.Struct({
+    type: Schema.Literal("checkpoint.rollback.fail"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: CommandId,
+    message: TrimmedNonEmptyString,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.fork"),

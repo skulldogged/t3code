@@ -2070,39 +2070,6 @@ packages:
     resolution: {integrity: sha512-WTYHwlBhImGmmMt81crxaRvNdZXlBNemFyrP5GGHj2WeDTJMBrHgHTaladTypXHXrviFFBBGROl5moijRQ4ODA==}
     engines: {node: '>=18'}
 
-  '@cursor/sdk-darwin-arm64@1.0.31':
-    resolution: {integrity: sha512-i6INDIQhV7xDeFKfND0yr/SOwv4uJthPMfXXvNpZapO+IbJTx30aPzJVMBqdksvDHyn/cekJB/92Jkz+a5K8Ow==}
-    cpu: [arm64]
-    os: [darwin]
-    hasBin: true
-
-  '@cursor/sdk-darwin-x64@1.0.31':
-    resolution: {integrity: sha512-vCmrGykwflJNAAr4RVY4UlZ+F0fmUF+WCR8zFzP4Jl1Da2b8Oh1rxrVLbIbleS1/LKsX/OPbTQNRL0SEER95Sg==}
-    cpu: [x64]
-    os: [darwin]
-    hasBin: true
-
-  '@cursor/sdk-linux-arm64@1.0.31':
-    resolution: {integrity: sha512-BHTwumfhWjTy0k41+KaaXfTm3MGu6WEYU76FmXqc/r1+ynuQroqfBKWyfH4XBcx3uzyaZJQLxNB9BBbs8yHUig==}
-    cpu: [arm64]
-    os: [linux]
-    hasBin: true
-
-  '@cursor/sdk-linux-x64@1.0.31':
-    resolution: {integrity: sha512-y+ahiKQvEISUn9y6z75jwKjLQkrJ/nY7ehL1Vi9X8zdbjz14fiEtMTICAHccTiTq5cf6dZjXC5QfPdJRat6dhg==}
-    cpu: [x64]
-    os: [linux]
-    hasBin: true
-
-  '@cursor/sdk-win32-x64@1.0.31':
-    resolution: {integrity: sha512-5ti4AwUz8kh5ovM86K/fTiHmVGL6jk1faQkTCX08lcCxFSlUDwpeyhn90pWsbNFQ4Vy2PttqEjanV6895p13eA==}
-    cpu: [x64]
-    os: [win32]
-    hasBin: true
-
-  '@cursor/sdk@1.0.31':
-    resolution: {integrity: sha512-0SdJQqp5oXn81oJqIVkLpgHih+CL6CAudK83pCsdJyA23AvInSWlMaGpLi+JlrK3efHoswiEhhASs9WpeEz3QQ==}
-    engines: {node: '>=22.13'}
   '@csstools/color-helpers@6.1.1':
     resolution: {integrity: sha512-gLNsunvwf3mCi5u5o46/Z/JcJMnhbHSaZ69rkgPzNM3J4s8hWwpPUQB6/tt0EDFyCiWzxANlx+2LJwpYj4zS1w==}
     engines: {node: '>=20.19.0'}
@@ -2138,6 +2105,40 @@ packages:
   '@csstools/css-tokenizer@4.0.1':
     resolution: {integrity: sha512-bPlN9S9O1A0euCpEWE4qnvB5YDuyYVsUTrxSgmAM1Is0j4tICHoVyOVAXfWMP/kS9ZrjvyIXWV2PmomiAXXqOw==}
     engines: {node: '>=20.19.0'}
+
+  '@cursor/sdk-darwin-arm64@1.0.31':
+    resolution: {integrity: sha512-i6INDIQhV7xDeFKfND0yr/SOwv4uJthPMfXXvNpZapO+IbJTx30aPzJVMBqdksvDHyn/cekJB/92Jkz+a5K8Ow==}
+    cpu: [arm64]
+    os: [darwin]
+    hasBin: true
+
+  '@cursor/sdk-darwin-x64@1.0.31':
+    resolution: {integrity: sha512-vCmrGykwflJNAAr4RVY4UlZ+F0fmUF+WCR8zFzP4Jl1Da2b8Oh1rxrVLbIbleS1/LKsX/OPbTQNRL0SEER95Sg==}
+    cpu: [x64]
+    os: [darwin]
+    hasBin: true
+
+  '@cursor/sdk-linux-arm64@1.0.31':
+    resolution: {integrity: sha512-BHTwumfhWjTy0k41+KaaXfTm3MGu6WEYU76FmXqc/r1+ynuQroqfBKWyfH4XBcx3uzyaZJQLxNB9BBbs8yHUig==}
+    cpu: [arm64]
+    os: [linux]
+    hasBin: true
+
+  '@cursor/sdk-linux-x64@1.0.31':
+    resolution: {integrity: sha512-y+ahiKQvEISUn9y6z75jwKjLQkrJ/nY7ehL1Vi9X8zdbjz14fiEtMTICAHccTiTq5cf6dZjXC5QfPdJRat6dhg==}
+    cpu: [x64]
+    os: [linux]
+    hasBin: true
+
+  '@cursor/sdk-win32-x64@1.0.31':
+    resolution: {integrity: sha512-5ti4AwUz8kh5ovM86K/fTiHmVGL6jk1faQkTCX08lcCxFSlUDwpeyhn90pWsbNFQ4Vy2PttqEjanV6895p13eA==}
+    cpu: [x64]
+    os: [win32]
+    hasBin: true
+
+  '@cursor/sdk@1.0.31':
+    resolution: {integrity: sha512-0SdJQqp5oXn81oJqIVkLpgHih+CL6CAudK83pCsdJyA23AvInSWlMaGpLi+JlrK3efHoswiEhhASs9WpeEz3QQ==}
+    engines: {node: '>=22.13'}
 
   '@date-fns/tz@1.5.0':
     resolution: {integrity: sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==}
@@ -12491,6 +12492,30 @@ snapshots:
       '@crowecawcaw/xa11y-win32-arm64-msvc': 0.13.0
       '@crowecawcaw/xa11y-win32-x64-msvc': 0.13.0
 
+  '@csstools/color-helpers@6.1.1': {}
+
+  '@csstools/css-calc@3.4.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)':
+    dependencies:
+      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.1)
+      '@csstools/css-tokenizer': 4.0.1
+
+  '@csstools/css-color-parser@4.2.3(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)':
+    dependencies:
+      '@csstools/color-helpers': 6.1.1
+      '@csstools/css-calc': 3.4.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)
+      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.1)
+      '@csstools/css-tokenizer': 4.0.1
+
+  '@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1)':
+    dependencies:
+      '@csstools/css-tokenizer': 4.0.1
+
+  '@csstools/css-syntax-patches-for-csstree@1.1.14(css-tree@3.2.1)':
+    optionalDependencies:
+      css-tree: 3.2.1
+
+  '@csstools/css-tokenizer@4.0.1': {}
+
   '@cursor/sdk-darwin-arm64@1.0.31':
     optional: true
 
@@ -12520,29 +12545,6 @@ snapshots:
       '@cursor/sdk-linux-arm64': 1.0.31
       '@cursor/sdk-linux-x64': 1.0.31
       '@cursor/sdk-win32-x64': 1.0.31
-  '@csstools/color-helpers@6.1.1': {}
-
-  '@csstools/css-calc@3.4.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)':
-    dependencies:
-      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.1)
-      '@csstools/css-tokenizer': 4.0.1
-
-  '@csstools/css-color-parser@4.2.3(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)':
-    dependencies:
-      '@csstools/color-helpers': 6.1.1
-      '@csstools/css-calc': 3.4.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)
-      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.1)
-      '@csstools/css-tokenizer': 4.0.1
-
-  '@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1)':
-    dependencies:
-      '@csstools/css-tokenizer': 4.0.1
-
-  '@csstools/css-syntax-patches-for-csstree@1.1.14(css-tree@3.2.1)':
-    optionalDependencies:
-      css-tree: 3.2.1
-
-  '@csstools/css-tokenizer@4.0.1': {}
 
   '@date-fns/tz@1.5.0': {}
 

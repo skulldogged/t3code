@@ -514,7 +514,11 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
       const service = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       yield* service.start();
     }),
-  ).pipe(Layer.provideMerge(PullRequestSyncReactor.layer), Layer.provide(PullRequestServiceLive)),
+  ).pipe(
+    Layer.provideMerge(PullRequestSyncReactor.layer),
+    Layer.provide(PullRequestServiceLive),
+    Layer.provide(ProjectionStoreV2.layer),
+  ),
   // Subscribes to `account.rate-limits.updated` so usage bars track live
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestionLive,
@@ -633,7 +637,7 @@ const makeRoutesLayer = Layer.mergeAll(
   // orchestrator uses, so MCP capability reporting can never drift from
   // what dispatch can actually serve.
   McpHttpServer.layer.pipe(Layer.provide(providerAdapterRegistryLayerFromProviderInstances)),
-  // Keep the server's request tracing policy after every route layer.
+  // Last, so no route layer can replace the server's one TracerDisabledWhen.
   untracedRequestsLayer,
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients

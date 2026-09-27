@@ -1050,6 +1050,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
+    // A cold transcript scan is measured in seconds, so keep the result around
+    // long enough that switching windows or re-rendering does not rescan.
+    usageSummary: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:usage-summary",
+      tag: WS_METHODS.serverGetUsageSummary,
+      staleTimeMs: 60_000,
+      refreshTrigger: ({ environmentId }) => usageScanSettingsAtom(environmentId),
+    }),
     resourceTelemetry: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:resource-telemetry",
       tag: WS_METHODS.subscribeResourceTelemetry,
@@ -1067,14 +1075,6 @@ export function createServerEnvironmentAtoms<R, E>(
       // abandoned query immediately also interrupts stale in-flight requests.
       staleTimeMs: 0,
       idleTtlMs: 0,
-    }),
-    // A cold transcript scan is measured in seconds, so keep the result around
-    // long enough that switching windows or re-rendering does not rescan.
-    usageSummary: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:usage-summary",
-      tag: WS_METHODS.serverGetUsageSummary,
-      staleTimeMs: 60_000,
-      refreshTrigger: ({ environmentId }) => usageScanSettingsAtom(environmentId),
     }),
     configProjection,
     welcome,

@@ -1079,6 +1079,10 @@ export function reduceSidebarProjectScopeMenuState(
 
 export { sortSettledThreads as sortSettledThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 
+/** The timestamp a working thread's elapsed label counts from: the running
+    turn's start (request time until adoption), falling back to the session's
+    last transition when the turn projection lags behind. Malformed
+    timestamps fall through to the next candidate, not just missing ones. */
 export function resolveWorkingStartedAt(
   thread: Pick<SidebarThreadSummary, "latestRun" | "runtime">,
 ): string | null {
