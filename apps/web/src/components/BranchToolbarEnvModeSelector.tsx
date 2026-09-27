@@ -136,10 +136,6 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           <FolderGit2Icon
             className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3"}
           />
-        ) : effectiveEnvMode === "worktree" ? (
-          <FolderGit2Icon
-            className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3"}
-          />
         ) : (
           <FolderIcon
             className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3"}
