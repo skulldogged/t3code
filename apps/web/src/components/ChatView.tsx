@@ -21,6 +21,7 @@ import {
   recallCheckoutIsRepo,
   rememberCheckoutIsRepo,
 } from "./ChatView.logic";
+import { isChatGptUsageLimitFailure } from "@t3tools/shared/usageLimits";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
@@ -2030,6 +2031,16 @@ export default function ChatView(props: ChatViewProps) {
   );
   const serverRuntime = useMemo(
     () => (serverProjection === null ? null : deriveThreadRuntime(serverProjection)),
+    [serverProjection],
+  );
+  const serverRootFailure = useMemo(
+    () =>
+      serverProjection === null
+        ? null
+        : latestRootProviderFailure(
+            latestExecutedRun(serverProjection.runs),
+            serverProjection.turnItems,
+          ),
     [serverProjection],
   );
   const runlessWorkStartedAt = useMemo(
@@ -7108,6 +7119,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadShell?.latestRun
       ? usageLimitRecoveryBannerItem({
           runId: activeThreadShell.latestRun.runId,
+          chatGptUsageLimit: isChatGptUsageLimitFailure(serverRootFailure, serverRuntime.lastError),
           resetAt: serverRuntime.usageLimitResetAt ?? null,
           stoppedAt: activeThreadShell.latestRun.completedAt ?? activeThreadShell.updatedAt,
           recovery: activeThreadShell.limitRecovery ?? null,
@@ -10612,6 +10624,10 @@ export default function ChatView(props: ChatViewProps) {
                     ? (serverRuntime?.lastErrorClass ?? null)
                     : null
                 }
+                chatGptUsageLimit={isChatGptUsageLimitFailure(
+                  serverRootFailure,
+                  timelineThreadError,
+                )}
                 onDismiss={() => {
                   setThreadError(activeThread.id, null);
                   dismissThreadErrorBannerForSession(threadErrorBannerKey);

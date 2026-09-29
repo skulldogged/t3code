@@ -3423,6 +3423,14 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
                 }
               }
             }).pipe(
+              Effect.ensuring(
+                Effect.suspend(() => {
+                  const turn = threads.get(nativeThreadId(turnInput.providerThread))?.activeTurn;
+                  return turn?.runAttemptId === turnInput.attemptId
+                    ? Deferred.succeed(turn.admissionSettled, undefined).pipe(Effect.ignore)
+                    : Effect.void;
+                }),
+              ),
               Effect.mapError(
                 (cause) =>
                   new ProviderAdapterTurnStartError({

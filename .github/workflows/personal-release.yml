@@ -89,10 +89,16 @@ jobs:
         env:
           GOMEMLIMIT: 4GiB
         run: |
-          vp run --filter @t3tools/web typecheck
           node --input-type=module <<'NODE'
           import fs from "node:fs";
           import path from "node:path";
+          const web = path.resolve("apps/web");
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, "t3-web-tsconfig.json"), JSON.stringify({
+            extends: path.join(web, "tsconfig.json"),
+            compilerOptions: { incremental: false, composite: false, typeRoots: [path.join(web, "node_modules/@types"), path.resolve("node_modules/@types")] },
+            include: [path.join(web, "src/**/*.ts"), path.join(web, "src/**/*.tsx"), path.join(web, "vite/**/*.ts"), path.join(web, "vite.config.ts"), path.join(web, "vercel.ts")],
+            exclude: [path.join(web, "node_modules"), ...[web, path.resolve("scripts/lib")].flatMap((root) => ["**/*.test.*", "**/*.spec.*", "**/*.testkit.*", "**/test-fixtures.*", "**/*TestFixtures*", "**/*.test-support.*", "**/test/**", "**/testkit/**"].map((pattern) => path.join(root, pattern)))],
+          }));
           const server = path.resolve("apps/server");
           fs.writeFileSync(path.join(process.env.RUNNER_TEMP, "t3-server-tsconfig.json"), JSON.stringify({
             extends: path.join(server, "tsconfig.json"),
@@ -108,6 +114,7 @@ jobs:
             exclude: [path.join(mobile, "node_modules"), path.join(mobile, "**/*.test.*"), path.join(mobile, "**/*.spec.*"), path.join(mobile, "**/test-fixtures.*"), path.join(mobile, "**/*.test-support.*")],
           }));
           NODE
+          vp exec tsc --noEmit --project "$RUNNER_TEMP/t3-web-tsconfig.json"
           vp exec tsc --noEmit --project "$RUNNER_TEMP/t3-server-tsconfig.json"
           vp exec tsc --noEmit --project "$RUNNER_TEMP/t3-mobile-tsconfig.json"
 

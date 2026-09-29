@@ -24,6 +24,43 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
+export const CHATGPT_USAGE_URL = "https://chatgpt.com/#settings/Usage";
+const CHATGPT_USAGE_LIMIT_CODE = "subscription_sharing_usage_limit_exceeded";
+
+export function usesChatGptSharing(provider: ServerProvider | null | undefined): boolean {
+  return provider?.auth.status === "authenticated" && provider.auth.subscriptionSharing === true;
+}
+
+/** Match the current V2 root failure, never an older run or an unrelated session error. */
+export function isChatGptUsageLimitFailure(
+  failure: { readonly code: string | null; readonly message: string } | null | undefined,
+  error: string | null | undefined,
+): boolean {
+  return Boolean(error) && failure?.code === CHATGPT_USAGE_LIMIT_CODE && failure.message === error;
+}
+
+/** A historical limit must not turn an unrelated current failure into a usage notice. */
+export function isChatGptUsageLimitError(
+  activities: readonly { readonly kind: string; readonly payload?: unknown }[],
+  error: string | null | undefined,
+): boolean {
+  if (!error) return false;
+  for (let index = activities.length - 1; index >= 0; index--) {
+    const activity = activities[index]!;
+    if (activity.kind !== "runtime.error") continue;
+    const payload = activity.payload;
+    return (
+      typeof payload === "object" &&
+      payload !== null &&
+      "code" in payload &&
+      payload.code === CHATGPT_USAGE_LIMIT_CODE &&
+      "message" in payload &&
+      payload.message === error
+    );
+  }
+  return false;
+}
+
 export const CURSOR_USAGE_WINDOWS = [
   {
     id: "totalPercentUsed",
@@ -78,6 +115,33 @@ export type LimitPresentations = ReadonlyMap<
     } | null;
   }
 >;
+
+/** One destination per service, even when several accounts or environments use it. */
+export function collectExternalUsageLinks(presentations: LimitPresentations) {
+  const links = new Map<
+    string,
+    {
+      readonly label: string;
+      readonly url: string;
+      readonly message: string | undefined;
+      readonly accounts: readonly string[];
+    }
+  >();
+  for (const presentation of presentations.values()) {
+    for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
+      const external = provider.usageLimits?.externalUsage;
+      if (external && provider.auth.status === "authenticated") {
+        const account = `${provider.displayName ?? provider.instanceId} on ${presentation.entry.target.label}`;
+        links.set(external.url, {
+          ...external,
+          message: provider.usageLimits?.unavailable?.message,
+          accounts: [...new Set([...(links.get(external.url)?.accounts ?? []), account])],
+        });
+      }
+    }
+  }
+  return [...links.values()];
+}
 
 function accountKey(driver: ServerProvider["driver"], email: string | undefined): string | null {
   const normalizedEmail = email?.trim().toLowerCase();

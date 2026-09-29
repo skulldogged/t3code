@@ -1564,7 +1564,45 @@ export const layerWithOptions = (
                 }
               }
               const key = sessionKey(input.providerSessionId);
-              const existing = (yield* Ref.get(sessions)).get(key);
+              let existing = (yield* Ref.get(sessions)).get(key);
+              if (existing?.runtime.isCurrent !== undefined) {
+                const isCurrent = yield* existing.runtime.isCurrent.pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderSessionOpenError({
+                        instanceId: input.modelSelection.instanceId,
+                        providerSessionId: input.providerSessionId,
+                        cause,
+                      }),
+                  ),
+                );
+                // Auth refresh may yield long enough for idle release to close this runtime.
+                existing = (yield* Ref.get(sessions)).get(key);
+                if (!isCurrent && existing !== undefined) {
+                  const pendingWork =
+                    existing.runtime.hasPendingBackgroundWork === undefined
+                      ? false
+                      : yield* existing.runtime.hasPendingBackgroundWork;
+                  existing = (yield* Ref.get(sessions)).get(key);
+                  if (existing !== undefined && !pendingWork && existing.busyCount === 0) {
+                    yield* releaseEntry({
+                      providerSessionId: input.providerSessionId,
+                      reason: "manual_shutdown",
+                      onlyIfIdleGeneration: existing.idleGeneration,
+                      gracefulSubscribers: true,
+                    });
+                    existing = (yield* Ref.get(sessions)).get(key);
+                  }
+                  if (existing !== undefined) {
+                    return yield* new ProviderSessionOpenError({
+                      instanceId: input.modelSelection.instanceId,
+                      providerSessionId: input.providerSessionId,
+                      cause:
+                        "Provider credentials changed while the session has active work. Retry when that work finishes.",
+                    });
+                  }
+                }
+              }
               if (existing !== undefined) {
                 if (
                   !existing.attachedThreadIds.has(input.threadId) &&

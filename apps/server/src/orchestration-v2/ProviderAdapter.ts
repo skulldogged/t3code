@@ -482,6 +482,8 @@ export interface ProviderAdapterV2HistoricalContext {
 }
 
 export interface ProviderAdapterV2SessionRuntime {
+  /** Re-resolve credentials before reuse; false requires an idle runtime replacement. */
+  readonly isCurrent?: Effect.Effect<boolean, ProviderAdapterV2Error>;
   readonly instanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
   readonly providerSessionId: ProviderSessionId;

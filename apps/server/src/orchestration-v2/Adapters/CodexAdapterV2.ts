@@ -1,3 +1,6 @@
+import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
+import type { CodexEffectiveRuntime } from "../../provider/CodexManagedRuntime.ts";
+import type { ProviderSetupError } from "@t3tools/contracts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "../ContextHandoffBudget.ts";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
@@ -703,6 +706,7 @@ export function buildCodexTurnStartParams(input: {
   readonly hasT3Mcp?: boolean;
   readonly browserToolsAvailable?: boolean;
   readonly deviceToolsAvailable?: boolean;
+  readonly managed?: boolean;
 }) {
   return Effect.gen(function* () {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
@@ -720,7 +724,9 @@ export function buildCodexTurnStartParams(input: {
     );
     const effort =
       selectedEffort === undefined ? undefined : yield* decodeTurnReasoningEffort(selectedEffort);
-    const serviceTier = getCodexServiceTierOptionValue(input.modelSelection);
+    const serviceTier = input.managed
+      ? undefined
+      : getCodexServiceTierOptionValue(input.modelSelection);
     const developerInstructions =
       input.hasT3Mcp !== true
         ? undefined
@@ -1440,7 +1446,10 @@ export type CodexAdapterV2DriverEnv =
 
 export const createCodexAdapterV2 = (
   { instanceId, environment, enabled, config }: ProviderAdapterDriverCreateInput<CodexSettings>,
-  hooks: Pick<CodexAdapterV2Options, "onUsageLimits"> = {},
+  hooks: Pick<
+    CodexAdapterV2Options,
+    "onUsageLimits" | "resolveRuntime" | "onManagedConnectionRevoked"
+  > = {},
 ) =>
   Effect.gen(function* () {
     const clientFactory = yield* CodexAppServerClientFactory;
@@ -1449,25 +1458,26 @@ export const createCodexAdapterV2 = (
     const hostEnvironment = yield* HostProcessEnvironment;
     const idAllocator = yield* IdAllocatorV2;
     const serverConfig = yield* ServerConfig;
-    const homeLayout = yield* resolveCodexHomeLayout(config);
+    const homeLayout = hooks.resolveRuntime ? undefined : yield* resolveCodexHomeLayout(config);
 
-    yield* materializeCodexShadowHome(homeLayout).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProviderAdapterDriverCreateError({
-            driver: CODEX_DRIVER_KIND,
-            instanceId,
-            detail: "Failed to materialize the Codex shadow home.",
-            cause,
-          }),
-      ),
-    );
+    if (homeLayout)
+      yield* materializeCodexShadowHome(homeLayout).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAdapterDriverCreateError({
+              driver: CODEX_DRIVER_KIND,
+              instanceId,
+              detail: "Failed to materialize the Codex shadow home.",
+              cause,
+            }),
+        ),
+      );
 
     const settings = {
       ...config,
       enabled,
       binaryPath: expandHomePath(config.binaryPath),
-      homePath: homeLayout.effectiveHomePath ?? "",
+      homePath: homeLayout ? (homeLayout.effectiveHomePath ?? "") : config.homePath,
     } satisfies CodexSettings;
 
     return makeCodexAdapterV2({
@@ -1523,6 +1533,8 @@ export interface CodexAdapterV2Options {
   readonly environment: NodeJS.ProcessEnv;
   readonly clientFactory: CodexAppServerClientFactoryShape;
   readonly onUsageLimits?: ServerProviderShape["applyUsageLimits"];
+  readonly resolveRuntime?: Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>;
+  readonly onManagedConnectionRevoked?: Effect.Effect<void>;
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocatorV2Shape;
   readonly serverConfig: ServerConfig["Service"];
@@ -1548,13 +1560,25 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
     openSession: (input) =>
       Effect.gen(function* () {
         const scope = yield* Scope.Scope;
+        const resolvedRuntime = adapterOptions.resolveRuntime
+          ? yield* adapterOptions.resolveRuntime.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterOpenSessionError({
+                    driver: CODEX_PROVIDER,
+                    providerSessionId: input.providerSessionId,
+                    cause,
+                  }),
+              ),
+            )
+          : undefined;
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
-          settings: adapterOptions.settings,
-          environment: adapterOptions.environment,
+          settings: resolvedRuntime?.config ?? adapterOptions.settings,
+          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
         });
         const additionalContextByThread = yield* Ref.make(
           new Map<
@@ -3883,16 +3907,25 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             if (context === undefined) {
               return;
             }
-            const notificationCode = codexErrorInfoCode(payload.error.codexErrorInfo);
+            const managedError = adapterOptions.resolveRuntime
+              ? classifyCodexManagedError(payload)
+              : undefined;
+            if (managedError?.revoke && adapterOptions.onManagedConnectionRevoked)
+              yield* adapterOptions.onManagedConnectionRevoked;
+            const notificationCode =
+              managedError?.code ?? codexErrorInfoCode(payload.error.codexErrorInfo);
             if (!payload.willRetry) {
               context.latestProviderFailure = {
                 nativeMessage: payload.error.message,
                 failure: makeProviderFailure({
-                  message: payload.error.additionalDetails?.trim() || payload.error.message,
+                  message:
+                    managedError?.message ??
+                    (payload.error.additionalDetails?.trim() || payload.error.message),
                   code: notificationCode,
                   class:
                     notificationCode === "usageLimitExceeded" ||
-                    notificationCode === "rateLimitExceeded"
+                    notificationCode === "rateLimitExceeded" ||
+                    notificationCode === "subscription_sharing_usage_limit_exceeded"
                       ? "usage_limit"
                       : "provider_error",
                 }),
@@ -3907,16 +3940,19 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               maxAttempts: progress?.maxAttempts ?? previous?.retry.maxAttempts ?? null,
               retryDelayMs: null,
             };
-            const code = codexErrorInfoCode(payload.error.codexErrorInfo);
+            const code = managedError?.code ?? codexErrorInfoCode(payload.error.codexErrorInfo);
             const additionalDetails = payload.error.additionalDetails?.trim();
             const failure = makeProviderFailure({
               message:
-                additionalDetails === undefined || additionalDetails.length === 0
+                managedError?.message ??
+                (additionalDetails === undefined || additionalDetails.length === 0
                   ? payload.error.message
-                  : additionalDetails,
+                  : additionalDetails),
               code,
               class:
-                code === "usageLimitExceeded" || code === "rateLimitExceeded"
+                code === "usageLimitExceeded" ||
+                code === "rateLimitExceeded" ||
+                code === "subscription_sharing_usage_limit_exceeded"
                   ? "usage_limit"
                   : code?.startsWith("http") === true || code?.startsWith("responseStream") === true
                     ? "transport_error"
@@ -4909,7 +4945,8 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                       code: input.failureCode,
                       class:
                         input.failureCode === "usageLimitExceeded" ||
-                        input.failureCode === "rateLimitExceeded"
+                        input.failureCode === "rateLimitExceeded" ||
+                        input.failureCode === "subscription_sharing_usage_limit_exceeded"
                           ? "usage_limit"
                           : "provider_error",
                     });
@@ -5287,6 +5324,11 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             if (context === undefined) {
               return;
             }
+            const managedError = adapterOptions.resolveRuntime
+              ? classifyCodexManagedError(payload.turn.error)
+              : undefined;
+            if (managedError?.revoke && adapterOptions.onManagedConnectionRevoked)
+              yield* adapterOptions.onManagedConnectionRevoked;
             const nativeStatus = mapCodexTurnStatus(payload.turn.status);
             const status =
               nativeStatus === "completed" &&
@@ -5301,12 +5343,14 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               ...(payload.turn.error?.message === undefined
                 ? {}
                 : {
-                    failureMessage: payload.turn.error.message,
-                    ...(payload.turn.error.codexErrorInfo == null
-                      ? {}
-                      : {
-                          failureCode: codexErrorInfoCode(payload.turn.error.codexErrorInfo),
-                        }),
+                    failureMessage: managedError?.message ?? payload.turn.error.message,
+                    ...(managedError
+                      ? { failureCode: managedError.code }
+                      : payload.turn.error.codexErrorInfo == null
+                        ? {}
+                        : {
+                            failureCode: codexErrorInfoCode(payload.turn.error.codexErrorInfo),
+                          }),
                   }),
             });
           }),
@@ -5318,6 +5362,22 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           providerSessionId: input.providerSessionId,
           providerSession: session,
           events: Stream.fromEffectRepeat(Queue.take(events)),
+          ...(adapterOptions.resolveRuntime
+            ? {
+                isCurrent: adapterOptions.resolveRuntime.pipe(
+                  Effect.map((next) => next.revision === resolvedRuntime?.revision),
+                  Effect.scoped,
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderAdapterOpenSessionError({
+                        driver: CODEX_PROVIDER,
+                        providerSessionId: input.providerSessionId,
+                        cause,
+                      }),
+                  ),
+                ),
+              }
+            : {}),
           canReuseContextUsage: canReuseCodexContextUsage,
           // Known gap: a subagent that Codex resumes later reads as completed
           // (not pending) between turns, so idle release can win the race
@@ -5512,6 +5572,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 hasT3Mcp: mcpSession !== undefined,
                 browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
                 deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
+                managed: adapterOptions.resolveRuntime !== undefined,
               });
               yield* Ref.update(pendingRootTurns, (current) => {
                 const updated = new Map(current);
