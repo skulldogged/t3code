@@ -209,12 +209,15 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
   yield* runtime.auth.controller.subscribe("managed-codex-snapshot").pipe(
     // Disconnect also publishes idle when a saved account has no active sign-in flow.
     Stream.filter((state) => ["idle", "succeeded", "failed", "cancelled"].includes(state.phase)),
-    Stream.runForEach(() => snapshot.refresh.pipe(Effect.asVoid)),
+    // Sign-out closes the scope of an in-flight probe, which fails that refresh
+    // with an interrupt. Keep listening so the sign-out's own idle still refreshes.
+    Stream.runForEach(() => snapshot.refresh.pipe(Effect.ignoreCause({ log: true }))),
     Effect.forkScoped,
   );
   const resolveRuntime = runtime.auth.controller.withAccess!(runtime.resolve);
   const orchestrationAdapter = yield* createCodexAdapterV2(input, {
-    resolveRuntime,
+    onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+    resolveRuntime: runtime.resolve,
     onManagedConnectionRevoked: runtime.auth.revoke.pipe(Effect.ignore),
   }).pipe(
     Effect.mapError(
@@ -222,7 +225,7 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
         new ProviderDriverError({
           driver: DRIVER,
           instanceId,
-          detail: "Could not prepare managed Codex orchestration.",
+          detail: "Failed to build Codex orchestration adapter.",
           cause,
         }),
     ),
