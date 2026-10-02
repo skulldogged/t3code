@@ -2105,7 +2105,7 @@ export function makeCursorAdapterV2(
             );
           }
           const userText = t3OrchestrationPromptForFirstRun({
-            prompt: yield* prepareProviderMessageText(CURSOR_PROVIDER, {
+            prompt: yield* prepareProviderMessageText(CursorAgentSdk.CURSOR_PROVIDER, {
               text:
                 cursorSkillNames === undefined
                   ? rawText
