@@ -1007,16 +1007,17 @@ export function shouldShowSidebarV2Duration(status: SidebarThreadStatus): boolea
 }
 
 /** Working beta: threads busy with work that does not need the user fold into
-    the Working shelf. Approvals, questions, plan prompts, and failures stay
-    in the inbox. */
+    the Working shelf: a running run, or one stopped with background tasks
+    still open. Approvals, questions, plan prompts, and failures stay in the
+    inbox. */
 export function isSidebarThreadWorking(thread: ThreadStatusInput): boolean {
   const status = resolveSidebarThreadStatus(thread);
   if (status !== "working" && status !== "waiting") return false;
-  // A plan prompt outranks lingering background work, as in the status pill.
+  // A plan prompt outranks lingering background work: the user has to act on it.
   return !(
     thread.interactionMode === "plan" &&
-    isLatestRunSettled(thread.latestRun, thread.runtime) &&
-    thread.hasActionableProposedPlan
+    thread.hasActionableProposedPlan &&
+    isLatestRunSettled(thread.latestRun, thread.runtime)
   );
 }
 
