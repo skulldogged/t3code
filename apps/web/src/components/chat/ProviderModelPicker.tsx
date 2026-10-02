@@ -44,8 +44,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   activeProviderIconClassName?: string;
   instanceIndicatorBackground?: string;
   size?: ComposerControlSize;
-  isComposerOwned?: boolean;
   compact?: boolean;
+  isComposerOwned?: boolean;
   disabled?: boolean;
   terminalOpen?: boolean;
   open?: boolean;

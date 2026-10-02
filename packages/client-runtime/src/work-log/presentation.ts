@@ -8,7 +8,6 @@ import {
   type OrchestrationV2TurnItem,
   type ThreadId,
 } from "@t3tools/contracts";
-import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import {
   resolveT3McpToolDefinition,
   type T3McpToolDefinition,
@@ -16,6 +15,7 @@ import {
 } from "@t3tools/shared/t3McpToolPresentation";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
+import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { formatTokens } from "@t3tools/shared/usageFormat";
 import { classifyToolActivity } from "@t3tools/shared/toolActivity";

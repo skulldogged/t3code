@@ -1,10 +1,4 @@
 {
-  "mainSha": "95030dc674883f0f2a7fd034b32ce742c8cf55d0",
-  "overlays": [
-    {
-      "repository": "pingdotgg/t3code",
-      "number": 2829,
-      "sha": "b882b109ff72350e6f21dd0926c41f7700b33e64"
-    }
-  ]
+  "mainSha": "e9298af6f5200fc7e63e0ad7213fe44a4151f36c",
+  "overlays": []
 }

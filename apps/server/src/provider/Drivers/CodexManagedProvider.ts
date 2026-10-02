@@ -215,6 +215,8 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
     Effect.forkScoped,
   );
   const resolveRuntime = runtime.auth.controller.withAccess!(runtime.resolve);
+  // Launch settings resolve per session from the signed-in token. The registry
+  // already wraps openSession in withAccess, so resolve without re-entering it.
   const orchestrationAdapter = yield* createCodexAdapterV2(input, {
     onUsageLimits: (update) => snapshot.applyUsageLimits(update),
     resolveRuntime: runtime.resolve,

@@ -222,7 +222,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
   // sidebar is active.
-  // Seed server-side visited tracking from this browser's localStorage.
+  // Seeds server-side visited tracking from this browser's localStorage the
   useThreadVisitedMigration();
   const pathname = useLocation({ select: (location) => location.pathname });
   const panelAnimationsSuppressed = usePanelNavigationSuppression(pathname);
