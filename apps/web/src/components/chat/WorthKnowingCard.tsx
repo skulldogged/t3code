@@ -1,5 +1,6 @@
 import {
   worthKnowingAgentPrompt,
+  worthKnowingClosedLabel,
   worthKnowingFindingsForRun,
 } from "@t3tools/client-runtime/state/worth-knowing";
 import type {
@@ -60,7 +61,7 @@ export function useWorthKnowingActions(
         composerTarget,
         current.trim().length === 0 ? prompt : `${current.trimEnd()}\n\n${prompt}`,
       );
-      update(finding, "engaged");
+      update(finding, "ask");
     },
     [composerTarget, update],
   );
@@ -110,12 +111,7 @@ function WorthKnowingFindingRow({
     return (
       <div className="flex min-w-0 items-baseline gap-2 text-xs text-muted-foreground">
         <span className="min-w-0 truncate">
-          {finding.title}
-          {finding.status === "resolved"
-            ? " · addressed later"
-            : finding.status === "known"
-              ? " · you knew this"
-              : " · dismissed"}
+          {finding.title} · {worthKnowingClosedLabel(finding.status)}
         </span>
         <InlineButton tone="muted" onClick={() => actions.update(finding, "restore")}>
           Restore

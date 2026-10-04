@@ -107,7 +107,7 @@ import type {
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import {
   useRegisterWorthKnowingAsk,
-  workingRunId,
+  settledRunId,
   WorthKnowingLiveCard,
 } from "./worth-knowing-card";
 import { ComposerFeedback } from "./ComposerFeedback";
@@ -1209,7 +1209,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 <WorthKnowingLiveCard
                   environmentId={props.environmentId}
                   threadId={props.selectedThread.id}
-                  activeRunId={workingRunId(props.selectedThread.latestRun)}
+                  settledRunId={settledRunId(props.selectedThread.latestRun)}
                 />
                 {props.feedbackSubmissions.map((submission) => (
                   <ComposerFeedback

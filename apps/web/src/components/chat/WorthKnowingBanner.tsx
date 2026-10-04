@@ -1,3 +1,4 @@
+import { worthKnowingComposerFinding } from "@t3tools/client-runtime/state/worth-knowing";
 import type {
   EnvironmentId,
   RunId,
@@ -24,26 +25,23 @@ function bannerDescription(finding: WorthKnowingFinding): string {
 }
 
 /**
- * Findings raised about the run that is still working, above the composer so
- * the user can steer before it finishes. Once the run ends they live in the
- * card under its final answer instead; a run that ended without one keeps
- * them here.
+ * The finding waiting for an answer, above the composer so the user can steer
+ * while the run works. It stays until answered or passed over, except while
+ * the card under its run's final answer sits right above the composer.
  */
 export function useWorthKnowingBannerItems(input: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId | null;
-  readonly activeRunId: RunId | null;
+  /** The latest run, once it finished with a final answer to hold its card. */
+  readonly settledRunId: RunId | null;
   readonly composerTarget: ScopedThreadRef | null;
 }): ReadonlyArray<ComposerBannerStackItem> {
-  const findings = useThreadWorthKnowing(
-    input.activeRunId === null ? null : input.environmentId,
-    input.threadId,
-  );
+  const findings = useThreadWorthKnowing(input.environmentId, input.threadId);
   const actions = useWorthKnowingActions(input.environmentId, input.composerTarget);
   return useMemo(
     () =>
-      findings
-        .filter((finding) => finding.status === "open" && finding.runId === input.activeRunId)
+      [worthKnowingComposerFinding(findings, input.settledRunId)]
+        .filter((finding) => finding !== undefined)
         .map((finding): ComposerBannerStackItem => ({
           id: `worth-knowing:${finding.id}`,
           variant: finding.tag === "heads_up" ? "warning" : "info",
@@ -66,6 +64,6 @@ export function useWorthKnowingBannerItems(input: {
           dismissLabel: "Dismiss",
           onDismiss: () => actions.update(finding, "dismiss"),
         })),
-    [actions, findings, input.activeRunId],
+    [actions, findings, input.settledRunId],
   );
 }

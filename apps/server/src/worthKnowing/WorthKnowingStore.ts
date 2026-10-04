@@ -1,5 +1,4 @@
 import {
-  type ProjectId,
   type ThreadId,
   WorthKnowingError,
   WorthKnowingFinding,
@@ -14,10 +13,17 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 /** How many findings one thread keeps; older ones are pruned when a new one lands. */
 const MAX_FINDINGS_PER_THREAD = 50;
+/** A finding the user has sent this many messages past without answering is passed over. */
+export const MESSAGES_TO_PASS_OVER = 2;
+/**
+ * Backoff is shared by every thread and project, as Claude Code's plugin does,
+ * so it lives under one key of the table that once held it per project.
+ */
+const BACKOFF_KEY = "*";
 
-/** Per project, how the user has been answering findings, so checks can back off. */
-export interface WorthKnowingProjectState {
-  /** Consecutive user messages sent past unanswered findings. */
+/** How the user has been answering findings, so checks can back off. */
+export interface WorthKnowingBackoff {
+  /** Findings passed over in a row. */
   readonly ignoredStreak: number;
   /** Checks still to skip before the observer looks again. */
   readonly checksToSkip: number;
@@ -38,9 +44,12 @@ export class WorthKnowingStore extends Context.Service<
     readonly listThread: (
       threadId: ThreadId,
     ) => Effect.Effect<ReadonlyArray<StoredWorthKnowingFinding>, WorthKnowingError>;
-    /** What the user said they already knew in this project, newest first. */
+    /** Findings offered in any thread, newest first. */
+    readonly listRecent: (
+      limit: number,
+    ) => Effect.Effect<ReadonlyArray<WorthKnowingFinding>, WorthKnowingError>;
+    /** Topics the user knew or took to the agent, in any thread, newest first. */
     readonly listKnown: (
-      projectId: ProjectId,
       limit: number,
     ) => Effect.Effect<ReadonlyArray<WorthKnowingFinding>, WorthKnowingError>;
     readonly listOpenSummaries: Effect.Effect<
@@ -53,21 +62,18 @@ export class WorthKnowingStore extends Context.Service<
       options?: { readonly engaged?: boolean },
     ) => Effect.Effect<void, WorthKnowingError>;
     /**
-     * Marks the thread's open findings the user has not acted on, raised
-     * before `before`, as passed over. Returns how many were newly marked.
+     * Counts a user message sent at `sentAt` past the thread's open findings
+     * that were raised before it and never opened. Those reaching
+     * `MESSAGES_TO_PASS_OVER` become passed over; returns how many did.
      */
-    readonly markIgnored: (
+    readonly countMessagePast: (
       threadId: ThreadId,
-      before: string,
+      sentAt: string,
+      now: string,
     ) => Effect.Effect<number, WorthKnowingError>;
     readonly deleteThread: (threadId: ThreadId) => Effect.Effect<void, WorthKnowingError>;
-    readonly getProjectState: (
-      projectId: ProjectId,
-    ) => Effect.Effect<WorthKnowingProjectState, WorthKnowingError>;
-    readonly setProjectState: (
-      projectId: ProjectId,
-      state: WorthKnowingProjectState,
-    ) => Effect.Effect<void, WorthKnowingError>;
+    readonly getBackoff: Effect.Effect<WorthKnowingBackoff, WorthKnowingError>;
+    readonly setBackoff: (state: WorthKnowingBackoff) => Effect.Effect<void, WorthKnowingError>;
   }
 >()("t3/worthKnowing/WorthKnowingStore") {}
 
@@ -80,6 +86,12 @@ const encodeFinding = Schema.encodeEffect(Schema.fromJsonString(WorthKnowingFind
 interface FindingRow {
   readonly payload_json: string;
   readonly engaged: number;
+}
+
+interface CountedFindingRow extends FindingRow {
+  readonly id: string;
+  /** Messages the user has sent past it without answering. */
+  readonly ignored: number;
 }
 
 const make = Effect.gen(function* () {
@@ -146,10 +158,21 @@ const make = Effect.gen(function* () {
       LIMIT ${MAX_FINDINGS_PER_THREAD}
     `.pipe(Effect.flatMap(decodeRows), Effect.mapError(storeError("list a thread's findings")));
 
-  const listKnown: WorthKnowingStore["Service"]["listKnown"] = (projectId, limit) =>
+  const listRecent: WorthKnowingStore["Service"]["listRecent"] = (limit) =>
     sql<FindingRow>`
       SELECT payload_json, engaged FROM worth_knowing_findings
-      WHERE project_id = ${projectId} AND status = 'known'
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `.pipe(
+      Effect.flatMap(decodeRows),
+      Effect.map((rows) => rows.map((row) => row.finding)),
+      Effect.mapError(storeError("list recent findings")),
+    );
+
+  const listKnown: WorthKnowingStore["Service"]["listKnown"] = (limit) =>
+    sql<FindingRow>`
+      SELECT payload_json, engaged FROM worth_knowing_findings
+      WHERE status IN ('known', 'discussed')
       ORDER BY created_at DESC
       LIMIT ${limit}
     `.pipe(
@@ -237,20 +260,45 @@ const make = Effect.gen(function* () {
       Effect.mapError(storeError("update a finding")),
     );
 
-  const markIgnored: WorthKnowingStore["Service"]["markIgnored"] = (threadId, before) =>
-    sql<{ readonly id: string }>`
-      UPDATE worth_knowing_findings
-      SET ignored = 1
-      WHERE thread_id = ${threadId}
-        AND status = 'open'
-        AND engaged = 0
-        AND ignored = 0
-        AND created_at < ${before}
-      RETURNING id
-    `.pipe(
-      Effect.map((rows) => rows.length),
-      Effect.mapError(storeError("mark passed-over findings")),
-    );
+  const countMessagePast: WorthKnowingStore["Service"]["countMessagePast"] = (
+    threadId,
+    sentAt,
+    now,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<CountedFindingRow>`
+            SELECT id, payload_json, engaged, ignored FROM worth_knowing_findings
+            WHERE thread_id = ${threadId}
+              AND status = 'open'
+              AND engaged = 0
+              AND created_at < ${sentAt}
+          `;
+          let passedOver = 0;
+          for (const row of rows) {
+            const count = Number(row.ignored) + 1;
+            if (count < MESSAGES_TO_PASS_OVER) {
+              yield* sql`UPDATE worth_knowing_findings SET ignored = ${count} WHERE id = ${row.id}`;
+              continue;
+            }
+            const finding = yield* decodeFinding(row.payload_json);
+            const payload = yield* encodeFinding({
+              ...finding,
+              status: "passed_over",
+              updatedAt: now,
+            });
+            yield* sql`
+              UPDATE worth_knowing_findings
+              SET ignored = ${count}, status = 'passed_over', payload_json = ${payload}
+              WHERE id = ${row.id}
+            `;
+            passedOver += 1;
+          }
+          return passedOver;
+        }),
+      )
+      .pipe(Effect.mapError(storeError("count a message past open findings")));
 
   const deleteThread: WorthKnowingStore["Service"]["deleteThread"] = (threadId) =>
     sql`DELETE FROM worth_knowing_findings WHERE thread_id = ${threadId}`.pipe(
@@ -258,38 +306,41 @@ const make = Effect.gen(function* () {
       Effect.mapError(storeError("delete a thread's findings")),
     );
 
-  const getProjectState: WorthKnowingStore["Service"]["getProjectState"] = (projectId) =>
-    sql<{ readonly ignored_streak: number; readonly checks_to_skip: number }>`
-      SELECT ignored_streak, checks_to_skip FROM worth_knowing_projects
-      WHERE project_id = ${projectId}
-    `.pipe(
-      Effect.map((rows) => ({
-        ignoredStreak: Number(rows[0]?.ignored_streak ?? 0),
-        checksToSkip: Number(rows[0]?.checks_to_skip ?? 0),
-      })),
-      Effect.mapError(storeError("read project state")),
-    );
+  const getBackoff: WorthKnowingStore["Service"]["getBackoff"] = sql<{
+    readonly ignored_streak: number;
+    readonly checks_to_skip: number;
+  }>`
+    SELECT ignored_streak, checks_to_skip FROM worth_knowing_projects
+    WHERE project_id = ${BACKOFF_KEY}
+  `.pipe(
+    Effect.map((rows) => ({
+      ignoredStreak: Number(rows[0]?.ignored_streak ?? 0),
+      checksToSkip: Number(rows[0]?.checks_to_skip ?? 0),
+    })),
+    Effect.mapError(storeError("read the backoff")),
+  );
 
-  const setProjectState: WorthKnowingStore["Service"]["setProjectState"] = (projectId, state) =>
+  const setBackoff: WorthKnowingStore["Service"]["setBackoff"] = (state) =>
     sql`
       INSERT INTO worth_knowing_projects (project_id, ignored_streak, checks_to_skip)
-      VALUES (${projectId}, ${state.ignoredStreak}, ${state.checksToSkip})
+      VALUES (${BACKOFF_KEY}, ${state.ignoredStreak}, ${state.checksToSkip})
       ON CONFLICT (project_id) DO UPDATE SET
         ignored_streak = excluded.ignored_streak,
         checks_to_skip = excluded.checks_to_skip
-    `.pipe(Effect.asVoid, Effect.mapError(storeError("save project state")));
+    `.pipe(Effect.asVoid, Effect.mapError(storeError("save the backoff")));
 
   return WorthKnowingStore.of({
     get,
     listThread,
+    listRecent,
     listKnown,
     listOpenSummaries,
     insert,
     update,
-    markIgnored,
+    countMessagePast,
     deleteThread,
-    getProjectState,
-    setProjectState,
+    getBackoff,
+    setBackoff,
   });
 });
 

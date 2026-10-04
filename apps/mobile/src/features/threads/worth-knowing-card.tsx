@@ -1,5 +1,7 @@
 import {
   worthKnowingAgentPrompt,
+  worthKnowingClosedLabel,
+  worthKnowingComposerFinding,
   worthKnowingFindingsForRun,
 } from "@t3tools/client-runtime/state/worth-knowing";
 import type {
@@ -28,10 +30,10 @@ const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The run whose findings show above the composer: one still working, or one
- * that ended without a final answer to hold them.
+ * The latest run once it finished with a final answer, whose card under that
+ * answer holds its findings instead of the composer.
  */
-export function workingRunId(
+export function settledRunId(
   latestRun: {
     readonly runId: RunId;
     readonly status: string;
@@ -39,7 +41,8 @@ export function workingRunId(
   } | null,
 ): RunId | null {
   return latestRun !== null &&
-    (!TERMINAL_RUN_STATUSES.has(latestRun.status) || latestRun.assistantMessageId === null)
+    TERMINAL_RUN_STATUSES.has(latestRun.status) &&
+    latestRun.assistantMessageId !== null
     ? latestRun.runId
     : null;
 }
@@ -90,7 +93,7 @@ function useWorthKnowingActions(environmentId: EnvironmentId) {
         const appendToDraft = askHandlers.get(finding.threadId);
         if (appendToDraft === undefined) return;
         appendToDraft(worthKnowingAgentPrompt(finding));
-        update(finding, "engaged");
+        update(finding, "ask");
       },
     }),
     [update],
@@ -135,12 +138,7 @@ function FindingRow(props: {
     return (
       <View className="flex-row items-center gap-3">
         <Text numberOfLines={1} className="flex-1 text-xs text-foreground-secondary">
-          {finding.title}
-          {finding.status === "resolved"
-            ? " · addressed later"
-            : finding.status === "known"
-              ? " · you knew this"
-              : " · dismissed"}
+          {finding.title} · {worthKnowingClosedLabel(finding.status)}
         </Text>
         <TextAction label="Restore" onPress={() => actions.update(finding, "restore")} />
       </View>
@@ -256,29 +254,23 @@ export function WorthKnowingRunCard(props: {
 }
 
 /**
- * Findings about the run that is still working, above the composer so the
- * user can steer before it finishes.
+ * The finding waiting for an answer, above the composer so the user can steer
+ * while the run works. It stays until answered or passed over, except while
+ * the card under its run's final answer is the last thing in the thread.
  */
 export function WorthKnowingLiveCard(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  readonly activeRunId: RunId | null;
+  readonly settledRunId: RunId | null;
 }) {
-  const findings = useThreadWorthKnowing(
-    props.activeRunId === null ? null : props.environmentId,
-    props.threadId,
-  );
+  const findings = useThreadWorthKnowing(props.environmentId, props.threadId);
   const actions = useWorthKnowingActions(props.environmentId);
-  const live = findings.filter(
-    (finding) => finding.status === "open" && finding.runId === props.activeRunId,
-  );
-  if (live.length === 0) return null;
+  const finding = worthKnowingComposerFinding(findings, props.settledRunId);
+  if (finding === undefined) return null;
   return (
     <View className="mx-3 mb-2 gap-3 rounded-xl border border-border bg-background p-3">
       <CardHeader />
-      {live.map((finding) => (
-        <FindingRow key={finding.id} finding={finding} actions={actions} showDismiss />
-      ))}
+      <FindingRow finding={finding} actions={actions} showDismiss />
     </View>
   );
 }

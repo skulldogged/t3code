@@ -1,9 +1,11 @@
 /**
- * "Worth knowing": after a run (and every few tool calls while a long run is
- * working), a hidden, tool-less fork of the thread's own provider session is
- * asked whether there is one thing the user should know but probably missed.
- * The fork shares the conversation's cached prefix, so it sees everything the
- * agent saw. Findings are kept per thread and streamed to clients.
+ * "Worth knowing", T3's take on Claude Code's "You should know" plugin: every
+ * few steps of a working run, a hidden, tool-less fork of the thread's own
+ * provider session is asked whether there is one thing the user should know
+ * but probably missed. The fork shares the conversation's cached prefix, so
+ * it sees everything the agent saw. When to check, what to ask, and when to
+ * back off follow the plugin; findings are kept per thread and streamed to
+ * clients.
  *
  * @module worthKnowing/WorthKnowingService
  */
@@ -45,23 +47,26 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { buildWorthKnowingPrompt, parseWorthKnowingReply } from "./WorthKnowingPrompt.ts";
 import * as WorthKnowingStore from "./WorthKnowingStore.ts";
 
-/** A long run is checked again after this many more finished tool calls. */
-const TOOL_CALLS_PER_MID_RUN_CHECK = 15;
+/**
+ * A working run is checked at every sixth step (model request), never at its
+ * first, as the plugin does. There is no check after the final answer.
+ */
+const STEPS_PER_CHECK = 6;
 /**
  * Drivers checked only when a run ends. A Codex fork is a new conversation to
  * the prompt cache, so every check re-sends the whole thread uncached.
  */
 const END_OF_RUN_ONLY_DRIVERS: ReadonlySet<string> = new Set(["codex"]);
-const KNOWN_TOPICS_IN_PROMPT = 30;
+/** How many recently offered and known topics the prompt lists, as the plugin keeps. */
+const TOPICS_IN_PROMPT = 50;
 /** Forks running at once across all threads; each is a provider process or request. */
 const MAX_CONCURRENT_CHECKS = 2;
-/** A check that runs longer than this is abandoned so the thread's queue moves on. */
+/** A check that runs longer than this is abandoned. */
 const CHECK_TIMEOUT = "5 minutes";
 /** How many run and message ids the event watcher remembers. */
 const MAX_REMEMBERED_IDS = 5_000;
-/** Runs still being counted toward a mid-run check. */
+/** Working runs whose steps are being counted. */
 const MAX_REMEMBERED_RUNS = 200;
-const PREVIOUS_FINDINGS_IN_PROMPT = 10;
 
 const TOOL_ITEM_TYPES: ReadonlySet<OrchestrationV2TurnItem["type"]> = new Set([
   "command_execution",
@@ -71,6 +76,25 @@ const TOOL_ITEM_TYPES: ReadonlySet<OrchestrationV2TurnItem["type"]> = new Set([
   "dynamic_tool",
   "subagent",
 ]);
+/** What a model request produces: its reasoning, its text, and the tools it calls. */
+const STEP_OUTPUT_ITEM_TYPES: ReadonlySet<OrchestrationV2TurnItem["type"]> = new Set([
+  "reasoning",
+  "assistant_message",
+  ...TOOL_ITEM_TYPES,
+]);
+const FINISHED_ITEM_STATUSES: ReadonlySet<OrchestrationV2TurnItem["status"]> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
+
+/** Where a working run is: its current step, and the output that step began with. */
+interface RunSteps {
+  step: number;
+  latest: { readonly id: string; readonly isTool: boolean; finished: boolean } | undefined;
+  readonly seen: Set<string>;
+}
 
 interface CheckRequest {
   readonly threadId: ThreadId;
@@ -102,7 +126,7 @@ export class WorthKnowingService extends Context.Service<
 /**
  * How many checks to skip after the user passed over findings `streak` times
  * in a row: none for the first two, then 1, 2, 4… up to 16, as Claude Code's
- * side agent does.
+ * plugin does.
  */
 export function checksToSkipAfterIgnoring(streak: number): number {
   return streak <= 2 ? 0 : Math.min(16, 2 ** (streak - 3));
@@ -119,6 +143,12 @@ function remember<A>(set: Set<A>, value: A): void {
 
 function normalizeForMatch(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/** The plugin's test for a topic it already offered: same line, ignoring case and a final period. */
+function sameTopic(a: string, b: string): boolean {
+  const key = (line: string) => line.trim().toLowerCase().replace(/\.$/, "");
+  return key(a) === key(b);
 }
 
 /** The item whose text contains the quote, preferring the latest. */
@@ -217,8 +247,6 @@ const make = Effect.gen(function* () {
     if (!request.stillWorking && run.status !== "completed" && run.status !== "interrupted") {
       return;
     }
-    // A run that used no tools has nothing buried for the observer to dig out.
-    if (!records.turnItems.some((item) => TOOL_ITEM_TYPES.has(item.type))) return;
 
     const providerThread = records.providerThreads.find(
       (candidate) => candidate.id === run.providerThreadId,
@@ -228,14 +256,26 @@ const make = Effect.gen(function* () {
     const instance = yield* providerInstances.getInstance(run.modelSelection.instanceId);
     const generateSideReply = instance?.textGeneration.generateSideReply;
     if (instance === undefined || generateSideReply === undefined) return;
-    if (request.stillWorking && END_OF_RUN_ONLY_DRIVERS.has(instance.driverKind)) return;
+    // Like the plugin, checks happen while a run works; Codex, which cannot
+    // afford that, gets one check when the run ends instead.
+    if (request.stillWorking === END_OF_RUN_ONLY_DRIVERS.has(instance.driverKind)) return;
+    // A run that used no tools has nothing buried for the observer to dig out.
+    if (
+      !request.stillWorking &&
+      !records.turnItems.some((item) => TOOL_ITEM_TYPES.has(item.type))
+    ) {
+      return;
+    }
 
-    const projectState = yield* store.getProjectState(thread.projectId);
-    if (projectState.checksToSkip > 0) {
-      yield* store.setProjectState(thread.projectId, {
-        ...projectState,
-        checksToSkip: projectState.checksToSkip - 1,
-      });
+    // One finding at a time: none while one waits for an answer, and at most one per run.
+    const prior = yield* store.listThread(request.threadId);
+    if (prior.some((row) => row.finding.status === "open" || row.finding.runId === request.runId)) {
+      return;
+    }
+
+    const backoff = yield* store.getBackoff;
+    if (backoff.checksToSkip > 0) {
+      yield* store.setBackoff({ ...backoff, checksToSkip: backoff.checksToSkip - 1 });
       return;
     }
 
@@ -250,17 +290,13 @@ const make = Effect.gen(function* () {
       (Option.isSome(project) ? project.value.workspaceRoot : null);
     if (cwd === null) return;
 
-    const prior = yield* store.listThread(request.threadId);
-    // A finding the user restored stays open until they close it, so it is
-    // only shown as already raised, never offered for resolving.
-    const open = prior
-      .filter((row) => row.finding.status === "open" && row.finding.restoredAt == null)
-      .map((row, index) => ({ ref: `F${index + 1}`, finding: row.finding }));
-    const previous = prior
-      .filter((row) => row.finding.status !== "open" || row.finding.restoredAt != null)
-      .slice(0, PREVIOUS_FINDINGS_IN_PROMPT)
-      .map((row) => row.finding);
-    const known = yield* store.listKnown(thread.projectId, KNOWN_TOPICS_IN_PROMPT);
+    // Oldest first, as the plugin lists them.
+    const seen = (yield* store.listRecent(TOPICS_IN_PROMPT))
+      .map((finding) => finding.learn)
+      .toReversed();
+    const known = (yield* store.listKnown(TOPICS_IN_PROMPT))
+      .map((finding) => finding.learn)
+      .toReversed();
 
     const reply = yield* forkPermits
       .withPermit(
@@ -270,12 +306,7 @@ const make = Effect.gen(function* () {
           cwd,
           modelSelection: run.modelSelection,
           runtimePolicy,
-          prompt: buildWorthKnowingPrompt({
-            stillWorking: request.stillWorking,
-            open,
-            previous,
-            known,
-          }),
+          prompt: buildWorthKnowingPrompt({ stillWorking: request.stillWorking, seen, known }),
         }),
       )
       .pipe(
@@ -295,35 +326,16 @@ const make = Effect.gen(function* () {
         reply: reply.text.slice(0, 1_500),
       });
     }
-    const now = yield* nowIso;
-    let changed = false;
-    let resolvedCount = 0;
-
-    for (const ref of parsed.resolved) {
-      const target = open.find((candidate) => candidate.ref === ref);
-      if (target === undefined) continue;
-      // The user may have answered it while the fork was thinking.
-      const current = yield* store.get(target.finding.id);
-      if (current?.finding.status !== "open" || current.finding.restoredAt != null) continue;
-      resolvedCount += 1;
-      yield* store.update({
-        ...current.finding,
-        status: "resolved",
-        resolvedByRunId: request.runId,
-        updatedAt: now,
-      });
-      changed = true;
-    }
 
     const raised = parsed.finding;
-    const isRepeat =
-      raised !== undefined &&
-      prior.some(
-        (row) =>
-          normalizeForMatch(row.finding.learn) === normalizeForMatch(raised.learn) ||
-          normalizeForMatch(row.finding.title) === normalizeForMatch(raised.title),
-      );
-    if (raised !== undefined && !isRepeat) {
+    const outcome =
+      raised === undefined
+        ? "none"
+        : [...seen, ...known].some((line) => sameTopic(line, raised.learn))
+          ? "deduped"
+          : "shown";
+    if (raised !== undefined && outcome === "shown") {
+      const now = yield* nowIso;
       const evidenceItem =
         raised.evidence === null ? undefined : findEvidenceItem(records.turnItems, raised.evidence);
       const id = WorthKnowingFindingId.make(`wk_${yield* crypto.randomUUIDv4}`);
@@ -351,83 +363,68 @@ const make = Effect.gen(function* () {
         createdAt: now,
         updatedAt: now,
       });
-      changed = true;
+      yield* notifyChanged(request.threadId);
     }
 
     yield* Effect.logInfo("Worth knowing check finished", {
       threadId: request.threadId,
       runId: request.runId,
       stillWorking: request.stillWorking,
-      raised: raised !== undefined && !isRepeat,
-      resolved: resolvedCount,
+      outcome,
       inputTokens: reply.usage?.inputTokens,
       cachedInputTokens: reply.usage?.cachedInputTokens,
       outputTokens: reply.usage?.outputTokens,
     });
-    if (changed) yield* notifyChanged(request.threadId);
   });
 
-  // Checks for one thread run one at a time; a run's end supersedes its own
-  // pending mid-run check, and another run's checks wait their turn.
-  const pending = new Map<ThreadId, Map<RunId, CheckRequest>>();
-  const draining = new Set<ThreadId>();
-
-  const drainThread = (threadId: ThreadId): Effect.Effect<void> =>
-    Effect.gen(function* () {
-      while (true) {
-        const queue = pending.get(threadId);
-        const next = queue?.values().next();
-        if (queue === undefined || next === undefined || next.done) {
-          // Same step as the queue check, so a request arriving now starts a new drain.
-          pending.delete(threadId);
-          draining.delete(threadId);
-          return;
-        }
-        queue.delete(next.value.runId);
-        yield* check(next.value).pipe(
-          Effect.timeout(CHECK_TIMEOUT),
-          Effect.catchCause((cause) =>
-            Cause.hasInterruptsOnly(cause)
-              ? Effect.interrupt
-              : Effect.logWarning("Worth knowing check failed", {
-                  threadId,
-                  runId: next.value.runId,
-                  cause: Cause.pretty(cause),
-                }),
-          ),
-        );
-      }
-    }).pipe(Effect.onInterrupt(() => Effect.sync(() => draining.delete(threadId))));
+  // Like the plugin, a step that arrives while the thread's check is still
+  // out is not checked at all, rather than queued.
+  const checking = new Set<ThreadId>();
 
   const requestCheck = (scope: Scope.Scope, request: CheckRequest) =>
     Effect.suspend(() => {
-      const queue = pending.get(request.threadId) ?? new Map<RunId, CheckRequest>();
-      const queued = queue.get(request.runId);
-      if (queued === undefined || queued.stillWorking) queue.set(request.runId, request);
-      pending.set(request.threadId, queue);
-      if (draining.has(request.threadId)) return Effect.void;
-      draining.add(request.threadId);
-      return drainThread(request.threadId).pipe(Effect.forkIn(scope), Effect.asVoid);
+      if (checking.has(request.threadId)) return Effect.void;
+      checking.add(request.threadId);
+      return check(request).pipe(
+        Effect.timeout(CHECK_TIMEOUT),
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("Worth knowing check failed", {
+                threadId: request.threadId,
+                runId: request.runId,
+                cause: Cause.pretty(cause),
+              }),
+        ),
+        // Its own span, so the warning above is written out with it.
+        Effect.withSpan("WorthKnowingService.runCheck"),
+        Effect.ensuring(Effect.sync(() => checking.delete(request.threadId))),
+        Effect.forkIn(scope),
+        Effect.asVoid,
+      );
     });
 
-  /** A user message sent past unanswered findings counts once toward backing off. */
-  const recordPassedOver = (threadId: ThreadId, sentAt: string) =>
+  /**
+   * A user message sent past an open finding the user never opened counts
+   * toward passing it over; each finding passed over adds to the backoff.
+   */
+  const recordMessagePast = (threadId: ThreadId, sentAt: string) =>
     Effect.gen(function* () {
-      const marked = yield* store.markIgnored(threadId, sentAt);
-      if (marked === 0) return;
-      const records = yield* threads.getThreadRecords(threadId, []);
-      const state = yield* store.getProjectState(records.thread.projectId);
-      const ignoredStreak = state.ignoredStreak + 1;
-      yield* store.setProjectState(records.thread.projectId, {
+      const passedOver = yield* store.countMessagePast(threadId, sentAt, yield* nowIso);
+      if (passedOver === 0) return;
+      const backoff = yield* store.getBackoff;
+      const ignoredStreak = backoff.ignoredStreak + passedOver;
+      yield* store.setBackoff({
         ignoredStreak,
         checksToSkip: checksToSkipAfterIgnoring(ignoredStreak),
       });
+      yield* notifyChanged(threadId);
     });
 
   const start: WorthKnowingService["Service"]["start"] = Effect.fn("WorthKnowingService.start")(
     function* () {
       const scope = yield* Effect.scope;
-      const finishedToolItems = new Map<RunId, Set<string>>();
+      const runSteps = new Map<RunId, RunSteps>();
       // Finished runs are announced again (checkpoints, delegated results); check each once.
       const finishedRuns = new Set<RunId>();
       const seenUserMessages = new Set<string>();
@@ -436,23 +433,38 @@ const make = Effect.gen(function* () {
           switch (event.type) {
             case "turn-item.updated": {
               const item = event.payload;
+              // Subagents' own steps are not the run's, as in the plugin.
               if (
                 item.runId === null ||
-                item.status !== "completed" ||
-                !TOOL_ITEM_TYPES.has(item.type)
+                item.parentItemId !== null ||
+                !STEP_OUTPUT_ITEM_TYPES.has(item.type)
               ) {
                 return Effect.void;
               }
-              const finished = finishedToolItems.get(item.runId) ?? new Set<string>();
-              if (finished.has(item.id)) return Effect.void;
-              finished.add(item.id);
-              finishedToolItems.set(item.runId, finished);
-              // Runs that never report an end would otherwise stay here forever.
-              if (finishedToolItems.size > MAX_REMEMBERED_RUNS) {
-                const oldest = finishedToolItems.keys().next();
-                if (!oldest.done) finishedToolItems.delete(oldest.value);
+              let steps = runSteps.get(item.runId);
+              if (steps === undefined) {
+                steps = { step: -1, latest: undefined, seen: new Set() };
+                runSteps.set(item.runId, steps);
+                // Runs that never report an end would otherwise stay here forever.
+                if (runSteps.size > MAX_REMEMBERED_RUNS) {
+                  const oldest = runSteps.keys().next();
+                  if (!oldest.done) runSteps.delete(oldest.value);
+                }
               }
-              return finished.size % TOOL_CALLS_PER_MID_RUN_CHECK === 0
+              const finished = FINISHED_ITEM_STATUSES.has(item.status);
+              if (steps.seen.has(item.id)) {
+                if (steps.latest?.id === item.id && finished) steps.latest.finished = true;
+                return Effect.void;
+              }
+              steps.seen.add(item.id);
+              // The model only answers again once every tool it called has
+              // finished, so new output after a finished tool call is a new step.
+              const startsStep =
+                steps.latest === undefined || (steps.latest.isTool && steps.latest.finished);
+              steps.latest = { id: item.id, isTool: TOOL_ITEM_TYPES.has(item.type), finished };
+              if (!startsStep) return Effect.void;
+              steps.step += 1;
+              return steps.step > 0 && steps.step % STEPS_PER_CHECK === 0
                 ? requestCheck(scope, {
                     threadId: event.threadId,
                     runId: item.runId,
@@ -464,7 +476,7 @@ const make = Effect.gen(function* () {
               if (!ThreadManagementService.isTerminalRunStatus(event.payload.status)) {
                 return Effect.void;
               }
-              finishedToolItems.delete(event.payload.id);
+              runSteps.delete(event.payload.id);
               if (finishedRuns.has(event.payload.id)) return Effect.void;
               remember(finishedRuns, event.payload.id);
               return event.payload.status === "completed" || event.payload.status === "interrupted"
@@ -485,7 +497,10 @@ const make = Effect.gen(function* () {
                 return Effect.void;
               }
               remember(seenUserMessages, message.id);
-              return recordPassedOver(message.threadId, DateTime.formatIso(message.createdAt)).pipe(
+              return recordMessagePast(
+                message.threadId,
+                DateTime.formatIso(message.createdAt),
+              ).pipe(
                 Effect.catchCause((cause) =>
                   Effect.logWarning("Worth knowing could not record passed-over findings", {
                     threadId: message.threadId,
@@ -557,9 +572,11 @@ const make = Effect.gen(function* () {
           ? "dismissed"
           : input.action === "known"
             ? "known"
-            : input.action === "restore"
-              ? "open"
-              : stored.finding.status;
+            : input.action === "ask"
+              ? "discussed"
+              : input.action === "restore"
+                ? "open"
+                : stored.finding.status;
       const now = yield* nowIso;
       const finding: WorthKnowingFinding = {
         ...stored.finding,
@@ -569,7 +586,7 @@ const make = Effect.gen(function* () {
       };
       yield* store.update(finding, { engaged: true });
       // Any answer shows the user is reading findings, so checks stop backing off.
-      yield* store.setProjectState(finding.projectId, { ignoredStreak: 0, checksToSkip: 0 });
+      yield* store.setBackoff({ ignoredStreak: 0, checksToSkip: 0 });
       yield* notifyChanged(finding.threadId);
       return { finding };
     });

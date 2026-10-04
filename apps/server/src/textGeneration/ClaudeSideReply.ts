@@ -130,6 +130,12 @@ export const makeClaudeSideReply = Effect.fn("makeClaudeSideReply")(function* (i
     });
     const options: ClaudeQueryOptions = {
       ...liveOptions,
+      // Claude Code's own side requests run no hooks; a fork here would
+      // otherwise fire the user's SessionStart and Stop hooks for a session
+      // nobody sees. The tool guard below is an SDK callback, which still runs.
+      ...(typeof liveOptions.settings === "string"
+        ? {}
+        : { settings: { ...liveOptions.settings, disableAllHooks: true } }),
       permissionMode: "default",
       forkSession: true,
       persistSession: false,

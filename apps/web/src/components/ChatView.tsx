@@ -7412,8 +7412,8 @@ export default function ChatView(props: ChatViewProps) {
     environmentId,
     threadId: isServerThread ? (activeThread?.id ?? null) : null,
     // A run that ended without a final answer has no card to hold its findings.
-    activeRunId:
-      phase === "running" || activeThreadShell?.latestRun?.assistantMessageId === null
+    settledRunId:
+      phase !== "running" && (activeThreadShell?.latestRun?.assistantMessageId ?? null) !== null
         ? (activeThreadShell?.latestRun?.runId ?? null)
         : null,
     composerTarget: typeof composerDraftTarget === "string" ? null : composerDraftTarget,

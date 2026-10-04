@@ -23,13 +23,17 @@ export const WorthKnowingTag = Schema.Literals(["heads_up", "you_should_know"]);
 export type WorthKnowingTag = typeof WorthKnowingTag.Type;
 
 /**
- * `known` means the user already knew it, so the observer avoids the topic in
- * this project afterwards. `resolved` means a later run dealt with it.
+ * `known` means the user already knew it, and `discussed` that they handed it
+ * to the agent; the observer avoids both topics afterwards. `passed_over`
+ * means the user sent two messages without answering it. `resolved` is kept
+ * for findings an earlier version marked as dealt with.
  */
 export const WorthKnowingFindingStatus = Schema.Literals([
   "open",
   "dismissed",
   "known",
+  "discussed",
+  "passed_over",
   "resolved",
 ]);
 export type WorthKnowingFindingStatus = typeof WorthKnowingFindingStatus.Type;
@@ -102,13 +106,14 @@ export const WorthKnowingSummariesResult = Schema.Struct({
 export type WorthKnowingSummariesResult = typeof WorthKnowingSummariesResult.Type;
 
 /**
- * `engaged` records that the user acted on a finding (opened its source or
- * handed it to the agent) without changing its status; any action tells the
- * observer its findings are being read.
+ * `engaged` records that the user opened a finding's explanation or source
+ * without answering it, which keeps it from being passed over. `ask` hands
+ * it to the agent. Any action tells the observer its findings are being read.
  */
 export const WorthKnowingFindingAction = Schema.Literals([
   "dismiss",
   "known",
+  "ask",
   "restore",
   "engaged",
 ]);
