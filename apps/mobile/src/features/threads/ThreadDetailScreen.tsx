@@ -105,6 +105,11 @@ import type {
   ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import {
+  useRegisterWorthKnowingAsk,
+  workingRunId,
+  WorthKnowingLiveCard,
+} from "./worth-knowing-card";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -982,6 +987,21 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     composerEditorRef.current?.blur();
   }, []);
 
+  const appendWorthKnowingToDraft = useCallback(
+    (text: string) => {
+      const currentDraft = draftMessageRef.current;
+      const nextDraft =
+        currentDraft.trim().length === 0 ? text : `${currentDraft.trimEnd()}\n\n${text}`;
+      draftMessageRef.current = nextDraft;
+      props.onChangeDraftMessage(nextDraft);
+      requestAnimationFrame(() => {
+        composerEditorRef.current?.focus();
+        composerEditorRef.current?.setSelection({ start: nextDraft.length, end: nextDraft.length });
+      });
+    },
+    [props.onChangeDraftMessage],
+  );
+  useRegisterWorthKnowingAsk(props.selectedThread.id, appendWorthKnowingToDraft);
   const handleUseArtifactTemplate = useCallback(
     (template: CodexArtifactTemplate) => {
       const currentDraft = draftMessageRef.current;
@@ -1180,6 +1200,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   key={props.selectedThread.latestRun?.runId}
                   thread={props.selectedThread}
                   environmentId={props.environmentId}
+                />
+                <WorthKnowingLiveCard
+                  environmentId={props.environmentId}
+                  threadId={props.selectedThread.id}
+                  activeRunId={workingRunId(props.selectedThread.latestRun)}
                 />
                 {props.feedbackSubmissions.map((submission) => (
                   <ComposerFeedback

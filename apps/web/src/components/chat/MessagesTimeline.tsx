@@ -1,5 +1,6 @@
 import { ComputerUseAppIcon } from "~/components/Icons";
 import { useChatCanvas } from "./ChatCanvasContext";
+import { WorthKnowingRunCard } from "./WorthKnowingCard";
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./WorkLog";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
@@ -2574,6 +2575,9 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             copyStreaming={row.assistantCopyStreaming}
           />
         ) : null}
+        {row.showAssistantMeta ? (
+          <RunWorthKnowing projectedItem={row.projectedItem} message={row.message} />
+        ) : null}
       </div>
     </>
   );
@@ -2640,7 +2644,30 @@ function AssistantMetaTimelineRow({
         copyStreaming={row.assistantCopyStreaming}
         alwaysVisible
       />
+      <RunWorthKnowing projectedItem={row.projectedItem} message={row.message} />
     </div>
+  );
+}
+
+/** What the observer flagged about the run this final answer ends. */
+function RunWorthKnowing({
+  projectedItem,
+  message,
+}: {
+  projectedItem?: Extract<TimelineRow, { kind: "message" }>["projectedItem"];
+  message: ChatMessage;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const threadId = projectedItem?.sourceThreadId ?? ctx.threadRef?.threadId;
+  if (message.runId === null || threadId === undefined) return null;
+  return (
+    <WorthKnowingRunCard
+      environmentId={ctx.activeThreadEnvironmentId}
+      threadId={threadId}
+      runId={message.runId}
+      threadRef={ctx.threadRef}
+      cwd={ctx.markdownCwd}
+    />
   );
 }
 

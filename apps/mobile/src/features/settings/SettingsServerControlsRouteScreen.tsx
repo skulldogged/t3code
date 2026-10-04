@@ -55,7 +55,7 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
     "branchNamePrefix",
     "branchNameInstructions",
   ],
-  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess"],
+  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess", "worthKnowingEnabled"],
   maintenance: ["continueThreadsAfterServerUpdate"],
 };
 
@@ -388,6 +388,16 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       disabled={disabledFor("enableAgentBrowserAccess")}
                       onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
                     />
+                    <View className="border-t border-border-subtle">
+                      <SettingsSwitchRow
+                        icon="lightbulb"
+                        label="Worth knowing"
+                        subtitle="Flag what you might miss in Claude, Codex, and OpenCode threads, using a hidden copy of each thread's conversation."
+                        value={uniform("worthKnowingEnabled")}
+                        disabled={disabledFor("worthKnowingEnabled")}
+                        onValueChange={(value) => write({ worthKnowingEnabled: value })}
+                      />
+                    </View>
                   </SettingsSection>
                 </>
               ) : null}

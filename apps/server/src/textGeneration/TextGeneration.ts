@@ -6,11 +6,13 @@ import type {
   ChatAttachment,
   ModelSelection,
   ProviderInstanceId,
+  ThreadId,
 } from "@t3tools/contracts";
 import { TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "../provider/ProviderDriver.ts";
+import type { ProviderAdapterV2RuntimePolicy } from "../orchestration-v2/ProviderAdapter.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as ThreadTitleLinks from "./ThreadTitleLinks.ts";
 import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
@@ -81,6 +83,34 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+export interface SideReplyInput {
+  /** The app thread whose conversation is forked; its live session's tools are reused. */
+  threadId: ThreadId;
+  /** The provider's own id for the conversation to fork. */
+  nativeThreadId: string;
+  cwd: string;
+  /** The thread's own selection, so the fork runs on the same model as the conversation. */
+  modelSelection: ModelSelection;
+  runtimePolicy: ProviderAdapterV2RuntimePolicy;
+  prompt: string;
+}
+
+/** The detail of the error a provider runtime returns when it cannot fork for side replies. */
+export const SIDE_REPLY_UNSUPPORTED =
+  "This provider runtime cannot fork conversations for side replies.";
+
+export interface SideReplyResult {
+  text: string;
+  /** Token counts when the provider reports them, to see how much of the fork was cached. */
+  usage?:
+    | {
+        readonly inputTokens: number;
+        readonly cachedInputTokens: number;
+        readonly outputTokens: number;
+      }
+    | undefined;
+}
+
 /**
  * TextGeneration - Service tag for commit and change request text generation.
  */
@@ -112,6 +142,15 @@ export class TextGeneration extends Context.Service<
     readonly generateThreadTitle: (
       input: ThreadTitleGenerationInput,
     ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+    /**
+     * Ask a hidden, tool-less fork of a provider conversation one question and
+     * return its reply, leaving the conversation itself untouched. Absent when
+     * the provider cannot fork its conversations.
+     */
+    readonly generateSideReply?: (
+      input: SideReplyInput,
+    ) => Effect.Effect<SideReplyResult, TextGenerationError>;
   }
 >()("t3/textGeneration/TextGeneration") {}
 

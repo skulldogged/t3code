@@ -119,6 +119,7 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as IdAllocator from "./orchestration-v2/IdAllocator.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as WorthKnowing from "./worthKnowing/WorthKnowingService.ts";
 import {
   archivedShellStreamItemFromThreadShell,
   buildActiveShellSnapshot,
@@ -1211,6 +1212,7 @@ const makeWsRpcLayer = (
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const worthKnowing = yield* WorthKnowing.WorthKnowingService;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const deviceService = yield* DeviceService.DeviceService;
@@ -2097,6 +2099,26 @@ const makeWsRpcLayer = (
             "rpc.aggregate": "scheduledTasks",
             "scheduled_task.id": input.id,
           }),
+        [WS_METHODS.worthKnowingSubscribeThread]: (input) =>
+          observeRpcStream(
+            WS_METHODS.worthKnowingSubscribeThread,
+            worthKnowing.subscribeThread(input.threadId),
+            { "rpc.aggregate": "worthKnowing", "orchestration_v2.thread_id": input.threadId },
+          ),
+        [WS_METHODS.worthKnowingSubscribeSummaries]: (_input) =>
+          observeRpcStream(
+            WS_METHODS.worthKnowingSubscribeSummaries,
+            worthKnowing.subscribeSummaries(),
+            { "rpc.aggregate": "worthKnowing" },
+          ),
+        [WS_METHODS.worthKnowingUpdateFinding]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.worthKnowingUpdateFinding,
+            worthKnowing.updateFinding(input),
+            {
+              "rpc.aggregate": "worthKnowing",
+            },
+          ),
         [WS_METHODS.serverProbe]: (_input) =>
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {
             "rpc.aggregate": "server",

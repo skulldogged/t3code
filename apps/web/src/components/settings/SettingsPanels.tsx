@@ -2470,6 +2470,34 @@ export function GeneralSettingsPanel() {
       <SettingsSection id="behavior" title="Behavior">
         <NotificationSettings />
         <SettingsRow
+          serverScoped
+          settingKeys={["worthKnowingEnabled"]}
+          {...searchableSetting("worth-knowing")}
+          description="After each run, a hidden copy of the thread's own conversation flags anything you might have missed, using the thread's model. Claude and OpenCode threads are also checked every few tool calls during long runs. Works with Claude, Codex, and OpenCode threads."
+          resetAction={
+            settings.worthKnowingEnabled !== DEFAULT_UNIFIED_SETTINGS.worthKnowingEnabled ? (
+              <SettingResetButton
+                label="worth knowing"
+                onClick={() =>
+                  updateSettings({
+                    worthKnowingEnabled: DEFAULT_UNIFIED_SETTINGS.worthKnowingEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["worthKnowingEnabled"]}
+              checked={settings.worthKnowingEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ worthKnowingEnabled: Boolean(checked) })
+              }
+              aria-label="Worth knowing"
+            />
+          }
+        />
+        <SettingsRow
           {...searchableSetting("in-app-notifications")}
           description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
           control={

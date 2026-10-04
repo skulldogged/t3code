@@ -163,6 +163,8 @@ import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementSer
 import * as ThreadPullRequestService from "./orchestration-v2/ThreadPullRequestService.ts";
 import * as RunFinalizationService from "./orchestration-v2/RunFinalizationService.ts";
 import * as ProjectionStoreV2 from "./orchestration-v2/ProjectionStore.ts";
+import * as RuntimePolicy from "./orchestration-v2/RuntimePolicy.ts";
+import * as WorthKnowing from "./worthKnowing/WorthKnowingService.ts";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -512,6 +514,15 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
     Layer.provide(ProjectionStoreV2.layer),
   ),
   ThreadPullRequestWorkerLive,
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const service = yield* WorthKnowing.WorthKnowingService;
+      yield* service.start();
+    }),
+  ).pipe(
+    Layer.provideMerge(WorthKnowing.layer),
+    Layer.provide(RuntimePolicy.layerFromProjectStore),
+  ),
   Layer.effectDiscard(
     Effect.gen(function* () {
       const service = yield* PullRequestSyncReactor.PullRequestSyncReactor;

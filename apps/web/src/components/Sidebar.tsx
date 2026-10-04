@@ -1,5 +1,6 @@
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
+import { WorthKnowingSidebarMarker } from "./WorthKnowingSidebarMarker";
 import { setThreadChangeRequestSnapshot } from "./ThreadStatusIndicators";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
 import {
@@ -1692,6 +1693,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       <TooltipPopup side="top">Unsent draft</TooltipPopup>
     </Tooltip>
   ) : null;
+  const worthKnowingMarker = (
+    <WorthKnowingSidebarMarker
+      environmentId={thread.environmentId}
+      threadId={thread.id}
+      lastVisitedAt={lastVisitedAt}
+      isActive={props.isActive}
+    />
+  );
   const showPin =
     props.isPinned && (!sortable?.isDragging || (props.dragOverPinned && props.dropVerb === null));
   const pinIndicator = showPin ? (
@@ -1766,6 +1775,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {draftIndicator}
             {title}
             {pinIndicator}
+            {worthKnowingMarker}
             {terminalStatusIcon}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
@@ -2083,6 +2093,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ) : (
                 <span className="flex-1" />
               )}
+              {worthKnowingMarker}
               {terminalStatusIcon}
               {prBadge}
               {diff ? (

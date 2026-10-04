@@ -299,6 +299,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["usage quota rate limit reset recover continue"],
   },
   {
+    id: "worth-knowing",
+    title: "Worth knowing",
+    to: "/settings/general",
+    searchTerms: [
+      "observer side agent heads up you should know flag missed skipped assumptions findings",
+    ],
+    scope: "project-defaults",
+  },
+  {
     id: "working-shelf",
     title: "Working section (beta)",
     to: "/settings/general",

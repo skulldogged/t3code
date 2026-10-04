@@ -215,6 +215,10 @@
       "types": "./src/state/usage.ts",
       "default": "./src/state/usage.ts"
     },
+    "./state/worth-knowing": {
+      "types": "./src/state/worthKnowing.ts",
+      "default": "./src/state/worthKnowing.ts"
+    },
     "./state/server": {
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"

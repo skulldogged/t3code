@@ -12,7 +12,7 @@
  *
  * @module provider/Drivers/OpenCodeDriver
  */
-import { OpenCodeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { OpenCodeSettings, ProviderDriverKind, TextGenerationError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -32,7 +32,10 @@ import * as OpenCodeAdapterV2 from "../../orchestration-v2/Adapters/OpenCodeAdap
 import * as OpenCode2AdapterV2 from "../../orchestration-v2/Adapters/OpenCode2AdapterV2.ts";
 import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
 import * as ServerSettings from "../../serverSettings.ts";
-import type { TextGeneration } from "../../textGeneration/TextGeneration.ts";
+import {
+  SIDE_REPLY_UNSUPPORTED,
+  type TextGeneration,
+} from "../../textGeneration/TextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { readOpenCodeGoUsageLimits } from "../Layers/openCodeUsageLimits.ts";
 import {
@@ -168,8 +171,20 @@ function selectOpenCodeRuntimeTextGeneration(
         v1: v1.generateThreadTitle(input),
         v2: v2.generateThreadTitle(input),
       }),
+    generateSideReply: (input) =>
+      byOpenCodeRuntime(probe.get, {
+        v1: v1.generateSideReply?.(input) ?? sideReplyUnsupported,
+        v2: v2.generateSideReply?.(input) ?? sideReplyUnsupported,
+      }),
   };
 }
+
+const sideReplyUnsupported = Effect.fail(
+  new TextGenerationError({
+    operation: "generateSideReply",
+    detail: SIDE_REPLY_UNSUPPORTED,
+  }),
+);
 
 export type OpenCodeDriverEnv =
   | OpenCodeAdapterV2.OpenCodeAdapterV2DriverEnv

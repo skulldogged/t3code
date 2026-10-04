@@ -24,6 +24,7 @@ import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { makeClaudeTextGeneration } from "../../textGeneration/ClaudeTextGeneration.ts";
+import { makeClaudeSideReply } from "../../textGeneration/ClaudeSideReply.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as ServerConfig from "../../config.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
@@ -186,11 +187,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
             }),
         ),
       );
-      const textGeneration = yield* makeClaudeTextGeneration(
-        effectiveConfig,
-        processEnv,
-        modelCatalog,
-      );
+      const textGeneration = {
+        ...(yield* makeClaudeTextGeneration(effectiveConfig, processEnv, modelCatalog)),
+        generateSideReply: yield* makeClaudeSideReply({ config: effectiveConfig, environment }),
+      };
 
       // Per-instance capabilities cache: keyed on binary + resolved HOME so
       // account-specific probes never share auth metadata across instances.

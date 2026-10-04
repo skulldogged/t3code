@@ -31,12 +31,14 @@ import { Tool, Toolkit } from "effect/unstable/ai";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
+import * as WorthKnowing from "../../../worthKnowing/WorthKnowingService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
   OrchestratorMcpService.OrchestratorMcpService,
 ];
+const threadReadDependencies = [...dependencies, WorthKnowing.WorthKnowingService];
 const threadMetadataDependencies = [
   McpInvocationContext.McpInvocationContext,
   ThreadMetadataMcpService.ThreadMetadataMcpService,
@@ -173,12 +175,12 @@ const ThreadListTool = Tool.make("t3_thread_list", {
 
 const ThreadReadTool = Tool.make("t3_thread_read", {
   description:
-    "Read durable state and a paginated timeline from a T3 thread in the calling project, or from a thread the user attached to this conversation as context. The default messages view returns user messages, assistant messages, and proposed plans; activity returns all summarized timeline items. Reading an untruncated terminal assistant result from this parent thread's direct app-owned child acknowledges that child's automatic completion delivery. Continue with afterPosition=nextPosition. Recover long item text with itemId and textOffset=nextTextOffset until nextTextOffset is null; offsets count UTF-16 code units.",
+    "Read durable state and a paginated timeline from a T3 thread in the calling project, or from a thread the user attached to this conversation as context. The default messages view returns user messages, assistant messages, and proposed plans; activity returns all summarized timeline items. Reading an untruncated terminal assistant result from this parent thread's direct app-owned child acknowledges that child's automatic completion delivery. Continue with afterPosition=nextPosition. Recover long item text with itemId and textOffset=nextTextOffset until nextTextOffset is null; offsets count UTF-16 code units. worthKnowing lists open findings T3's observer raised about things the user may have missed.",
   parameters: OrchestratorMcpThreadReadInput,
   success: OrchestratorMcpThreadReadResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
-  dependencies,
+  dependencies: threadReadDependencies,
 })
   .annotate(Tool.Title, "Read a T3 thread")
   .annotate(Tool.Readonly, false)

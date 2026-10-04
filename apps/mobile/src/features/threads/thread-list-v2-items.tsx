@@ -51,6 +51,7 @@ import {
 } from "./threadListV2";
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
+import { WorthKnowingListMarker } from "./worth-knowing-card";
 
 /**
  * Thread List v2 renders one flat native list: rich edge-to-edge rows for
@@ -936,6 +937,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           {props.projectTitle ?? props.project?.title ?? ""}
         </Text>
         {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
+        <WorthKnowingListMarker
+          environmentId={thread.environmentId}
+          threadId={thread.id}
+          lastVisitedAt={thread.lastVisitedAt}
+          selected={selected}
+        />
         {pinnedRow ? (
           <SymbolView
             name="pin"

@@ -1,5 +1,6 @@
 import { ChatCanvas } from "./chat/ChatCanvas";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
+import { useWorthKnowingBannerItems } from "./chat/WorthKnowingBanner";
 import {
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftHeroState,
@@ -7174,6 +7175,16 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const worthKnowingBannerItems = useWorthKnowingBannerItems({
+    environmentId,
+    threadId: isServerThread ? (activeThread?.id ?? null) : null,
+    // A run that ended without a final answer has no card to hold its findings.
+    activeRunId:
+      phase === "running" || activeThreadShell?.latestRun?.assistantMessageId === null
+        ? (activeThreadShell?.latestRun?.runId ?? null)
+        : null,
+    composerTarget: typeof composerDraftTarget === "string" ? null : composerDraftTarget,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const backgroundWorkItems = backgroundWorkBannerItem === null ? [] : [backgroundWorkBannerItem];
@@ -7188,6 +7199,7 @@ export default function ChatView(props: ChatViewProps) {
       return [
         ...feedbackBannerItems,
         ...limitRecoveryItems,
+        ...worthKnowingBannerItems,
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
@@ -7200,6 +7212,7 @@ export default function ChatView(props: ChatViewProps) {
     return [
       ...feedbackBannerItems,
       ...limitRecoveryItems,
+      ...worthKnowingBannerItems,
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
@@ -7263,6 +7276,7 @@ export default function ChatView(props: ChatViewProps) {
     systemComposerBannerItems,
     usageLimitsBanner,
     wokeThreadBannerItem,
+    worthKnowingBannerItems,
   ]);
 
   useEffect(() => {

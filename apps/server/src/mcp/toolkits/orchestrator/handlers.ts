@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
+import * as WorthKnowing from "../../../worthKnowing/WorthKnowingService.ts";
 
 const handlers = {
   orchestrator_capabilities: () =>
@@ -70,7 +71,26 @@ const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.readThread(scope, input);
+      const worthKnowing = yield* WorthKnowing.WorthKnowingService;
+      const result = yield* service.readThread(scope, input);
+      // Read only after the thread read succeeded, which checked the caller may see it.
+      const open = (yield* worthKnowing
+        .listThread(input.threadId)
+        .pipe(Effect.orElseSucceed(() => []))).filter((finding) => finding.status === "open");
+      return open.length === 0
+        ? result
+        : {
+            ...result,
+            worthKnowing: open.map((finding) => ({
+              id: finding.id,
+              tag: finding.tag,
+              title: finding.title,
+              learn: finding.learn,
+              body: finding.body,
+              runId: finding.runId,
+              evidenceItemId: finding.evidence?.itemId ?? null,
+            })),
+          };
     }),
   t3_thread_update: (input) =>
     Effect.gen(function* () {

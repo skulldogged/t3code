@@ -315,6 +315,14 @@ import {
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
 import {
+  WorthKnowingError,
+  WorthKnowingSummariesResult,
+  WorthKnowingThreadInput,
+  WorthKnowingThreadResult,
+  WorthKnowingUpdateFindingInput,
+  WorthKnowingUpdateFindingResult,
+} from "./worthKnowing.ts";
+import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
   ProjectCloneListEvent,
@@ -473,6 +481,11 @@ export const WS_METHODS = {
   scheduledTasksSetEnabled: "scheduledTasks.setEnabled",
   scheduledTasksDelete: "scheduledTasks.delete",
   scheduledTasksRunNow: "scheduledTasks.runNow",
+
+  // Worth knowing
+  worthKnowingSubscribeThread: "worthKnowing.subscribeThread",
+  worthKnowingSubscribeSummaries: "worthKnowing.subscribeSummaries",
+  worthKnowingUpdateFinding: "worthKnowing.updateFinding",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -1661,6 +1674,28 @@ const WsScheduledTasksRunNowRpc = Rpc.make(WS_METHODS.scheduledTasksRunNow, {
   error: Schema.Union([ScheduledTaskError, EnvironmentAuthorizationError]),
 });
 
+/** Streams one thread's findings: a snapshot on subscribe, then the full list after every change. */
+const WsWorthKnowingSubscribeThreadRpc = Rpc.make(WS_METHODS.worthKnowingSubscribeThread, {
+  payload: WorthKnowingThreadInput,
+  success: WorthKnowingThreadResult,
+  error: Schema.Union([WorthKnowingError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+/** Streams a summary per thread with open findings, for sidebar markers and notifications. */
+const WsWorthKnowingSubscribeSummariesRpc = Rpc.make(WS_METHODS.worthKnowingSubscribeSummaries, {
+  payload: Schema.Struct({}),
+  success: WorthKnowingSummariesResult,
+  error: Schema.Union([WorthKnowingError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsWorthKnowingUpdateFindingRpc = Rpc.make(WS_METHODS.worthKnowingUpdateFinding, {
+  payload: WorthKnowingUpdateFindingInput,
+  success: WorthKnowingUpdateFindingResult,
+  error: Schema.Union([WorthKnowingError, EnvironmentAuthorizationError]),
+});
+
 const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess, {
   payload: Schema.Struct({}),
   success: AuthAccessStreamEvent,
@@ -1736,6 +1771,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksSetEnabledRpc,
   WsScheduledTasksDeleteRpc,
   WsScheduledTasksRunNowRpc,
+  WsWorthKnowingSubscribeThreadRpc,
+  WsWorthKnowingSubscribeSummariesRpc,
+  WsWorthKnowingUpdateFindingRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

@@ -1,5 +1,6 @@
 import { ThreadContextDivider } from "./thread-context-divider";
 import { ThreadHandoffRow } from "./thread-handoff-row";
+import { WorthKnowingRunCard } from "./worth-knowing-card";
 import {
   WorktreeWorkingHeader,
   WorktreeSetupCard,
@@ -1949,6 +1950,13 @@ function renderFeedEntry(
               {timestampLabel}
             </Text>
           </View>
+        ) : null}
+        {showAssistantMeta && message.runId ? (
+          <WorthKnowingRunCard
+            environmentId={props.environmentId}
+            threadId={message.projectedItem?.sourceThreadId ?? props.threadId}
+            runId={message.runId}
+          />
         ) : null}
       </Animated.View>
     );

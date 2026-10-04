@@ -24,6 +24,7 @@ import {
 import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
 import { ThreadLinkedPullRequest } from "./threadPullRequest.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
+import { WorthKnowingFindingId, WorthKnowingTag } from "./worthKnowing.ts";
 import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
@@ -396,12 +397,25 @@ export const OrchestratorMcpThreadTimelineItem = Schema.Struct({
 });
 export type OrchestratorMcpThreadTimelineItem = typeof OrchestratorMcpThreadTimelineItem.Type;
 
+/** An open "Worth knowing" finding: something the thread's observer thinks the user may have missed. */
+export const OrchestratorMcpWorthKnowingFinding = Schema.Struct({
+  id: WorthKnowingFindingId,
+  tag: WorthKnowingTag,
+  title: Schema.String,
+  learn: Schema.String,
+  body: Schema.String,
+  runId: RunId,
+  evidenceItemId: Schema.NullOr(TurnItemId),
+});
+export type OrchestratorMcpWorthKnowingFinding = typeof OrchestratorMcpWorthKnowingFinding.Type;
+
 export const OrchestratorMcpThreadReadResult = Schema.Struct({
   thread: OrchestratorMcpThreadDetail,
   recentRuns: Schema.Array(OrchestratorMcpThreadRun),
   items: Schema.Array(OrchestratorMcpThreadTimelineItem),
   nextPosition: Schema.NullOr(NonNegativeInt),
   hasMore: Schema.Boolean,
+  worthKnowing: Schema.optional(Schema.Array(OrchestratorMcpWorthKnowingFinding)),
 });
 export type OrchestratorMcpThreadReadResult = typeof OrchestratorMcpThreadReadResult.Type;
 
