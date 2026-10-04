@@ -74,6 +74,17 @@ function assistantText(message: SDKMessage): string | undefined {
   return text.length === 0 ? undefined : text;
 }
 
+// A fork of a session whose background tasks were still running reports them
+// as stopped and closes that out with an empty result before it reads the
+// prompt. The reply's own result follows.
+function isBackgroundTaskBookkeeping(message: SDKMessage): boolean {
+  return (
+    message.type === "result" &&
+    message.origin?.kind === "task-notification" &&
+    message.num_turns === 0
+  );
+}
+
 export const makeClaudeSideReply = Effect.fn("makeClaudeSideReply")(function* (input: {
   readonly config: ClaudeSettings;
   readonly environment: ProviderInstanceEnvironment | undefined;
@@ -155,6 +166,7 @@ export const makeClaudeSideReply = Effect.fn("makeClaudeSideReply")(function* (i
       return yield* Stream.fromAsyncIterable(claudeQueryMessages(queryRuntime), (cause) =>
         sideReplyError("The Claude fork stopped before replying.", cause),
       ).pipe(
+        Stream.filter((message) => !isBackgroundTaskBookkeeping(message)),
         Stream.takeUntil((message) => message.type === "result"),
         Stream.runFold(
           (): CollectedReply => ({ texts: [], result: undefined }),
