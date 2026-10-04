@@ -254,7 +254,8 @@ import {
   setActivePreviewTab,
   useThreadPreviewState,
 } from "../previewStateStore";
-import { BrowserSettingsReadError } from "../browser/openFileInPreview";
+import { BrowserSettingsReadError, openUrlInPreview } from "../browser/openFileInPreview";
+import { resolveDiscoveredServerUrl } from "../browser/browserTargetResolver";
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
@@ -317,6 +318,7 @@ import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
+  shouldShowInstanceBadge,
   sortProviderInstanceEntries,
 } from "../providerInstances";
 import {
@@ -3002,6 +3004,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [setDismissedVersionMismatchKey, versionMismatchDismissKey]);
   const serverUpdateEnvironmentId = activeThread?.environmentId ?? null;
   const versionMismatchSelfUpdate = resolveServerSelfUpdateCapability(serverConfig);
+  const versionMismatchInstallation = serverConfig?.environment.capabilities.serverInstallation;
   const versionMismatchDesktopAppUpdate = supportsDesktopAppUpdate(serverConfig);
   const versionMismatchThreadContinuation = supportsServerUpdateThreadContinuation(serverConfig);
   const serverUpdateState = useAtomValue(
@@ -3123,6 +3126,7 @@ export default function ChatView(props: ChatViewProps) {
             environmentId={serverUpdateEnvironmentId}
             serverLabel={versionMismatchServerLabel}
             selfUpdate={versionMismatchSelfUpdate}
+            installation={versionMismatchInstallation}
             desktopAppUpdate={versionMismatchDesktopAppUpdate}
             threadContinuation={versionMismatchThreadContinuation}
             targetVersion={versionMismatch.clientVersion}
@@ -3164,6 +3168,7 @@ export default function ChatView(props: ChatViewProps) {
     versionMismatchDismissKey,
     serverUpdateEnvironmentId,
     versionMismatchSelfUpdate,
+    versionMismatchInstallation,
     versionMismatchDesktopAppUpdate,
     versionMismatchThreadContinuation,
     versionMismatchServerLabel,
@@ -4342,7 +4347,8 @@ export default function ChatView(props: ChatViewProps) {
           : "Auto balance"
     : undefined;
 
-  const environmentChangeRef = useRef<symbol | null>(null);
+  // The machine an in-flight switch is heading to; a newer switch replaces it.
+  const environmentChangeRef = useRef<{ readonly environmentId: EnvironmentId } | null>(null);
   const [isEnvironmentChanging, setIsEnvironmentChanging] = useState(false);
   useLayoutEffect(() => {
     return () => {
@@ -4360,7 +4366,7 @@ export default function ChatView(props: ChatViewProps) {
         (env) => env.environmentId === nextEnvironmentId,
       );
       if (!target) return;
-      const request = Symbol();
+      const request = { environmentId: target.environmentId };
       environmentChangeRef.current = request;
       setIsEnvironmentChanging(false);
       const retarget = (project: (typeof allProjects)[number]) => {
@@ -4408,7 +4414,7 @@ export default function ChatView(props: ChatViewProps) {
       }
       // Keep send disabled until the destination Scratch project is ready.
       setIsEnvironmentChanging(true);
-      void openScratchProject(target.environmentId)
+      void openScratchProject(target.environmentId, "Could not switch machine")
         .then((project) => {
           if (project) retarget(project);
         })
@@ -4902,12 +4908,32 @@ export default function ChatView(props: ChatViewProps) {
           data: `${script.command}\r`,
         },
       });
-      if (writeResult._tag === "Failure" && !isAtomCommandInterrupted(writeResult)) {
-        const error = squashAtomCommandFailure(writeResult);
-        setThreadError(
-          activeThreadId,
-          error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
-        );
+      if (writeResult._tag === "Failure") {
+        if (!isAtomCommandInterrupted(writeResult)) {
+          const error = squashAtomCommandFailure(writeResult);
+          setThreadError(
+            activeThreadId,
+            error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
+          );
+        }
+        return;
+      }
+      if (script.autoOpenPreview && script.previewUrl && isPreviewSupportedInRuntime()) {
+        const previewResult = await openUrlInPreview({
+          threadRef: activeThreadRef,
+          url: resolveDiscoveredServerUrl(activeThreadRef.environmentId, script.previewUrl),
+          openPreview,
+        });
+        if (previewResult._tag === "Failure" && !isAtomCommandInterrupted(previewResult)) {
+          const error = squashAtomCommandFailure(previewResult);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not open preview",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
+        }
       }
     },
     [
@@ -4923,6 +4949,7 @@ export default function ChatView(props: ChatViewProps) {
       setLastInvokedScriptByProjectId,
       environmentId,
       openTerminal,
+      openPreview,
       activeKnownTerminalIds,
       allocatableActiveTerminalIds,
       runningTerminalIds,
@@ -7778,6 +7805,21 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "composer.cycleHost") {
+        if (envLocked || !draftId || !hasMultipleEnvironments) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        // Step from where a pending switch is heading, so repeated presses keep advancing.
+        const currentId = environmentChangeRef.current?.environmentId ?? environmentId;
+        const index = logicalProjectEnvironments.findIndex(
+          (env) => env.environmentId === currentId,
+        );
+        const next = logicalProjectEnvironments[(index + 1) % logicalProjectEnvironments.length];
+        if (next) onEnvironmentChange(next.environmentId);
+        return;
+      }
+
       if (command === "composer.branch") {
         event.preventDefault();
         event.stopPropagation();
@@ -7867,6 +7909,12 @@ export default function ChatView(props: ChatViewProps) {
     toggleThreadPanel,
     toggleTerminalVisibility,
     composerRef,
+    draftId,
+    environmentId,
+    envLocked,
+    hasMultipleEnvironments,
+    logicalProjectEnvironments,
+    onEnvironmentChange,
   ]);
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
@@ -11132,6 +11180,13 @@ export default function ChatView(props: ChatViewProps) {
                           {showProviderSubagentBar ? (
                             <ProviderSubagentBar
                               provider={selectedProviderEntry ?? null}
+                              showInstanceBadge={
+                                selectedProviderEntry !== undefined &&
+                                shouldShowInstanceBadge(
+                                  selectedProviderEntry,
+                                  providerInstanceEntries,
+                                )
+                              }
                               modelLabel={providerSubagentModelLabel}
                               effortLabel={providerSubagentEffortLabel}
                               status={providerSubagentStatus}
