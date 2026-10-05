@@ -182,7 +182,7 @@ const approvalStatus = Schema.Struct({
 const ApprovalRequestTool = Tool.make("t3_approval_request", {
   ...commandTool,
   description:
-    "Ask the user to approve something in this thread on behalf of a tool outside the provider, such as a privilege broker. It appears with the thread's other approvals and only the user can answer it; the thread gets a message when they do. Requires a running turn. Read the outcome with t3_approval_status.",
+    "Ask the user to approve something in this thread on behalf of a tool outside the provider, such as a privilege broker. It appears with the thread's other approvals and only the user can answer it. A refusal posts a notice to the thread; an approval doesn't, so the asking tool should report what it then does. Requires a running turn. Read the outcome with t3_approval_status.",
   parameters: Schema.Struct({
     prompt: TrimmedNonEmptyString,
     appName: Schema.optional(TrimmedNonEmptyString),

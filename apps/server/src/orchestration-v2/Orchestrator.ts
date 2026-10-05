@@ -7040,18 +7040,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         );
       }
       if (runtimeRequest.responseCapability.type === "external") {
-        // Nothing waits on a provider callback, so tell the agent in its thread.
-        const outcome =
-          command.decision === "accept"
-            ? "Approved"
-            : command.decision === "acceptForSession"
-              ? "Approved for this thread"
-              : command.decision === "decline"
-                ? "Declined"
-                : "Cancelled";
+        // Nothing waits on a provider callback. An approved request reports
+        // back itself (fleet posts the command's result), so only a refusal
+        // needs a notice to tell the agent not to wait for one.
+        if (command.decision === "accept" || command.decision === "acceptForSession") return;
+        const outcome = command.decision === "decline" ? "Declined" : "Cancelled";
         const item = approvalTurnItem?.type === "approval_request" ? approvalTurnItem : undefined;
         const asker = item?.appName ? `${item.appName}'s request` : "the approval request";
-        const approved = command.decision === "accept" || command.decision === "acceptForSession";
         // A notice, not a user message: the user answered in the approval card.
         return yield* dispatchMessage(
           {
@@ -7063,7 +7058,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             attachments: [],
             notification: {
               source: { kind: "background_task" },
-              outcome: approved ? "completed" : "cancelled",
+              outcome: "cancelled",
               summary: `${outcome} ${asker}`,
             },
             createdBy: "agent",
