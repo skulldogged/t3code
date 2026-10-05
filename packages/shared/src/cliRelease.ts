@@ -6,7 +6,7 @@
  */
 
 const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
-const PERSONAL_CLI_RELEASE_REPOSITORY = "skulldogged/t3code";
+const PERSONAL_CLI_RELEASE_REPOSITORY = "skulldorged/t3code";
 const isPersonalRelease = (version: string) =>
   /^\d+\.\d+\.\d+-(?:nightly|preview)\.\d{8}\.\d+\.personal\.\d+$/.test(version);
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
