@@ -35,6 +35,7 @@ import { layer as providerContinuationRequestsLayer } from "./ProviderContinuati
 import { workerLive as providerContinuationWorkerLive } from "./ProviderContinuationService.ts";
 import { layer as threadTitleRegenerationServiceLayer } from "./ThreadTitleRegenerationService.ts";
 import { layer as providerEventIngestorLayer } from "./ProviderEventIngestor.ts";
+import { layer as externalApprovalsLayer } from "./ExternalApprovals.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { layer as providerSessionManagerLayer } from "./ProviderSessionManager.ts";
 import { layer as providerRuntimeRecoveryLayer } from "./ProviderRuntimeRecoveryService.ts";
@@ -105,6 +106,17 @@ const providerEventIngestorProvided = providerEventIngestorLayer.pipe(
       idAllocatorLayer,
       projectionStoreLayer,
       ThreadCommandExecutor.layer,
+    ),
+  ),
+);
+
+const externalApprovalsProvided = externalApprovalsLayer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      idAllocatorLayer,
+      projectionStoreLayer,
+      providerEventIngestorProvided,
+      turnItemPositionStoreLayer,
     ),
   ),
 );
@@ -298,6 +310,7 @@ const providerRuntimeRecoveryProvided = providerRuntimeRecoveryLayer.pipe(
 
 export const OrchestrationV2LayerLive = Layer.mergeAll(
   orchestratorProvided,
+  externalApprovalsProvided,
   threadManagementProvided,
   effectWorkerProvided,
   providerSessionManagerProvided,

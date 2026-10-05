@@ -19,6 +19,7 @@ import {
   unavailable,
 } from "../../threadAccess.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
+import * as ExternalApprovals from "../../../orchestration-v2/ExternalApprovals.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import { ThreadToolkit } from "./tools.ts";
@@ -75,7 +76,44 @@ const readQuestion = Effect.fn("mcp.readQuestion")(function* (
     });
   return { ...context, request, item };
 });
+const approvalFailure = (error: ExternalApprovals.ExternalApprovalError) =>
+  error.reason === "unexpected-failure"
+    ? unavailable()
+    : new OrchestratorMcpFailure({ code: "invalid_request", message: error.message });
+
+/** Approvals belong to the calling thread; another thread can't ask or read them. */
+const callingThread = Effect.fn("mcp.callingThread")(function* () {
+  const { caller } = yield* readCaller();
+  if (caller === undefined)
+    return yield* new OrchestratorMcpFailure({
+      code: "invalid_request",
+      message: "Approvals can only be requested from a T3 thread.",
+    });
+  return caller.id;
+});
+
 export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
+  t3_approval_request: (input) =>
+    Effect.gen(function* () {
+      const threadId = yield* callingThread();
+      const approvals = yield* ExternalApprovals.ExternalApprovals;
+      return yield* approvals
+        .raise({
+          threadId,
+          prompt: input.prompt,
+          ...(input.appName === undefined ? {} : { appName: input.appName }),
+          ...(input.options === undefined ? {} : { options: input.options }),
+        })
+        .pipe(Effect.mapError(approvalFailure));
+    }),
+  t3_approval_status: (input) =>
+    Effect.gen(function* () {
+      const threadId = yield* callingThread();
+      const approvals = yield* ExternalApprovals.ExternalApprovals;
+      return yield* approvals
+        .status({ threadId, requestId: input.requestId })
+        .pipe(Effect.mapError(approvalFailure));
+    }),
   run_scheduled_task_now: (input) =>
     Effect.gen(function* () {
       yield* readFullAccessCaller(

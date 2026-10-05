@@ -18,6 +18,8 @@ import {
   RunId,
   NonNegativeInt,
   ProjectId,
+  ProviderApprovalDecision,
+  ProviderApprovalOption,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
@@ -26,6 +28,7 @@ import { Tool, Toolkit } from "effect/unstable/ai";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as ExternalApprovals from "../../../orchestration-v2/ExternalApprovals.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
@@ -171,6 +174,36 @@ const PendingRequestRespondTool = Tool.make("t3_pending_request_respond", {
   .annotate(Tool.Destructive, true)
   .annotate(Tool.OpenWorld, true);
 
+const approvalStatus = Schema.Struct({
+  requestId: RuntimeRequestId,
+  status: Schema.Literals(["pending", "resolved", "expired", "cancelled"]),
+  decision: Schema.optional(ProviderApprovalDecision),
+});
+const ApprovalRequestTool = Tool.make("t3_approval_request", {
+  ...commandTool,
+  description:
+    "Ask the user to approve something in this thread on behalf of a tool outside the provider, such as a privilege broker. It appears with the thread's other approvals and only the user can answer it; the thread gets a message when they do. Requires a running turn. Read the outcome with t3_approval_status.",
+  parameters: Schema.Struct({
+    prompt: TrimmedNonEmptyString,
+    appName: Schema.optional(TrimmedNonEmptyString),
+    options: Schema.optional(Schema.Array(ProviderApprovalOption)),
+  }),
+  success: approvalStatus,
+  dependencies: [...commandTool.dependencies, ExternalApprovals.ExternalApprovals],
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, true);
+const ApprovalStatusTool = Tool.make("t3_approval_status", {
+  ...commandTool,
+  description:
+    "Read whether an approval asked with t3_approval_request in this thread has been answered, and the decision.",
+  parameters: Schema.Struct({ requestId: RuntimeRequestId }),
+  success: approvalStatus,
+  dependencies: [...commandTool.dependencies, ExternalApprovals.ExternalApprovals],
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
 const ThreadConfigurationTool = Tool.make("t3_thread_configuration", {
   ...commandTool,
   description:
@@ -278,6 +311,8 @@ export const ThreadToolkit = Toolkit.make(
   PendingRequestListTool,
   PendingRequestReadTool,
   PendingRequestRespondTool,
+  ApprovalRequestTool,
+  ApprovalStatusTool,
   ThreadOrganizeTool,
   QueueListTool,
   QueueReadTool,

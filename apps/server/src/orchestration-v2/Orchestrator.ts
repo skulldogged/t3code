@@ -7027,6 +7027,34 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           effects,
         );
       }
+      if (runtimeRequest.responseCapability.type === "external") {
+        // Nothing waits on a provider callback, so tell the agent in its thread.
+        const outcome =
+          command.decision === "accept"
+            ? "Approved"
+            : command.decision === "acceptForSession"
+              ? "Approved for this thread"
+              : command.decision === "decline"
+                ? "Declined"
+                : "Cancelled";
+        const item = approvalTurnItem?.type === "approval_request" ? approvalTurnItem : undefined;
+        const asker = item?.appName ? `${item.appName}'s request` : "the approval request";
+        return yield* dispatchMessage(
+          {
+            type: "message.dispatch",
+            commandId: command.commandId,
+            threadId: command.threadId,
+            messageId: MessageId.make(`external-approval:${command.requestId}`),
+            text: `${outcome} ${asker}${item?.prompt === undefined ? "." : `:\n\n${item.prompt}`}`,
+            attachments: [],
+            createdBy: "user",
+            creationSource: "server",
+            dispatchMode: { type: "queue_after_active" },
+          },
+          events,
+          effects,
+        );
+      }
       if (providerSessionId === null) return;
       yield* Ref.update(effects, (existing) => [
         ...existing,

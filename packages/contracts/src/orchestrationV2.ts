@@ -979,6 +979,8 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
     Schema.Struct({ type: Schema.Literal("live"), providerSessionId: ProviderSessionId }),
     Schema.Struct({ type: Schema.Literal("message") }),
     Schema.Struct({ type: Schema.Literal("not_resumable"), reason: Schema.String }),
+    /** Raised by something outside the provider, which reads the decision back. */
+    Schema.Struct({ type: Schema.Literal("external") }),
   ]),
   createdAt: Schema.DateTimeUtc,
   resolvedAt: Schema.NullOr(Schema.DateTimeUtc),

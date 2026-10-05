@@ -86,7 +86,11 @@ export function derivePendingThreadRequests(
       ...(item?.type === "approval_request" && item.options !== undefined
         ? { options: item.options }
         : {}),
-      responseCapability: responseCapability === "live" ? "live" : "not_resumable",
+      // External approvals are answered here and read back by whoever asked.
+      responseCapability:
+        responseCapability === "live" || responseCapability === "external"
+          ? "live"
+          : "not_resumable",
     });
   }
 

@@ -1214,6 +1214,15 @@ export function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      // One app-server runs every thread, so the thread's own variables reach
+      // its commands through the shell environment policy.
+      ...(input.threadId === null
+        ? {}
+        : Object.fromEntries(
+            Object.entries(McpProviderSession.threadCommandEnvironment(input.threadId)).map(
+              ([key, value]) => [`shell_environment_policy.set.${key}`, value],
+            ),
+          )),
       ...(mcpSession === undefined
         ? {}
         : {

@@ -24,6 +24,22 @@ export interface McpProviderSessionConfig {
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
 }
 
+/**
+ * Variables that tell the commands a harness runs which thread they belong to
+ * and how to reach T3's MCP endpoint as that thread, so a tool the agent
+ * starts (a job runner that reports back when a build ends, for example) can
+ * post to the thread or ask the user something on its behalf.
+ */
+export function threadCommandEnvironment(threadId: ThreadId): Record<string, string> {
+  const session = readMcpProviderSession(threadId);
+  return {
+    T3_THREAD_ID: threadId,
+    ...(session === undefined
+      ? {}
+      : { T3_MCP_URL: session.endpoint, T3_MCP_AUTHORIZATION: session.authorizationHeader }),
+  };
+}
+
 /** Provider env with the device variables applied over `base`, or `base` untouched. */
 export function withAgentDeviceEnvironment(
   base: NodeJS.ProcessEnv,
