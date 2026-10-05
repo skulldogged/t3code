@@ -203,6 +203,20 @@ const ApprovalStatusTool = Tool.make("t3_approval_status", {
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
+const ThreadNotifyTool = Tool.make("t3_thread_notify", {
+  ...commandTool,
+  description:
+    "Post a notice to this thread on behalf of a tool outside the provider, such as a job runner reporting that a command finished. The user sees a notice with the summary, not a chat message; the agent gets the text, waking it if idle. Retrying with the same clientRequestId posts it once.",
+  parameters: Schema.Struct({
+    summary: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+    text: TrimmedNonEmptyString,
+    outcome: Schema.Literals(["completed", "failed", "cancelled", "updated"]),
+    clientRequestId: TrimmedNonEmptyString.check(Schema.isMaxLength(120)),
+  }),
+  success: Schema.Struct({ threadId: ThreadId }),
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, true);
 
 const ThreadConfigurationTool = Tool.make("t3_thread_configuration", {
   ...commandTool,
@@ -313,6 +327,7 @@ export const ThreadToolkit = Toolkit.make(
   PendingRequestRespondTool,
   ApprovalRequestTool,
   ApprovalStatusTool,
+  ThreadNotifyTool,
   ThreadOrganizeTool,
   QueueListTool,
   QueueReadTool,

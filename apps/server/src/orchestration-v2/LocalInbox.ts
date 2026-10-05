@@ -11,18 +11,30 @@ import * as ThreadManagement from "./ThreadManagementService.ts";
 
 /**
  * Messages that local tools leave for a thread as files in `<stateDir>/inbox`,
- * delivered like `t3_thread_send` in queue mode, so an idle agent wakes up.
+ * delivered as a notice in the thread (not a message from the user), queued
+ * like `t3_thread_send` so an idle agent wakes up.
  * A file needs no credential and outlives server restarts, so a build that
  * ends hours after its agent's provider session closed still reaches the
  * thread. Writers create `<id>.json` atomically (write elsewhere, then rename)
- * as `{ "id": "...", "threadId": "...", "text": "..." }`. Delivered files are
+ * as `{ "id": "...", "threadId": "...", "text": "..." }`, optionally with a
+ * one-line `summary` for the notice (else the text's first line) and an
+ * `outcome` (completed, failed, cancelled or updated). Delivered files are
  * removed; files that can never be delivered move to `inbox/failed`.
  */
 const InboxMessage = Schema.Struct({
   id: TrimmedNonEmptyString,
   threadId: ThreadId,
   text: TrimmedNonEmptyString,
+  summary: Schema.optional(TrimmedNonEmptyString),
+  outcome: Schema.optional(Schema.Literals(["completed", "failed", "cancelled", "updated"])),
 });
+
+const SUMMARY_MAX_LENGTH = 200;
+
+function noticeSummary(summary: string | undefined, text: string): string {
+  const line = (summary ?? text).trim().split("\n")[0]!.trim();
+  return line.length > SUMMARY_MAX_LENGTH ? `${line.slice(0, SUMMARY_MAX_LENGTH - 1)}…` : line;
+}
 const decodeInboxMessage = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxMessage));
 
 export const workerLive = Layer.effectDiscard(
@@ -53,7 +65,7 @@ export const workerLive = Layer.effectDiscard(
         if (raw._tag === "None") return;
         const message = yield* decodeInboxMessage(raw.value).pipe(Effect.option);
         if (message._tag === "None") return yield* setAside(file, name, "not a valid message");
-        const { id, threadId, text } = message.value;
+        const { id, threadId, text, summary, outcome } = message.value;
         const thread = yield* threads.getThreadShell(threadId).pipe(Effect.option);
         if (thread._tag === "None") return; // The store is busy; try again next sweep.
         if (thread.value === null || thread.value.deletedAt !== null) {
@@ -70,6 +82,11 @@ export const workerLive = Layer.effectDiscard(
             mode: "queue",
             createdBy: "agent",
             creationSource: "server",
+            notification: {
+              source: { kind: "command" },
+              outcome: outcome ?? "updated",
+              summary: noticeSummary(summary, text),
+            },
           })
           .pipe(Effect.result);
         if (sent._tag === "Failure") {

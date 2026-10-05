@@ -14,6 +14,7 @@ import {
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2CreationSource,
+  type OrchestrationV2Notification,
   type OrchestrationV2Run,
   type OrchestrationV2ThreadShellSnapshot,
   type OrchestrationV2ThreadProjection,
@@ -111,6 +112,8 @@ export interface ThreadManagementSendInput {
   readonly mode: ThreadManagementSendMode;
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
+  /** Shows the message as a notice rather than a chat message; requires a server-created queued send. */
+  readonly notification?: OrchestrationV2Notification;
 }
 
 export interface ThreadManagementSendResult {
@@ -575,6 +578,7 @@ const make = Effect.gen(function* () {
         text: input.text,
         attachments: input.attachments,
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+        ...(input.notification === undefined ? {} : { notification: input.notification }),
         dispatchMode,
         createdBy: input.createdBy,
         creationSource: input.creationSource,

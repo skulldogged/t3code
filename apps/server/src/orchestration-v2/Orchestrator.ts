@@ -7051,6 +7051,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : "Cancelled";
         const item = approvalTurnItem?.type === "approval_request" ? approvalTurnItem : undefined;
         const asker = item?.appName ? `${item.appName}'s request` : "the approval request";
+        const approved = command.decision === "accept" || command.decision === "acceptForSession";
+        // A notice, not a user message: the user answered in the approval card.
         return yield* dispatchMessage(
           {
             type: "message.dispatch",
@@ -7059,7 +7061,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             messageId: MessageId.make(`external-approval:${command.requestId}`),
             text: `${outcome} ${asker}${item?.prompt === undefined ? "." : `:\n\n${item.prompt}`}`,
             attachments: [],
-            createdBy: "user",
+            notification: {
+              source: { kind: "background_task" },
+              outcome: approved ? "completed" : "cancelled",
+              summary: `${outcome} ${asker}`,
+            },
+            createdBy: "agent",
             creationSource: "server",
             dispatchMode: { type: "queue_after_active" },
           },

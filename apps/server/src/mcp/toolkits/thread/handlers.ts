@@ -1,5 +1,6 @@
 import {
-  type CommandId,
+  CommandId,
+  MessageId,
   type RuntimeRequestId,
   ThreadId,
   type OrchestrationV2ThreadProjection,
@@ -105,6 +106,35 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
           ...(input.options === undefined ? {} : { options: input.options }),
         })
         .pipe(Effect.mapError(approvalFailure));
+    }),
+  t3_thread_notify: (input) =>
+    Effect.gen(function* () {
+      const { caller, threads } = yield* readCaller();
+      if (caller === undefined)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "Notices can only be posted from a T3 thread.",
+        });
+      const id = `notice:${caller.id}:${input.clientRequestId}`;
+      yield* threads
+        .sendToThread({
+          projectId: caller.projectId,
+          commandId: CommandId.make(id),
+          threadId: caller.id,
+          messageId: MessageId.make(id),
+          text: input.text,
+          attachments: [],
+          mode: "queue",
+          createdBy: "agent",
+          creationSource: "server",
+          notification: {
+            source: { kind: "command" },
+            outcome: input.outcome,
+            summary: input.summary,
+          },
+        })
+        .pipe(Effect.mapError(unavailable));
+      return { threadId: caller.id };
     }),
   t3_approval_status: (input) =>
     Effect.gen(function* () {
