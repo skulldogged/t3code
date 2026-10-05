@@ -956,11 +956,16 @@ export function makeOpenCodeAdapterV2(
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const scope = yield* Effect.scope;
         const cwd = input.runtimePolicy.cwd ?? serverConfig.cwd;
+        // Each thread gets its own server, so its commands can be told which
+        // thread they run for, as Claude's and Codex's are.
         const connection = yield* runtime.connectToOpenCodeServer({
           binaryPath: options.settings.binaryPath,
           directory: cwd,
           serverUrl: options.settings.serverUrl,
-          environment: options.environment,
+          environment: {
+            ...options.environment,
+            ...McpProviderSession.threadCommandEnvironment(input.threadId),
+          },
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,
