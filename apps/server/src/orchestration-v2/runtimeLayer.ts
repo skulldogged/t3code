@@ -36,6 +36,7 @@ import { workerLive as providerContinuationWorkerLive } from "./ProviderContinua
 import { layer as threadTitleRegenerationServiceLayer } from "./ThreadTitleRegenerationService.ts";
 import { layer as providerEventIngestorLayer } from "./ProviderEventIngestor.ts";
 import { layer as externalApprovalsLayer } from "./ExternalApprovals.ts";
+import * as LocalInbox from "./LocalInbox.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { layer as providerSessionManagerLayer } from "./ProviderSessionManager.ts";
 import { layer as providerRuntimeRecoveryLayer } from "./ProviderRuntimeRecoveryService.ts";
@@ -330,6 +331,7 @@ export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
   UsageLimitRecoveryWorker.workerLive.pipe(
     Layer.provide(Layer.mergeAll(projectionStoreLayer, threadManagementProvided)),
   ),
+  LocalInbox.workerLive.pipe(Layer.provide(threadManagementProvided)),
   providerContinuationWorkerProvided,
   agentSessionImporterProvided,
 ).pipe(
