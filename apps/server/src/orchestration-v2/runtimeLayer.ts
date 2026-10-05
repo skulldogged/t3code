@@ -17,7 +17,10 @@ import { layer as checkpointRollbackServiceLayer } from "./CheckpointRollbackSer
 import { layer as commandPolicyLayer } from "./CommandPolicy.ts";
 import { layerFromApplicationReceipts as commandReceiptStoreLayer } from "./CommandReceiptStore.ts";
 import { layer as contextHandoffServiceLayer } from "./ContextHandoffService.ts";
-import { layer as effectOutboxLayer } from "./EffectOutbox.ts";
+import {
+  layer as effectOutboxLayer,
+  pruneWorkerLive as effectOutboxPruneWorkerLive,
+} from "./EffectOutbox.ts";
 import {
   executorLayer as effectExecutorLayer,
   layer as effectWorkerLayer,
@@ -53,6 +56,7 @@ import { layer as threadLifecycleServiceLayer } from "./ThreadLifecycleService.t
 import { layer as threadForkServiceLayer } from "./ThreadForkService.ts";
 import { layer as turnItemPositionStoreLayer } from "./TurnItemPositionStore.ts";
 import { layer as scheduledTaskServiceLayer } from "../scheduledTasks/ScheduledTaskService.ts";
+import * as SecretRequests from "../secrets/SecretRequests.ts";
 
 /** The shared application event log and its command receipts. */
 export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
@@ -269,8 +273,11 @@ const threadLaunchProvided = threadLaunchServiceLayer.pipe(
 const threadLifecycleProvided = threadLifecycleServiceLayer.pipe(
   Layer.provide(threadManagementProvided),
 );
+const secretRequestsProvided = SecretRequests.layer.pipe(Layer.provide(threadManagementProvided));
 const scheduledTaskProvided = scheduledTaskServiceLayer.pipe(
-  Layer.provide(Layer.mergeAll(threadLaunchProvided, threadManagementProvided)),
+  Layer.provide(
+    Layer.mergeAll(threadLaunchProvided, threadManagementProvided, secretRequestsProvided),
+  ),
 );
 const providerContinuationWorkerProvided = providerContinuationWorkerLive.pipe(
   Layer.provide(
@@ -328,12 +335,14 @@ export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
   threadLaunchProvided,
   threadLifecycleProvided,
   scheduledTaskProvided,
+  secretRequestsProvided,
   UsageLimitRecoveryWorker.workerLive.pipe(
     Layer.provide(Layer.mergeAll(projectionStoreLayer, threadManagementProvided)),
   ),
   LocalInbox.workerLive.pipe(Layer.provide(threadManagementProvided)),
   providerContinuationWorkerProvided,
   agentSessionImporterProvided,
+  effectOutboxPruneWorkerLive.pipe(Layer.provide(effectOutboxLayer)),
 ).pipe(
   Layer.provide(Scheduler.layer),
   Layer.provideMerge(OrchestrationEventInfrastructureLayerLive),

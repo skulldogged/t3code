@@ -16,7 +16,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import type * as RpcGroup from "effect/rpc/RpcGroup";
 
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
@@ -98,6 +98,11 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.worthKnowingSubscribeThread]: AuthOrchestrationReadScope,
   [WS_METHODS.worthKnowingSubscribeSummaries]: AuthOrchestrationReadScope,
   [WS_METHODS.worthKnowingUpdateFinding]: AuthOrchestrationOperateScope,
+  [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
+  [WS_METHODS.secretsAnswerRequest]: AuthOrchestrationOperateScope,
+  // Delivery logs hold request bodies, so they need the same scope as the URL.
+  [WS_METHODS.scheduledTasksListWebhookDeliveries]: AuthOrchestrationOperateScope,
+  [WS_METHODS.scheduledTasksGetWebhookDelivery]: AuthOrchestrationOperateScope,
   [WS_METHODS.cloudGetRelayClientStatus]: AuthRelayReadScope,
   [WS_METHODS.cloudInstallRelayClient]: AuthRelayWriteScope,
   [WS_METHODS.pullRequestsList]: AuthOrchestrationReadScope,

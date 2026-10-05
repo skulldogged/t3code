@@ -2,7 +2,7 @@ import {
   type ManagedRelaySessionInput,
   setManagedRelaySession,
 } from "@t3tools/client-runtime/relay";
-import type { AtomRegistry } from "effect/unstable/reactivity";
+import type { AtomRegistry } from "effect/reactivity";
 
 import { appAtomRegistry } from "../../state/atom-registry";
 
