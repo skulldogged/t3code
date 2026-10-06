@@ -118,70 +118,155 @@ jobs:
           vp exec tsc --noEmit --project "$RUNNER_TEMP/t3-server-tsconfig.json"
           vp exec tsc --noEmit --project "$RUNNER_TEMP/t3-mobile-tsconfig.json"
 
-  cli_archive:
-    needs: [metadata, validate]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux
-            arch: x64
-            runner: blacksmith-4vcpu-ubuntu-2404
-            rust_target: x86_64-unknown-linux-gnu
-            resource_key: linux-x64
-          - platform: linux
-            arch: arm64
-            runner: blacksmith-4vcpu-ubuntu-2404-arm
-            rust_target: aarch64-unknown-linux-gnu
-            resource_key: linux-arm64
-          - platform: mac
-            arch: arm64
-            runner: macos-26
-            rust_target: aarch64-apple-darwin
-            resource_key: darwin-arm64
-          - platform: win
-            arch: x64
-            runner: blacksmith-4vcpu-windows-2025
-            rust_target: x86_64-pc-windows-msvc
-            resource_key: win32-x64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+  # Builds the server (with the web client) and the Electron main once; the
+  # platform jobs package it instead of each rebuilding it.
+  build_bundle:
+    needs: metadata
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
           cache: true
-          run-install: true
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target }}
+          run-install: false
+      - name: Install bundle dependencies
+        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
       - name: Stamp version
         run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
-      - name: Build web and CLI bundle
+      - uses: ./.github/actions/setup-apt-mirrors
+      # @t3tools/desktop#build compiles the Linux browser secret helper.
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+      - name: Build JS bundle
+        run: vp run build:desktop
+      - name: Pack server
         run: |
-          vp run --filter @t3tools/web build
-          node apps/server/scripts/cli.ts build --verbose
+          mkdir -p release-publish
+          node scripts/pack-server-artifact.ts "${{ needs.metadata.outputs.version }}" release-publish
+      # The artifact root is apps/, so consumers download it into apps.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server
+          path: release-publish/*
+          if-no-files-found: error
+
+  # One job per platform builds its CLI archive and, where there is one, its
+  # desktop package. Windows embeds the Linux x64 archive as its WSL runtime
+  # and waits for it partway through rather than for the whole Linux job.
+  platform:
+    name: Build ${{ matrix.label }}
+    needs: [metadata, build_bundle]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            platform: linux
+            arch: x64
+            runner: blacksmith-4vcpu-ubuntu-2404
+            rust_target: x86_64-unknown-linux-gnu
+            resource_key: linux-x64
+            desktop_target: AppImage
+          - label: Linux arm64
+            platform: linux
+            arch: arm64
+            runner: blacksmith-4vcpu-ubuntu-2404-arm
+            rust_target: aarch64-unknown-linux-gnu
+            resource_key: linux-arm64
+          - label: macOS arm64
+            platform: mac
+            arch: arm64
+            runner: macos-26
+            rust_target: aarch64-apple-darwin
+            resource_key: darwin-arm64
+          - label: Windows x64
+            platform: win
+            arch: x64
+            runner: blacksmith-4vcpu-windows-2025
+            rust_target: x86_64-pc-windows-msvc
+            resource_key: win32-x64
+            desktop_target: nsis
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.platform == 'win' && 60 || 45 }}
+    permissions:
+      # Windows reads this run's artifact list to wait for the Linux archive.
+      actions: read
+      contents: read
+    env:
+      BINARY_SUFFIX: ${{ matrix.platform == 'win' && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      # On Windows linking the packages takes the time, not downloading them,
+      # so upstream found restoring the package cache doesn't pay for itself.
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: ${{ matrix.platform != 'win' }}
+          run-install: false
+      - name: Install dependencies
+        run: vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+      - name: Cache resource monitor
+        id: resource_monitor_cache
+        uses: actions/cache@v6
+        with:
+          path: native/resource-monitor/target/${{ matrix.rust_target }}/release/t3-resource-monitor${{ env.BINARY_SUFFIX }}
+          key: resource-monitor-${{ matrix.rust_target }}-${{ hashFiles('native/resource-monitor/Cargo.lock', 'native/resource-monitor/Cargo.toml', 'native/resource-monitor/src/**') }}
+      - name: Cache Linux capture helpers
+        if: matrix.platform == 'linux' && matrix.desktop_target
+        id: capture_helper_cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            native/kde-snap-shot/target/${{ matrix.rust_target }}/release/t3-kde-snap-shot
+            native/hyprland-snap-shot/target/${{ matrix.rust_target }}/release/t3-hyprland-snap-shot
+          key: linux-capture-helpers-${{ matrix.rust_target }}-${{ hashFiles('native/kde-snap-shot/Cargo.lock', 'native/kde-snap-shot/Cargo.toml', 'native/kde-snap-shot/src/**', 'native/hyprland-snap-shot/Cargo.lock', 'native/hyprland-snap-shot/Cargo.toml', 'native/hyprland-snap-shot/src/**', 'native/hyprland-snap-shot/protocols/**') }}
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.resource_monitor_cache.outputs.cache-hit != 'true' || (matrix.platform == 'linux' && matrix.desktop_target && steps.capture_helper_cache.outputs.cache-hit != 'true')
+        with:
+          targets: ${{ matrix.rust_target }}
+      # Building it here also lets the desktop build skip its MSVC check: the
+      # Blacksmith Windows image lacks the Spectre libraries that check wants,
+      # and cargo doesn't need them.
+      - name: Build resource monitor
+        if: steps.resource_monitor_cache.outputs.cache-hit != 'true'
+        run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ matrix.rust_target }}"
+      - name: Stamp version
+        run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
+      - uses: actions/download-artifact@v8
+        with:
+          name: js-bundle
+          path: apps
       - name: Build CLI single-executable
         env:
           VP_NODE_VERSION: "26.8.2"
         run: node apps/server/scripts/cli.ts build-exe --verbose
-      - name: Build and stage resource monitor
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ matrix.rust_target }}"
-          binary_name=t3-resource-monitor
-          if [[ "${{ matrix.platform }}" == "win" ]]; then
-            binary_name="$binary_name.exe"
-          fi
-          target_dir="$RUNNER_TEMP/cli-resource-monitor/${{ matrix.resource_key }}"
-          mkdir -p "$target_dir"
-          cp "native/resource-monitor/target/${{ matrix.rust_target }}/release/$binary_name" "$target_dir/$binary_name"
       - name: Package CLI archive
         shell: bash
         run: |
           set -euo pipefail
+          target_dir="$RUNNER_TEMP/cli-resource-monitor/${{ matrix.resource_key }}"
+          mkdir -p "$target_dir"
+          cp "native/resource-monitor/target/${{ matrix.rust_target }}/release/t3-resource-monitor$BINARY_SUFFIX" "$target_dir/"
           node scripts/build-cli-archive.ts \
             --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" \
             --version "${{ needs.metadata.outputs.version }}" \
@@ -192,62 +277,77 @@ jobs:
           name: cli-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-cli/*
           if-no-files-found: error
-
-  desktop:
-    needs: [metadata, validate, cli_archive]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux
-            target: AppImage
-            arch: x64
-            runner: blacksmith-4vcpu-ubuntu-2404
-            rust_target: x86_64-unknown-linux-gnu
-          - platform: win
-            target: nsis
-            arch: x64
-            runner: blacksmith-4vcpu-windows-2025
-            rust_target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: |
-            args:
-              - --filter=@t3tools/desktop...
-              - --filter=t3...
-              - --filter=@t3tools/scripts...
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target }}
+      - uses: ./.github/actions/setup-apt-mirrors
+        if: matrix.platform == 'linux' && matrix.desktop_target
       - name: Install Linux desktop build dependencies
-        if: matrix.platform == 'linux'
+        if: matrix.platform == 'linux' && matrix.desktop_target
         run: |
           sudo apt-get update
           sudo apt-get install -y imagemagick libsecret-1-dev pkg-config
+      # Stops early if the Linux job ended without uploading the archive.
+      - name: Wait for Linux CLI archive
+        if: matrix.platform == 'win'
+        shell: pwsh
+        timeout-minutes: 40
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ARTIFACT: cli-linux-x64
+          LINUX_JOB: Build Linux x64
+        run: |
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json" }
+          $run = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          function Test-Archive {
+            (Invoke-RestMethod -Headers $headers -Uri "$run/artifacts?name=$env:ARTIFACT").total_count -gt 0
+          }
+          $missingSince = $null
+          while ($true) {
+            try {
+              if (Test-Archive) {
+                Write-Host "$env:ARTIFACT is ready."
+                exit 0
+              }
+              $jobs = Invoke-RestMethod -Headers $headers -Uri "$run/attempts/$env:GITHUB_RUN_ATTEMPT/jobs?per_page=100"
+              $linux = $jobs.jobs | Where-Object { $_.name.EndsWith($env:LINUX_JOB) } | Select-Object -First 1
+              if (-not $linux) {
+                if (-not $missingSince) {
+                  $missingSince = Get-Date
+                } elseif (((Get-Date) - $missingSince).TotalMinutes -ge 5) {
+                  Write-Host "::error::No job named '$env:LINUX_JOB' in this run, so $env:ARTIFACT will not arrive."
+                  exit 1
+                }
+              } elseif ($linux.conclusion) {
+                if (Test-Archive) {
+                  Write-Host "$env:ARTIFACT is ready."
+                  exit 0
+                }
+                Write-Host "::error::$env:LINUX_JOB ended ($($linux.conclusion)) without uploading $env:ARTIFACT."
+                exit 1
+              }
+            } catch {
+              Write-Warning "Could not read this run's artifacts or jobs: $($_.Exception.Message)"
+            }
+            Write-Host "Waiting for $env:ARTIFACT..."
+            Start-Sleep -Seconds 10
+          }
       - name: Download WSL runtime
         if: matrix.platform == 'win'
         uses: actions/download-artifact@v8
         with:
           name: cli-linux-x64
           path: wsl-runtime
-      - name: Stamp version
-        run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
       - name: Build desktop package
+        if: matrix.desktop_target
         shell: bash
+        env:
+          T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: "true"
+          T3CODE_DESKTOP_REUSE_LINUX_CAPTURE_HELPERS: ${{ steps.capture_helper_cache.outputs.cache-hit == 'true' }}
         run: |
           args=(
             --platform "${{ matrix.platform }}"
-            --target "${{ matrix.target }}"
+            --target "${{ matrix.desktop_target }}"
             --arch "${{ matrix.arch }}"
             --build-version "${{ needs.metadata.outputs.version }}"
+            --skip-build
             --verbose
           )
           if [[ "${{ matrix.platform }}" == "win" ]]; then
@@ -255,6 +355,7 @@ jobs:
           fi
           vp run dist:desktop:artifact "${args[@]}"
       - name: Collect desktop artifacts
+        if: matrix.desktop_target
         shell: bash
         run: |
           set -euo pipefail
@@ -263,19 +364,25 @@ jobs:
             -name '*.AppImage' -o -name '*.exe' -o -name '*.blockmap' -o -name '*.yml' \
           \) -exec cp {} release-publish/ \;
       - uses: actions/upload-artifact@v7
+        if: matrix.desktop_target
         with:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-publish/*
           if-no-files-found: error
 
-  server_android:
-    needs: [metadata, validate]
+  android:
+    needs: metadata
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 45
+    # With ccache's defaults every compile missed (0 of 114). These keep build
+    # directories, compiler timestamps and include-file times out of its hash.
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_COMPILERCHECK: content
+      CCACHE_SLOPPINESS: include_file_ctime,include_file_mtime,time_macros
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
@@ -296,9 +403,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
-          key: android-ccache-v1-${{ runner.os }}-${{ github.run_id }}
+          key: android-ccache-v2-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
-            android-ccache-v1-${{ runner.os }}-
+            android-ccache-v2-${{ runner.os }}-
       - name: Configure Android compiler cache
         shell: bash
         run: |
@@ -308,16 +415,6 @@ jobs:
           ccache --zero-stats
       - name: Stamp release versions
         run: node scripts/update-release-package-versions.ts "${{ needs.metadata.outputs.version }}"
-      - name: Build web and server
-        run: |
-          vp run --filter @t3tools/web build
-          node apps/server/scripts/cli.ts build --verbose
-      - name: Pack server
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release-publish
-          node scripts/pack-server-artifact.ts "${{ needs.metadata.outputs.version }}" release-publish
       - name: Build preview APK
         shell: bash
         env:
@@ -333,16 +430,17 @@ jobs:
               -PreactNativeArchitectures=arm64-v8a \
               assembleRelease )
           ccache --show-stats
+          mkdir -p release-publish
           cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
             "release-publish/T3-Code-${{ needs.metadata.outputs.version }}-preview.apk"
       - uses: actions/upload-artifact@v7
         with:
-          name: server-android
+          name: android
           path: release-publish/*
           if-no-files-found: error
 
   ios:
-    needs: [metadata, validate]
+    needs: metadata
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -416,7 +514,7 @@ jobs:
           path: ${{ runner.temp }}/ios-build.log
 
   release:
-    needs: [metadata, desktop, server_android, ios, cli_archive]
+    needs: [metadata, validate, build_bundle, platform, android, ios]
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
@@ -429,7 +527,11 @@ jobs:
           path: release-assets
       - uses: actions/download-artifact@v8
         with:
-          name: server-android
+          name: server
+          path: release-assets
+      - uses: actions/download-artifact@v8
+        with:
+          name: android
           path: release-assets
       - uses: actions/download-artifact@v8
         with:
