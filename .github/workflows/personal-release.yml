@@ -36,7 +36,7 @@ env:
 
 jobs:
   metadata:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -72,7 +72,7 @@ jobs:
 
   validate:
     needs: metadata
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -126,12 +126,12 @@ jobs:
         include:
           - platform: linux
             arch: x64
-            runner: ubuntu-24.04
+            runner: blacksmith-4vcpu-ubuntu-2404
             rust_target: x86_64-unknown-linux-gnu
             resource_key: linux-x64
           - platform: linux
             arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: blacksmith-4vcpu-ubuntu-2404-arm
             rust_target: aarch64-unknown-linux-gnu
             resource_key: linux-arm64
           - platform: mac
@@ -141,7 +141,7 @@ jobs:
             resource_key: darwin-arm64
           - platform: win
             arch: x64
-            runner: windows-2025
+            runner: blacksmith-4vcpu-windows-2025
             rust_target: x86_64-pc-windows-msvc
             resource_key: win32-x64
     runs-on: ${{ matrix.runner }}
@@ -202,12 +202,12 @@ jobs:
           - platform: linux
             target: AppImage
             arch: x64
-            runner: ubuntu-24.04
+            runner: blacksmith-4vcpu-ubuntu-2404
             rust_target: x86_64-unknown-linux-gnu
           - platform: win
             target: nsis
             arch: x64
-            runner: windows-2025
+            runner: blacksmith-4vcpu-windows-2025
             rust_target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -270,7 +270,7 @@ jobs:
 
   server_android:
     needs: [metadata, validate]
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
@@ -417,7 +417,7 @@ jobs:
 
   release:
     needs: [metadata, desktop, server_android, ios, cli_archive]
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: write
