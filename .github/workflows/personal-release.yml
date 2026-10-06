@@ -23,6 +23,14 @@ on:
         required: false
         default: false
         type: boolean
+      ios_runner:
+        description: "Where the iOS app builds: canis, or GitHub's macOS runner if canis is down"
+        required: false
+        default: canis-ios
+        type: choice
+        options:
+          - canis-ios
+          - macos-26
 
 permissions:
   contents: read
@@ -439,28 +447,41 @@ jobs:
           path: release-publish/*
           if-no-files-found: error
 
+  # Mars's MacBook (canis) keeps its Xcode caches between builds; there a
+  # warm archive took about 2 minutes, against 8 to 11 on GitHub's runner.
   ios:
     needs: metadata
-    runs-on: macos-26
+    runs-on: ${{ inputs.ios_runner || 'canis-ios' }}
     timeout-minutes: 60
     env:
+      ON_CANIS: ${{ (inputs.ios_runner || 'canis-ios') == 'canis-ios' }}
       APP_VARIANT: preview
       EXPO_NO_GIT_STATUS: "1"
       T3CODE_IOS_VERSION: 1.2.${{ github.run_number }}
       T3CODE_IOS_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v6
+      # canis keeps its package store, so restoring and saving one costs more
+      # than it saves there.
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
-          cache: true
+          cache: ${{ env.ON_CANIS != 'true' }}
           run-install: true
       - name: Select Xcode
         id: xcode
         run: |
-          sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          if [[ "$ON_CANIS" == "true" ]]; then
+            echo "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer" >> "$GITHUB_ENV"
+            export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+          else
+            sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          fi
+          xcodebuild -version
           echo "build=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      # canis keeps these on disk between builds.
       - name: Restore iOS native caches
+        if: env.ON_CANIS != 'true'
         uses: actions/cache@v6
         with:
           path: |
