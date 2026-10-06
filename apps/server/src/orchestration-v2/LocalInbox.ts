@@ -37,7 +37,7 @@ function noticeSummary(summary: string | undefined, text: string): string {
 }
 const decodeInboxMessage = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxMessage));
 
-export const workerLive = Layer.effectDiscard(
+export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const config = yield* ServerConfig;
     const fs = yield* FileSystem.FileSystem;

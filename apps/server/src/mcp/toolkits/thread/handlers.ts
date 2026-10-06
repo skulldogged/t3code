@@ -93,7 +93,7 @@ const callingThread = Effect.fn("mcp.callingThread")(function* () {
   return caller.id;
 });
 
-export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
+export const layer = ThreadToolkit.toLayer({
   t3_approval_request: (input) =>
     Effect.gen(function* () {
       const threadId = yield* callingThread();
