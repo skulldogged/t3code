@@ -626,13 +626,21 @@ export const CodexSettings = makeProviderSettingsSchema(
         description: "Additional CLI arguments passed to codex app-server on session start.",
       }),
     ),
+    externalSandbox: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({
+        title: "Runs in an outside sandbox",
+        description:
+          "Codex already runs inside a sandbox, such as one that wraps its binary, so it doesn't apply its own. macOS can't start one sandbox inside another. Approvals still follow the thread's mode.",
+      }),
+    ),
     customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs"],
+    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs", "externalSandbox"],
   },
 );
 export type CodexSettings = typeof CodexSettings.Type;

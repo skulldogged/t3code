@@ -704,6 +704,8 @@ export function buildCodexTurnStartParams(input: {
   readonly deviceToolsAvailable?: boolean;
   /** ChatGPT token sharing does not accept service tiers. */
   readonly omitServiceTier?: boolean;
+  /** Codex runs inside a sandbox of its own (CodexSettings.externalSandbox). */
+  readonly externalSandbox?: boolean;
 }) {
   return Effect.gen(function* () {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
@@ -711,10 +713,19 @@ export function buildCodexTurnStartParams(input: {
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
         : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const sandboxPolicy =
+    const requestedSandboxPolicy =
       input.runtimePolicy.sandboxPolicy === undefined
         ? runtimeModeDefaults.sandboxPolicy
         : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
+    // Inside an outside sandbox Codex can't start its own (macOS refuses a
+    // sandbox within a sandbox), so the outside one confines it instead;
+    // full access needs no sandbox either way.
+    const sandboxPolicy: typeof requestedSandboxPolicy =
+      input.externalSandbox === true &&
+      requestedSandboxPolicy != null &&
+      requestedSandboxPolicy.type !== "dangerFullAccess"
+        ? { type: "externalSandbox", networkAccess: "enabled" }
+        : requestedSandboxPolicy;
     const selectedEffort = getModelSelectionStringOptionValue(
       input.modelSelection,
       "reasoningEffort",
@@ -5872,6 +5883,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
               deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
+              externalSandbox: (resolvedRuntime?.config ?? adapterOptions.settings).externalSandbox,
             });
             yield* Ref.update(pendingRootTurns, (current) => {
               const updated = new Map(current);
