@@ -98,13 +98,30 @@ export const layer = ThreadToolkit.toLayer({
     Effect.gen(function* () {
       const threadId = yield* callingThread();
       const approvals = yield* ExternalApprovals.ExternalApprovals;
-      return yield* approvals
+      const raised = yield* approvals
         .raise({
           threadId,
           prompt: input.prompt,
           ...(input.appName === undefined ? {} : { appName: input.appName }),
           ...(input.options === undefined ? {} : { options: input.options }),
         })
+        .pipe(Effect.mapError(approvalFailure));
+      // Full access approves everything the thread does without asking, as it
+      // does a provider's own approvals, so answer this one the same way. Only
+      // the user sets a thread's mode; threads an agent starts can't exceed it.
+      const { threads, projection } = yield* readWritableThread(threadId);
+      if (projection.thread.runtimeMode !== "full-access") return raised;
+      yield* threads
+        .dispatch({
+          type: "runtime-request.respond",
+          commandId: yield* newCommandId(),
+          threadId,
+          requestId: raised.requestId,
+          decision: "accept",
+        })
+        .pipe(Effect.mapError(unavailable));
+      return yield* approvals
+        .status({ threadId, requestId: raised.requestId })
         .pipe(Effect.mapError(approvalFailure));
     }),
   t3_thread_notify: (input) =>
