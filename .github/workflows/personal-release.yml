@@ -460,6 +460,18 @@ jobs:
       T3CODE_IOS_VERSION: 1.2.${{ github.run_number }}
       T3CODE_IOS_BUILD_NUMBER: ${{ github.run_number }}
     steps:
+      # canis checks out each run at a new path, and Xcode names a workspace's
+      # DerivedData folder (T3Code, T3CodePreview, ...) after its path, so
+      # earlier runs' folders are never reused. Clear them first, before
+      # checkout and install need the room; the shared compilation and module
+      # caches stay.
+      - name: Clear earlier iOS build folders
+        if: env.ON_CANIS == 'true'
+        shell: bash
+        run: |
+          derived_data="$HOME/Library/Developer/Xcode/DerivedData"
+          [[ -d "$derived_data" ]] || exit 0
+          find "$derived_data" -mindepth 1 -maxdepth 1 -name 'T3Code*-*' -exec rm -rf {} +
       - uses: actions/checkout@v6
       # canis keeps its package store, so restoring and saving one costs more
       # than it saves there.
@@ -494,20 +506,6 @@ jobs:
             ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-
       - name: Generate iOS project
         run: vp exec --filter @t3tools/mobile -- expo prebuild --clean --platform ios
-      # canis checks out each run at a new path, and Xcode names a workspace's
-      # DerivedData folder after its path, so earlier runs' folders are never
-      # reused. Clear them before they fill the disk; the shared compilation
-      # and module caches stay.
-      - name: Clear earlier iOS build folders
-        if: env.ON_CANIS == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          workspace=(apps/mobile/ios/*.xcworkspace)
-          derived_data="$HOME/Library/Developer/Xcode/DerivedData"
-          [[ -d "$derived_data" ]] || exit 0
-          find "$derived_data" -mindepth 1 -maxdepth 1 \
-            -name "$(basename "${workspace[0]}" .xcworkspace)-*" -exec rm -rf {} +
       - name: Archive unsigned iPhone app
         shell: bash
         run: |
