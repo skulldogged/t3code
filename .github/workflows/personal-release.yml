@@ -494,6 +494,20 @@ jobs:
             ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-
       - name: Generate iOS project
         run: vp exec --filter @t3tools/mobile -- expo prebuild --clean --platform ios
+      # canis checks out each run at a new path, and Xcode names a workspace's
+      # DerivedData folder after its path, so earlier runs' folders are never
+      # reused. Clear them before they fill the disk; the shared compilation
+      # and module caches stay.
+      - name: Clear earlier iOS build folders
+        if: env.ON_CANIS == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace=(apps/mobile/ios/*.xcworkspace)
+          derived_data="$HOME/Library/Developer/Xcode/DerivedData"
+          [[ -d "$derived_data" ]] || exit 0
+          find "$derived_data" -mindepth 1 -maxdepth 1 \
+            -name "$(basename "${workspace[0]}" .xcworkspace)-*" -exec rm -rf {} +
       - name: Archive unsigned iPhone app
         shell: bash
         run: |
