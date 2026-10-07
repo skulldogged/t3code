@@ -11,12 +11,12 @@ import {
 import * as Effect from "effect/Effect";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 
+import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
+  dispatchFailure,
   newCommandId,
   readCaller,
-  readFullAccessCaller,
   readThread,
-  readWritableThread,
   unavailable,
 } from "../../threadAccess.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
@@ -44,23 +44,18 @@ const dispatch = Effect.fn("mcp.dispatchThreadCommand")(function* (
   threadId: ThreadId | undefined,
   command: (common: { commandId: CommandId; threadId: ThreadId }) => OrchestrationV2Command,
 ) {
-  const { threads, projection } = yield* readWritableThread(threadId);
+  const { threads, projection } = yield* readThread(threadId);
   const result = yield* threads
     .dispatch(command({ commandId: yield* newCommandId(), threadId: projection.thread.id }))
-    .pipe(Effect.mapError(unavailable));
+    .pipe(Effect.mapError(dispatchFailure));
   return { sequence: result.sequence };
 });
 
-const readQuestion = Effect.fn("mcp.readQuestion")(function* (
-  input: {
-    threadId?: ThreadId | undefined;
-    requestId: RuntimeRequestId;
-  },
-  writable = false,
-) {
-  const context = yield* writable
-    ? readWritableThread(input.threadId, ["runtimeRequests", "turnItems"])
-    : readThread(input.threadId, ["runtimeRequests", "turnItems"]);
+const readQuestion = Effect.fn("mcp.readQuestion")(function* (input: {
+  threadId?: ThreadId | undefined;
+  requestId: RuntimeRequestId;
+}) {
+  const context = yield* readThread(input.threadId, ["runtimeRequests", "turnItems"]);
   const request = context.projection.runtimeRequests.find(
     (request) =>
       request.id === input.requestId &&
@@ -93,8 +88,13 @@ const callingThread = Effect.fn("mcp.callingThread")(function* () {
   return caller.id;
 });
 
-export const layer = ThreadToolkit.toLayer({
-  t3_approval_request: (input) =>
+/** A tool that changes `threadId`, or the caller's own thread when it is omitted. */
+const writesThread = <P extends { readonly threadId?: ThreadId | undefined }, A, E, R>(
+  handle: (params: P) => Effect.Effect<A, E, R>,
+) => McpToolAccess.writesThreads((params: P) => [params.threadId], handle);
+
+export const layer = McpToolAccess.toLayer(ThreadToolkit, {
+  t3_approval_request: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const threadId = yield* callingThread();
       const approvals = yield* ExternalApprovals.ExternalApprovals;
@@ -109,7 +109,7 @@ export const layer = ThreadToolkit.toLayer({
       // Full access approves everything the thread does without asking, as it
       // does a provider's own approvals, so answer this one the same way. Only
       // the user sets a thread's mode; threads an agent starts can't exceed it.
-      const { threads, projection } = yield* readWritableThread(threadId);
+      const { threads, projection } = yield* readThread(threadId);
       if (projection.thread.runtimeMode !== "full-access") return raised;
       yield* threads
         .dispatch({
@@ -119,12 +119,22 @@ export const layer = ThreadToolkit.toLayer({
           requestId: raised.requestId,
           decision: "accept",
         })
-        .pipe(Effect.mapError(unavailable));
+        .pipe(Effect.mapError(dispatchFailure));
       return yield* approvals
         .status({ threadId, requestId: raised.requestId })
         .pipe(Effect.mapError(approvalFailure));
     }),
-  t3_thread_notify: (input) =>
+  ),
+  t3_approval_status: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const threadId = yield* callingThread();
+      const approvals = yield* ExternalApprovals.ExternalApprovals;
+      return yield* approvals
+        .status({ threadId, requestId: input.requestId })
+        .pipe(Effect.mapError(approvalFailure));
+    }),
+  ),
+  t3_thread_notify: McpToolAccess.notifiesCaller((input) =>
     Effect.gen(function* () {
       const { caller, threads } = yield* readCaller();
       if (caller === undefined)
@@ -153,19 +163,9 @@ export const layer = ThreadToolkit.toLayer({
         .pipe(Effect.mapError(unavailable));
       return { threadId: caller.id };
     }),
-  t3_approval_status: (input) =>
+  ),
+  run_scheduled_task_now: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
-      const threadId = yield* callingThread();
-      const approvals = yield* ExternalApprovals.ExternalApprovals;
-      return yield* approvals
-        .status({ threadId, requestId: input.requestId })
-        .pipe(Effect.mapError(approvalFailure));
-    }),
-  run_scheduled_task_now: (input) =>
-    Effect.gen(function* () {
-      yield* readFullAccessCaller(
-        "Running a scheduled task requires a live full-access/default thread or a full-access client.",
-      );
       const scheduler = yield* ScheduledTasks.ScheduledTaskService;
       const { tasks } = yield* scheduler.list().pipe(Effect.mapError(unavailable));
       if (!tasks.some((task) => task.id === input.taskId))
@@ -184,7 +184,8 @@ export const layer = ThreadToolkit.toLayer({
         nextRunAt: task.nextRunAt,
       };
     }),
-  t3_thread_search: (input) =>
+  ),
+  t3_thread_search: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const { caller } = yield* readCaller();
       const { projectId: requested, ...query } = input;
@@ -200,9 +201,10 @@ export const layer = ThreadToolkit.toLayer({
             : result.matches.filter((match) => match.projectId === projectId),
       };
     }),
-  t3_thread_fork: (input) =>
+  ),
+  t3_thread_fork: writesThread((input) =>
     Effect.gen(function* () {
-      const { threads, projection } = yield* readWritableThread(input.threadId);
+      const { threads, projection } = yield* readThread(input.threadId);
       const commandId = yield* newCommandId();
       const targetThreadId = ThreadId.make(`${commandId}:fork`);
       const result = yield* threads
@@ -216,27 +218,31 @@ export const layer = ThreadToolkit.toLayer({
           createdBy: "agent",
           creationSource: "mcp",
         })
-        .pipe(Effect.mapError(unavailable));
+        .pipe(Effect.mapError(dispatchFailure));
       return { sequence: result.sequence, targetThreadId };
     }),
-  t3_thread_merge_back: (input) =>
-    Effect.gen(function* () {
-      const context = yield* readWritableThread(input.targetThreadId);
-      const source = yield* readWritableThread(input.sourceThreadId);
-      const result = yield* context.threads
-        .dispatch({
-          type: "thread.merge_back",
-          commandId: yield* newCommandId(),
-          sourceThreadId: source.projection.thread.id,
-          targetThreadId: input.targetThreadId,
-          sourcePoint: input.sourcePoint,
-          createdBy: "agent",
-          creationSource: "mcp",
-        })
-        .pipe(Effect.mapError(unavailable));
-      return { sequence: result.sequence, targetThreadId: input.targetThreadId };
-    }),
-  t3_thread_transfers: (input) =>
+  ),
+  t3_thread_merge_back: McpToolAccess.writesThreads(
+    (input) => [input.targetThreadId, input.sourceThreadId],
+    (input) =>
+      Effect.gen(function* () {
+        const context = yield* readThread(input.targetThreadId);
+        const source = yield* readThread(input.sourceThreadId);
+        const result = yield* context.threads
+          .dispatch({
+            type: "thread.merge_back",
+            commandId: yield* newCommandId(),
+            sourceThreadId: source.projection.thread.id,
+            targetThreadId: input.targetThreadId,
+            sourcePoint: input.sourcePoint,
+            createdBy: "agent",
+            creationSource: "mcp",
+          })
+          .pipe(Effect.mapError(dispatchFailure));
+        return { sequence: result.sequence, targetThreadId: input.targetThreadId };
+      }),
+  ),
+  t3_thread_transfers: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const { projection } = yield* readThread(input.threadId, ["contextTransfers"]);
       return {
@@ -250,7 +256,8 @@ export const layer = ThreadToolkit.toLayer({
         ),
       };
     }),
-  t3_thread_configuration: (input) =>
+  ),
+  t3_thread_configuration: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const {
         projection: { thread },
@@ -262,12 +269,13 @@ export const layer = ThreadToolkit.toLayer({
         interactionMode: thread.interactionMode,
       };
     }),
-  t3_thread_configure: (input) =>
+  ),
+  t3_thread_configure: writesThread((input) =>
     Effect.gen(function* () {
       const {
         threads,
         projection: { thread },
-      } = yield* readWritableThread(input.threadId);
+      } = yield* readThread(input.threadId);
       const type = modelSelectionCommandType(thread.providerInstanceId, input.modelSelection);
       const result = yield* threads
         .dispatch({
@@ -276,10 +284,11 @@ export const layer = ThreadToolkit.toLayer({
           commandId: yield* newCommandId(),
           modelSelection: input.modelSelection,
         })
-        .pipe(Effect.mapError(unavailable));
+        .pipe(Effect.mapError(dispatchFailure));
       return { sequence: result.sequence };
     }),
-  t3_pending_request_list: (input) =>
+  ),
+  t3_pending_request_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const { projection } = yield* readThread(input.threadId, ["runtimeRequests"]);
       return {
@@ -288,14 +297,16 @@ export const layer = ThreadToolkit.toLayer({
           .map((request) => request.id),
       };
     }),
-  t3_pending_request_read: (input) =>
+  ),
+  t3_pending_request_read: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const { item } = yield* readQuestion(input);
       return { requestId: input.requestId, questions: item.questions };
     }),
-  t3_pending_request_respond: (input) =>
+  ),
+  t3_pending_request_respond: writesThread((input) =>
     Effect.gen(function* () {
-      const { threads, projection } = yield* readQuestion(input, true);
+      const { threads, projection } = yield* readQuestion(input);
       const result = yield* threads
         .dispatch({
           type: "runtime-request.respond",
@@ -304,10 +315,11 @@ export const layer = ThreadToolkit.toLayer({
           requestId: input.requestId,
           answers: input.answers,
         })
-        .pipe(Effect.mapError(unavailable));
+        .pipe(Effect.mapError(dispatchFailure));
       return { sequence: result.sequence };
     }),
-  t3_queue_list: (input) =>
+  ),
+  t3_queue_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const { projection } = yield* readThread(input.threadId, ["runs", "messages"]);
       const runs = queuedRunsInDeliveryOrder(projection);
@@ -321,7 +333,8 @@ export const layer = ThreadToolkit.toLayer({
         nextCursor: end < runs.length ? end : null,
       };
     }),
-  t3_queue_read: (input) =>
+  ),
+  t3_queue_read: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const { projection } = yield* readThread(input.threadId, ["runs", "messages"]);
       const entry = queueEntry(projection, input.queuedRunId, 16000);
@@ -333,36 +346,41 @@ export const layer = ThreadToolkit.toLayer({
         }))
       );
     }),
-  t3_queue_edit: (input) =>
+  ),
+  t3_queue_edit: writesThread((input) =>
     dispatch(input.threadId, (common) => ({
       ...common,
       type: "queued-run.edit",
       runId: input.queuedRunId,
       text: input.text,
     })),
-  t3_queue_cancel: (input) =>
+  ),
+  t3_queue_cancel: writesThread((input) =>
     dispatch(input.threadId, (common) => ({
       ...common,
       type: "queued-run.cancel",
       runId: input.queuedRunId,
     })),
-  t3_queue_reorder: (input) =>
+  ),
+  t3_queue_reorder: writesThread((input) =>
     dispatch(input.threadId, (common) => ({
       ...common,
       type: "queued-run.reorder",
       runId: input.queuedRunId,
       beforeRunId: input.beforeRunId,
     })),
-  t3_queue_promote_to_steer: (input) =>
+  ),
+  t3_queue_promote_to_steer: writesThread((input) =>
     dispatch(input.threadId, (common) => ({
       ...common,
       type: "queued-message.promote-to-steer",
       queuedRunId: input.queuedRunId,
       targetRunId: input.targetRunId,
     })),
-  t3_thread_organize: (input) =>
+  ),
+  t3_thread_organize: writesThread((input) =>
     Effect.gen(function* () {
-      const { threads, projection } = yield* readWritableThread(input.threadId);
+      const { threads, projection } = yield* readThread(input.threadId);
       const common = { commandId: yield* newCommandId(), threadId: projection.thread.id };
       let command: OrchestrationV2Command;
       switch (input.action) {
@@ -385,7 +403,8 @@ export const layer = ThreadToolkit.toLayer({
         default:
           command = { ...common, type: `thread.${input.action}` };
       }
-      const result = yield* threads.dispatch(command).pipe(Effect.mapError(unavailable));
+      const result = yield* threads.dispatch(command).pipe(Effect.mapError(dispatchFailure));
       return { sequence: result.sequence };
     }),
+  ),
 });

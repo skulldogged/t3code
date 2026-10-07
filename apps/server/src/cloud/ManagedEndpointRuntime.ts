@@ -59,6 +59,7 @@ interface ActiveConnector {
   readonly configKey: string;
   readonly config: RelayManagedEndpointRuntimeConfig;
   readonly startedAtMillis: number;
+  readonly connected: Ref.Ref<boolean>;
 }
 
 // A connector that exits before running this long is treated as part of a
@@ -71,6 +72,11 @@ const RELAY_RESTART_BACKOFF_BASE_MS = 1_000;
 const RELAY_RESTART_BACKOFF_MAX_MS = 60_000;
 // Newly created tunnels can fail authorization briefly while Cloudflare propagates their token.
 const TUNNEL_AUTHORIZATION_FAILURES_BEFORE_RECOVERY = 4;
+// A connector that never registers a connection may hold a token for a tunnel
+// that no longer exists, rejected in wording the output check does not know.
+// Ask for recovery after this long, and again at this interval while it stays
+// unconnected; the relay hands back the same tunnel when it is still live.
+const CONNECTOR_REGISTRATION_TIMEOUT = Duration.minutes(3);
 
 export function classifyRelayClientOutput(line: string): "connected" | "warning" | "debug" {
   if (/\bRegistered tunnel connection\b/iu.test(line)) {
@@ -84,33 +90,18 @@ export function classifyRelayClientOutput(line: string): "connected" | "warning"
 
 /**
  * Cloudflare's edge rejects a connector whose tunnel was deleted or whose
- * token no longer matches. Over HTTP/2 the supervisor logs the edge's reason:
- * `error="Unauthorized: Tunnel not found"` for a tunnel the relay reaper
- * deleted, `error="Failed to get tunnel"` for an unknown tunnel ID (older
- * edges prefixed every reason with `Unauthorized:`), and
- * `error="Unauthorized: Invalid tunnel secret"` for a stale token.
- *
- * Over QUIC, cloudflared's default and auto-selected transport, the pinned
- * supervisor never sees that reason: the QUIC connection collapses every
- * control-stream failure into an opaque `ControlStreamError`, so the same
- * rejection is logged only as `Serve tunnel error error="control stream
- * encountered a failure while serving"`. The control stream is the first
- * thing to fail only while a connection is still registering (a connection
- * lost after registration fails its stream listener or datagram handler
- * first), so repeated failures without a registered connection in between are
- * treated as a rejection as well; the threshold above absorbs transient ones.
- * `failed to serve tunnel connection` carries the same error for the same
- * attempt and is deliberately not matched, so one failed attempt counts once.
+ * token no longer matches. The edge words this differently over time
+ * (`Failed to get tunnel`, `Tunnel not found`, ...), sometimes prefixed with
+ * `Unauthorized:`. Treat any `Unauthorized:` registration error as a rejection,
+ * plus the unprefixed messages seen so far. Transient rejections while a new
+ * tunnel's token propagates are absorbed by requiring several in a row.
  */
 export function isRejectedRelayClientTunnelOutput(line: string): boolean {
-  if (/\bRegister tunnel error from server side\b/iu.test(line)) {
-    return /error="(?:Unauthorized:\s*)?(?:Tunnel not found|Failed to get tunnel|Record for tunnel not found|Invalid tunnel secret)"/iu.test(
-      line,
-    );
-  }
   return (
-    /\bServe tunnel error\b/iu.test(line) &&
-    /error="control stream encountered a failure while serving"/iu.test(line)
+    /\bRegister tunnel error from server side\b/iu.test(line) &&
+    /error="(?:Unauthorized:[^"]*|Failed to get tunnel|Tunnel not found|Record for tunnel not found|Invalid tunnel secret)"/iu.test(
+      line,
+    )
   );
 }
 
@@ -237,6 +228,24 @@ export const make = Effect.gen(function* () {
       Effect.catchCause((cause) => Effect.logWarning("Relay client supervisor failed", { cause })),
     );
 
+  // Requests recovery while the connector has not registered a connection,
+  // once per timeout, until it connects or is replaced.
+  const watchConnectorRegistration = (connector: ActiveConnector) =>
+    Effect.gen(function* () {
+      yield* Effect.sleep(CONNECTOR_REGISTRATION_TIMEOUT);
+      if (yield* Ref.get(connector.connected)) return true;
+      yield* Effect.logWarning(
+        "Relay client has not registered a tunnel connection; requesting recovery",
+        {
+          pid: Number(connector.child.pid),
+          tunnelId: connector.config.tunnelId,
+          tunnelName: connector.config.tunnelName,
+        },
+      );
+      yield* Queue.offer(recoveryRequests, connector.config);
+      return false;
+    }).pipe(Effect.repeat({ until: (connected) => connected }));
+
   const observeConnectorOutput = (connector: ActiveConnector) => {
     let rejectedRegistrations = 0;
 
@@ -256,7 +265,10 @@ export const make = Effect.gen(function* () {
         switch (classifyRelayClientOutput(line)) {
           case "connected":
             rejectedRegistrations = 0;
-            return Effect.logInfo("Relay client tunnel connection registered", attributes).pipe(
+            return Ref.set(connector.connected, true).pipe(
+              Effect.andThen(
+                Effect.logInfo("Relay client tunnel connection registered", attributes),
+              ),
               Effect.andThen(Queue.offer(tunnelConnections, undefined)),
               Effect.asVoid,
             );
@@ -387,10 +399,12 @@ export const make = Effect.gen(function* () {
         configKey: nextConfigKey,
         config,
         startedAtMillis: yield* Clock.currentTimeMillis,
+        connected: yield* Ref.make(false),
       } satisfies ActiveConnector;
       yield* Ref.set(activeRef, connector);
       yield* Effect.forkIn(observeConnectorOutput(connector), connectorScope);
       yield* Effect.forkIn(superviseConnector(connector), connectorScope);
+      yield* Effect.forkIn(watchConnectorRegistration(connector), connectorScope);
       return {
         status: "running",
         providerKind: "cloudflare_tunnel",

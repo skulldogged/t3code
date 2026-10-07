@@ -82,7 +82,7 @@ export function UsageLimitRecoveryCard({
     }
   }
   return (
-    <View className="mx-3 mb-2 gap-2 rounded-xl border border-warning-foreground/25 bg-background p-3">
+    <View className="mx-3 mb-2 gap-2 rounded-xl border border-warning-foreground/25 bg-screen p-3">
       {chatGptUsageLimit ? (
         <Text className="text-sm font-t3-medium text-foreground">ChatGPT usage limit reached</Text>
       ) : null}
