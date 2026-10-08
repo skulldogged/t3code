@@ -34,10 +34,10 @@ import {
   claudeRuntimeQueryPolicyForRuntimePolicy,
   makeClaudeQueryOptions,
 } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
-import { expandHomePath } from "../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { resolveClaudeSdkExecutablePath } from "../provider/Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../provider/Drivers/ClaudeHome.ts";
-import { mergeProviderInstanceEnvironment } from "../provider/ProviderInstanceEnvironment.ts";
+import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import type * as TextGeneration from "./TextGeneration.ts";
 
 const SIDE_REPLY_TIMEOUT = "3 minutes";

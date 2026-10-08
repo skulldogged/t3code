@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 
 import { resolveAttachmentPath } from "../attachmentStore.ts";
-import { ProviderAdapterProtocolError } from "./ProviderAdapter.ts";
+import { ProviderAdapterProtocolError } from "@t3tools/provider-core/server/ProviderAdapter";
 
 class AttachmentPromptError extends Schema.TaggedError<AttachmentPromptError>()(
   "AttachmentPromptError",
