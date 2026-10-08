@@ -600,12 +600,6 @@ importers:
       '@opencode/schema':
         specifier: 2.0.23
         version: 2.0.23(patch_hash=650f1b8602789407c010861284272dcb6bd6de01ec6a75bf3c0904a0e7596d59)
-      '@t3tools/provider-core':
-        specifier: workspace:*
-        version: link:../../packages/provider-core
-      '@t3tools/provider-pi':
-        specifier: workspace:*
-        version: link:../../packages/provider-pi
       diff:
         specifier: 8.0.3
         version: 8.0.3
@@ -646,6 +640,12 @@ importers:
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@t3tools/provider-core':
+        specifier: workspace:*
+        version: link:../../packages/provider-core
+      '@t3tools/provider-pi':
+        specifier: workspace:*
+        version: link:../../packages/provider-pi
       '@t3tools/provider-testing':
         specifier: workspace:*
         version: link:../../packages/provider-testing
