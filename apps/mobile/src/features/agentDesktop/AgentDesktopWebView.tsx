@@ -2,7 +2,7 @@ import agentDesktopStreamScript from "@t3tools/mobile-agent-desktop-stream";
 import {
   type AgentDesktopControl,
   agentDesktopControlLabel,
-} from "@t3tools/client-runtime/agent-desktop/viewer";
+} from "@t3tools/client-runtime/agent-desktop/control";
 import { withDeviceHubQuery } from "@t3tools/client-runtime/state/deviceHubAccess";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Crypto from "expo-crypto";

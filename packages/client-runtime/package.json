@@ -27,6 +27,10 @@
       "types": "./src/agentDesktop/viewer.ts",
       "default": "./src/agentDesktop/viewer.ts"
     },
+    "./agent-desktop/control": {
+      "types": "./src/agentDesktop/control.ts",
+      "default": "./src/agentDesktop/control.ts"
+    },
     "./worktree-setup": {
       "types": "./src/worktreeSetup.ts",
       "default": "./src/worktreeSetup.ts"

@@ -1,7 +1,5 @@
-import type {
-  AgentDesktopControl,
-  AgentDesktopViewerStatus,
-} from "@t3tools/client-runtime/agent-desktop/viewer";
+import type { AgentDesktopControl } from "@t3tools/client-runtime/agent-desktop/control";
+import type { AgentDesktopViewerStatus } from "@t3tools/client-runtime/agent-desktop/viewer";
 
 export interface AgentDesktopStreamConfiguration {
   /** The stream's WebSocket URL, ticket included. */

@@ -12,11 +12,9 @@
 import RFB from "@novnc/novnc";
 import type { AgentDesktopStreamCommand, AgentDesktopStreamStatus } from "@t3tools/contracts";
 
-export interface AgentDesktopControl {
-  /** Whether this viewer may take control at all. */
-  readonly canOperate: boolean;
-  readonly controller: AgentDesktopStreamStatus["state"];
-}
+import type { AgentDesktopControl } from "./control.ts";
+
+export { type AgentDesktopControl, agentDesktopControlLabel } from "./control.ts";
 
 /** connecting → live; `refused` means the stream never opened, usually an expired ticket. */
 export type AgentDesktopViewerStatus = "connecting" | "live" | "refused" | "gone";
@@ -56,18 +54,6 @@ const keysymFor = (codePoint: number) =>
 const RECONNECT_DELAY_MS = 1_000;
 /** `AGENT_DESKTOP_GONE_CODE`; a type-only import keeps the contracts out of the mobile bundle. */
 const GONE_CODE = 4404;
-
-export function agentDesktopControlLabel(control: AgentDesktopControl | null): string {
-  if (control === null) return "Connecting…";
-  switch (control.controller) {
-    case "you":
-      return "You have control";
-    case "another-viewer":
-      return "Another viewer has control";
-    case "agent":
-      return control.canOperate ? "Agent is driving" : "Watching";
-  }
-}
 
 /**
  * A WebSocket-shaped channel for noVNC that hands it only the binary frames.
