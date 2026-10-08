@@ -60,6 +60,9 @@ import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
+import * as AgentDesktopService from "./agentDesktop/AgentDesktopService.ts";
+import * as AgentDesktopNotices from "./agentDesktop/AgentDesktopNotices.ts";
+import * as AgentDesktopStream from "./agentDesktop/AgentDesktopStream.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
@@ -570,6 +573,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // Subscribes to `account.rate-limits.updated` so usage bars track live
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestion.layer,
+  AgentDesktopNotices.layer,
   layerProviderInstallationRefresh,
   ReplayMarkers.layer,
 ).pipe(
@@ -583,7 +587,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(GitHubApi.layerWithDependencies),
   Layer.provideMerge(layerGit),
   Layer.provideMerge(layerVcs),
-  Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
+  Layer.provideMerge(
+    Layer.mergeAll(layerTerminal, layerPreview, layerDevice, AgentDesktopService.layer),
+  ),
   Layer.provideMerge(layerPersistence),
   // Both read a user-owned file out of the state directory and stream changes
   // to clients; neither depends on the other.
@@ -685,6 +691,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAttachmentUploadRoute,
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,
+    AgentDesktopStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
   ),

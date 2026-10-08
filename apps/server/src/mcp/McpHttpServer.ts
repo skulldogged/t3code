@@ -50,6 +50,8 @@ import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
+import * as AgentDesktopHandlers from "./toolkits/agentDesktop/handlers.ts";
+import { AgentDesktopToolkit } from "./toolkits/agentDesktop/tools.ts";
 import {
   DeviceScreenshotTool,
   DeviceScreenshotToolkit,
@@ -858,5 +860,6 @@ export const layer = Layer.mergeAll(
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
   layerDeviceToolkit,
+  toolkitRegistration(AgentDesktopToolkit, AgentDesktopHandlers.layer),
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));

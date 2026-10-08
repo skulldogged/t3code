@@ -5,8 +5,16 @@ import { build } from "vite-plus";
 
 const mobileRoot = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 
-/** Metro embeds each shared browser transport as a small script in a native WebView. */
-async function generateWebViewScript(feature: string, name: string) {
+/**
+ * Metro embeds each shared browser transport as a small script in a native WebView.
+ * `es` output is for code with top-level await (noVNC), which a classic script can't hold;
+ * its document loads it as a module.
+ */
+async function generateWebViewScript(
+  feature: string,
+  name: string,
+  format: "iife" | "es" = "iife",
+) {
   const stem = `${name.toLowerCase()}-stream`;
   const result = await build({
     configFile: false,
@@ -18,7 +26,7 @@ async function generateWebViewScript(feature: string, name: string) {
       lib: {
         entry: NodePath.join(mobileRoot, "src/features", feature, `${stem}.browser.ts`),
         name: `T3${name}Stream`,
-        formats: ["iife"],
+        formats: [format],
       },
     },
   });
@@ -41,3 +49,5 @@ async function generateWebViewScript(feature: string, name: string) {
 
 export const generateDeviceStreamScript = () => generateWebViewScript("devices", "Device");
 export const generatePreviewStreamScript = () => generateWebViewScript("browser", "Preview");
+export const generateAgentDesktopStreamScript = () =>
+  generateWebViewScript("agentDesktop", "AgentDesktop", "es");

@@ -107,6 +107,12 @@ export function shouldRenderPreviewMiniPlayer(
       renderedRightPanelSurface.resourceId === source.tabId
     );
   }
+  if (source.kind === "agent-desktop") {
+    return !(
+      renderedRightPanelSurface?.kind === "agent-desktop" &&
+      renderedRightPanelSurface.desktopId === source.desktopId
+    );
+  }
   return !(
     renderedRightPanelSurface?.kind === "device" &&
     renderedRightPanelSurface.target?.hostId === source.hostId &&

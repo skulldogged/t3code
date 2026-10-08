@@ -23,6 +23,10 @@
       "types": "./src/preview/serverBrowserStream.ts",
       "default": "./src/preview/serverBrowserStream.ts"
     },
+    "./agent-desktop/viewer": {
+      "types": "./src/agentDesktop/viewer.ts",
+      "default": "./src/agentDesktop/viewer.ts"
+    },
     "./worktree-setup": {
       "types": "./src/worktreeSetup.ts",
       "default": "./src/worktreeSetup.ts"
@@ -174,6 +178,10 @@
     "./state/device": {
       "types": "./src/state/device.ts",
       "default": "./src/state/device.ts"
+    },
+    "./state/agent-desktop": {
+      "types": "./src/state/agentDesktop.ts",
+      "default": "./src/state/agentDesktop.ts"
     },
     "./state/deviceHubAccess": {
       "types": "./src/state/deviceHubAccess.ts",
@@ -397,6 +405,7 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@novnc/novnc": "1.7.0",
     "@t3tools/contracts": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "effect": "catalog:",

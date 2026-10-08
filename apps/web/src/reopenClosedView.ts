@@ -140,6 +140,9 @@ export async function reopenClosedView(
         if (surface.title) panels.renameDevice(ref, surface.id, surface.title);
       } else panels.open(ref, "device");
       break;
+    case "agent-desktop":
+      panels.openAgentDesktop(ref, surface.desktopId, surface.title);
+      break;
     case "pull-request":
       panels.openPullRequest(ref, surface);
       break;

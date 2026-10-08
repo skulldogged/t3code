@@ -44,6 +44,8 @@ import {
 } from "~/previewMiniPlayerStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { useDeviceState } from "~/state/device";
+import { useAgentDesktopState } from "~/state/agentDesktop";
+import { AgentDesktopSurface } from "~/components/agentDesktop/AgentDesktopSurface";
 
 import { DeviceStreamView } from "../device/DeviceStreamView";
 import type { DeviceScreenSize } from "@t3tools/client-runtime/device/stream";
@@ -99,6 +101,16 @@ const RESIZE_HANDLES: ReadonlyArray<{
 /** Floats the thread's browser tab or device stream over chat. */
 export function ThreadPreviewMiniPlayer({ threadRef, miniPlayer }: Props) {
   const { source } = miniPlayer;
+  if (source.kind === "agent-desktop") {
+    return (
+      <AgentDesktopMiniPlayer
+        key={previewMiniPlayerSourceKey(source)}
+        threadRef={threadRef}
+        source={source}
+        miniPlayer={miniPlayer}
+      />
+    );
+  }
   return source.kind === "browser" ? (
     <BrowserMiniPlayer
       key={source.tabId}
@@ -305,6 +317,46 @@ function DeviceMiniPlayer({
             visible
             onScreen={setScreen}
           />
+        </div>
+      )}
+    </MiniPlayerShell>
+  );
+}
+
+/** An agent's desktop, to watch; taking control happens in the panel. */
+function AgentDesktopMiniPlayer({
+  threadRef,
+  source,
+  miniPlayer,
+}: Props & { readonly source: Extract<PreviewMiniPlayerSource, { kind: "agent-desktop" }> }) {
+  const { state } = useAgentDesktopState(threadRef.environmentId);
+  const desktop = state.desktops.find((entry) => entry.id === source.desktopId);
+  const openInPanel = () => {
+    usePreviewMiniPlayerStore.getState().close(threadRef);
+    useRightPanelStore.getState().openAgentDesktop(threadRef, source.desktopId, source.title);
+  };
+  return (
+    <MiniPlayerShell
+      threadRef={threadRef}
+      miniPlayer={miniPlayer}
+      sourceSize={{ width: desktop?.width ?? 1440, height: desktop?.height ?? 900 }}
+      label="Floating desktop preview"
+      onOpenInPanel={openInPanel}
+    >
+      {() => (
+        <div
+          className="pointer-events-auto absolute inset-0 overflow-hidden rounded-[inherit]"
+          style={{ zIndex: PREVIEW_MINI_PLAYER_WEBVIEW_Z_INDEX }}
+        >
+          {desktop ? (
+            <AgentDesktopSurface
+              className="size-full"
+              environmentId={threadRef.environmentId}
+              desktop={desktop}
+              interactive={false}
+              compact
+            />
+          ) : null}
         </div>
       )}
     </MiniPlayerShell>

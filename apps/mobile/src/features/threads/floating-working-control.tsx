@@ -27,6 +27,7 @@ import { SymbolView } from "../../components/AppSymbol";
 import { ControlPill } from "../../components/ControlPill";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { BrowserPreviewButton } from "../browser/browser-preview-button";
+import { AgentDesktopButton } from "../agentDesktop/agent-desktop-button";
 import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingWorkingStatus } from "./floating-working-status";
 import { ShimmeringWorkContent } from "./thread-work-log";
@@ -70,6 +71,7 @@ export function FloatingWorkingControl(props: {
   readonly status: FloatingWorkingStatus | null;
   readonly devicePreview: { readonly count: number; readonly onPress: () => void } | null;
   readonly browserPreview: { readonly count: number; readonly onPress: () => void } | null;
+  readonly desktopPreview?: { readonly count: number; readonly onPress: () => void } | null;
   readonly showScrollToEnd: boolean;
   readonly onScrollToEnd: () => void;
   readonly agents: SubagentPillSegment | null;
@@ -84,7 +86,9 @@ export function FloatingWorkingControl(props: {
   const [queueWidth, setQueueWidth] = useState(0);
   const [agentsWidth, setAgentsWidth] = useState(0);
   const hasQueue = props.queuedCount > 0;
-  const hasPreview = props.devicePreview !== null || props.browserPreview !== null;
+  const desktopPreview = props.desktopPreview ?? null;
+  const hasPreview =
+    props.devicePreview !== null || props.browserPreview !== null || desktopPreview !== null;
   const [previewWidth, setPreviewWidth] = useState(0);
   const agents = props.agents;
   const hasAgents = agents !== null;
@@ -159,7 +163,8 @@ export function FloatingWorkingControl(props: {
     hasStatus ||
     hasAgents ||
     hasQueue ||
-    (props.devicePreview !== null && props.browserPreview !== null);
+    [props.devicePreview, props.browserPreview, desktopPreview].filter((entry) => entry !== null)
+      .length > 1;
   // The queue, agents, and reconnect labels have separate tap targets.
   const statusInteractive = props.status?.kind === "connection";
   const capsuleInteractive = statusInteractive || hasQueue || hasAgents || hasPreview;
@@ -204,6 +209,9 @@ export function FloatingWorkingControl(props: {
           ) : null}
           {props.browserPreview !== null ? (
             <BrowserPreviewButton {...props.browserPreview} compact={previewCompact} />
+          ) : null}
+          {desktopPreview !== null ? (
+            <AgentDesktopButton {...desktopPreview} compact={previewCompact} />
           ) : null}
         </View>
       ) : null}

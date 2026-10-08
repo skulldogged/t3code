@@ -22,6 +22,7 @@ import {
   FileDiff,
   Files,
   Globe2,
+  Monitor,
   Plus,
   TerminalSquare,
 } from "lucide-react";
@@ -128,6 +129,9 @@ interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  /** Desktops agents registered with this thread that aren't open as tabs. */
+  agentDesktops?: ReadonlyArray<{ readonly id: string; readonly title: string }>;
+  onOpenAgentDesktop?: (desktopId: string, title: string) => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -604,6 +608,8 @@ function surfaceTitle(
       return "Pull requests";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
+    case "agent-desktop":
+      return surface.title ?? surface.desktopId;
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -693,6 +699,8 @@ function SurfaceIcon({
       ) : (
         <Smartphone className="size-3 shrink-0" />
       );
+    case "agent-desktop":
+      return <Monitor className="size-3 shrink-0" />;
   }
 }
 
@@ -1330,6 +1338,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       </SurfaceMenuItem>
                     );
                   })}
+                  {props.agentDesktops?.map((desktop) => (
+                    <MenuItem
+                      key={`agent-desktop:${desktop.id}`}
+                      onClick={() => props.onOpenAgentDesktop?.(desktop.id, desktop.title)}
+                    >
+                      <Monitor />
+                      Desktop: {desktop.title}
+                    </MenuItem>
+                  ))}
                 </MenuPopup>
               </Menu>
             ) : null}

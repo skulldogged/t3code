@@ -195,6 +195,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.deviceDetail]: "device",
   [WS_METHODS.deviceAction]: "device",
   [WS_METHODS.subscribeDeviceState]: "device",
+  [WS_METHODS.subscribeAgentDesktopState]: "device",
   [WS_METHODS.subscribeServerConfig]: "server",
   [WS_METHODS.subscribeServerLifecycle]: "server",
   [WS_METHODS.subscribeAuthAccess]: "auth",

@@ -50,6 +50,7 @@ import { ReviewSheet } from "./features/review/ReviewSheet";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
 import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteScreen";
 import { BrowserPreviewRouteScreen } from "./features/browser/BrowserPreviewRouteScreen";
+import { AgentDesktopRouteScreen } from "./features/agentDesktop/AgentDesktopRouteScreen";
 import { GitBranchesSheet } from "./features/threads/git/GitBranchesSheet";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
 import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
@@ -556,6 +557,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "ThreadReviewComment",
   "ThreadDevicePreview",
   "ThreadBrowserPreview",
+  "ThreadAgentDesktop",
   "ThreadSettingsSheet",
 ]);
 
@@ -717,6 +719,15 @@ const RootStackConfig = createWorkspaceStackNavigator({
         gestureEnabled: false,
         autoHideHomeIndicator: true,
         navigationBarHidden: true,
+      },
+    }),
+    ThreadAgentDesktop: createNativeStackScreen({
+      screen: AgentDesktopRouteScreen,
+      linking: `${THREAD_LINKING_PREFIX}/desktop`,
+      options: {
+        presentation: "fullScreenModal",
+        headerShown: false,
+        gestureEnabled: false,
       },
     }),
     ThreadBrowserPreview: createNativeStackScreen({

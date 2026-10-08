@@ -19,6 +19,7 @@ const escapedWorkspaceRoot = workspaceRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"
 const mobileShikiRoot = path.dirname(require.resolve("shiki/package.json", { paths: [__dirname] }));
 const generatedDeviceStreamRoot = path.join(__dirname, ".generated", "device-stream");
 const generatedPreviewStreamRoot = path.join(__dirname, ".generated", "preview-stream");
+const generatedAgentDesktopStreamRoot = path.join(__dirname, ".generated", "agentdesktop-stream");
 const resolveShikiDependencyRoot = (packageName) => {
   const entryPath = require.resolve(packageName, { paths: [mobileShikiRoot] });
   let currentDir = path.dirname(entryPath);
@@ -50,6 +51,7 @@ config.resolver = {
     "@t3tools/mobile-third-party-licenses": generatedLicenseModuleRoot,
     "@t3tools/mobile-device-stream": generatedDeviceStreamRoot,
     "@t3tools/mobile-preview-stream": generatedPreviewStreamRoot,
+    "@t3tools/mobile-agent-desktop-stream": generatedAgentDesktopStreamRoot,
     shiki: mobileShikiRoot,
     "@shikijs/core": resolveShikiDependencyRoot("@shikijs/core"),
     "@shikijs/engine-javascript": resolveShikiDependencyRoot("@shikijs/engine-javascript"),
@@ -98,11 +100,19 @@ async function generateMobileThirdPartyLicenses() {
 }
 
 async function prepareStreamScripts() {
-  const { generateDeviceStreamScript, generatePreviewStreamScript } = await import(
+  const {
+    generateDeviceStreamScript,
+    generatePreviewStreamScript,
+    generateAgentDesktopStreamScript,
+  } = await import(
     pathToFileURL(path.join(__dirname, "scripts", "generate-device-stream.mts")).href
   );
   const generateAll = () =>
-    Promise.all([generateDeviceStreamScript(), generatePreviewStreamScript()]);
+    Promise.all([
+      generateDeviceStreamScript(),
+      generatePreviewStreamScript(),
+      generateAgentDesktopStreamScript(),
+    ]);
   await generateAll();
   if (process.env.NODE_ENV !== "production") {
     let rebuild = Promise.resolve();
@@ -124,6 +134,12 @@ async function prepareStreamScripts() {
         ["serverBrowserStream.ts"],
         generatePreviewStreamScript,
       ],
+      [
+        "apps/mobile/src/features/agentDesktop",
+        ["agentdesktop-stream.browser.ts", "agent-desktop-document.ts"],
+        generateAgentDesktopStreamScript,
+      ],
+      ["packages/client-runtime/src/agentDesktop", ["viewer.ts"], generateAgentDesktopStreamScript],
     ]) {
       // The generated modules participate in Metro's normal Fast Refresh.
       fs.watch(path.join(workspaceRoot, directory), { persistent: false }, (_event, filename) => {

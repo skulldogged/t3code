@@ -247,6 +247,18 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "device",
   ),
   device_close: tool(["Close", "Closing", "Closed", "a device"], "device", "device"),
+  agent_desktop_register: tool(["Show", "Showing", "Showed", "a desktop"], "device", "device"),
+  agent_desktop_unregister: tool(
+    ["Remove", "Removing", "Removed", "a desktop"],
+    "device",
+    "device",
+  ),
+  agent_desktop_status: tool(["Check", "Checking", "Checked", "a desktop"], "device", "device"),
+  agent_desktop_request: tool(
+    ["Ask about", "Asking about", "Asked about", "a desktop"],
+    "device",
+    "device",
+  ),
   run_scheduled_task_now: tool(
     ["Run", "Running", "Requested a run of", "a scheduled task"],
     "schedule-run",

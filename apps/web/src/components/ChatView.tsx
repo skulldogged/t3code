@@ -291,6 +291,7 @@ import { RightPanelTabs } from "./RightPanelTabs";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
+import { useAgentDesktopState } from "~/state/agentDesktop";
 import { DeviceSetup } from "./device/DeviceSetup";
 import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
@@ -706,6 +707,11 @@ const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPrevie
   settings.browserAutoShowFloatingPreview;
 const DevicePanel = lazy(() =>
   import("./device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
+);
+const AgentDesktopPanel = lazy(() =>
+  import("./agentDesktop/AgentDesktopSurface").then((module) => ({
+    default: module.AgentDesktopPanel,
+  })),
 );
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
@@ -5593,6 +5599,88 @@ export default function ChatView(props: ChatViewProps) {
     );
     if (!sessionStillExists) usePreviewMiniPlayerStore.getState().close(activeThreadRef);
   }, [activePreviewMiniPlayer, activeThreadRef, deviceState.sessions, deviceStateLoaded]);
+  // Agents' desktops show quietly in the add menu; one floats open only when its
+  // agent asks the user to look.
+  const { state: agentDesktopState, loaded: agentDesktopStateLoaded } = useAgentDesktopState(
+    activeThreadRef?.environmentId ?? null,
+  );
+  const threadAgentDesktops = useMemo(
+    () =>
+      activeThreadRef === null
+        ? []
+        : agentDesktopState.desktops.filter((desktop) =>
+            desktop.threadIds.includes(activeThreadRef.threadId),
+          ),
+    [activeThreadRef, agentDesktopState.desktops],
+  );
+  const unopenedAgentDesktops = useMemo(
+    () =>
+      threadAgentDesktops
+        .filter(
+          (desktop) =>
+            !renderedRightPanelSurfaces.some(
+              (surface) => surface.kind === "agent-desktop" && surface.desktopId === desktop.id,
+            ),
+        )
+        .map((desktop) => ({ id: desktop.id, title: desktop.title })),
+    [renderedRightPanelSurfaces, threadAgentDesktops],
+  );
+  const seenAgentDesktopRequests = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!activeThreadRef || !agentDesktopStateLoaded) return;
+    for (const desktop of agentDesktopState.desktops) {
+      const request = desktop.request;
+      if (request === undefined || request.threadId !== activeThreadRef.threadId) continue;
+      const key = `${activeThreadRef.environmentId}:${desktop.id}`;
+      const seen = seenAgentDesktopRequests.current.get(key);
+      seenAgentDesktopRequests.current.set(key, request.sequence);
+      // The first snapshot is a baseline, so a reload doesn't reopen old requests.
+      if (seen === undefined || seen >= request.sequence) continue;
+      if (autoShowFloatingPreview && !shouldUsePlanSidebarSheet) {
+        usePreviewMiniPlayerStore.getState().open(activeThreadRef, {
+          kind: "agent-desktop",
+          desktopId: desktop.id,
+          title: desktop.title,
+        });
+      } else {
+        useRightPanelStore.getState().openAgentDesktop(activeThreadRef, desktop.id, desktop.title);
+        useRightPanelStore.getState().show(activeThreadRef);
+      }
+    }
+    // Remember desktops with no request too, so their first request counts.
+    for (const desktop of agentDesktopState.desktops) {
+      const key = `${activeThreadRef.environmentId}:${desktop.id}`;
+      if (!seenAgentDesktopRequests.current.has(key)) {
+        seenAgentDesktopRequests.current.set(key, desktop.request?.sequence ?? 0);
+      }
+    }
+  }, [
+    activeThreadRef,
+    agentDesktopState.desktops,
+    agentDesktopStateLoaded,
+    autoShowFloatingPreview,
+    shouldUsePlanSidebarSheet,
+  ]);
+  useEffect(() => {
+    if (!activeThreadRef || !agentDesktopStateLoaded) return;
+    const source = activePreviewMiniPlayer?.source;
+    if (source?.kind !== "agent-desktop") return;
+    if (!agentDesktopState.desktops.some((desktop) => desktop.id === source.desktopId)) {
+      usePreviewMiniPlayerStore.getState().close(activeThreadRef);
+    }
+  }, [
+    activePreviewMiniPlayer,
+    activeThreadRef,
+    agentDesktopState.desktops,
+    agentDesktopStateLoaded,
+  ]);
+  const openAgentDesktopSurface = useCallback(
+    (desktopId: string, title: string) => {
+      if (!activeThreadRef) return;
+      useRightPanelStore.getState().openAgentDesktop(activeThreadRef, desktopId, title);
+    },
+    [activeThreadRef],
+  );
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
@@ -5877,6 +5965,12 @@ export default function ChatView(props: ChatViewProps) {
         usePreviewMiniPlayerStore
           .getState()
           .open(activeThreadRef, { kind: "device", ...activeRightPanelSurface.target });
+      } else if (activeRightPanelSurface?.kind === "agent-desktop") {
+        usePreviewMiniPlayerStore.getState().open(activeThreadRef, {
+          kind: "agent-desktop",
+          desktopId: activeRightPanelSurface.desktopId,
+          title: activeRightPanelSurface.title ?? activeRightPanelSurface.desktopId,
+        });
       }
       setMaximizedRightPanelThreadKey(null);
       useRightPanelStore.getState().close(activeThreadRef);
@@ -11067,6 +11161,15 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : renderedRightPanelSurface?.kind === "agent-desktop" ? (
+      <Suspense fallback={null}>
+        <AgentDesktopPanel
+          key={renderedRightPanelSurface.id}
+          threadRef={activeThreadRef}
+          desktopId={renderedRightPanelSurface.desktopId}
+          title={renderedRightPanelSurface.title}
+        />
+      </Suspense>
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
         <DevicePanel
@@ -11858,7 +11961,9 @@ export default function ChatView(props: ChatViewProps) {
             {activeThreadRef &&
             activePreviewMiniPlayer &&
             previewMiniPlayerVisible &&
-            (activePreviewMiniPlayer.source.kind === "device" || canOperatePreview) ? (
+            (activePreviewMiniPlayer.source.kind === "device" ||
+              activePreviewMiniPlayer.source.kind === "agent-desktop" ||
+              canOperatePreview) ? (
               <ThreadPreviewMiniPlayer
                 key={`${activeThreadKey}:${previewMiniPlayerSourceKey(activePreviewMiniPlayer.source)}`}
                 threadRef={activeThreadRef}
@@ -11974,6 +12079,8 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
           onAddDevice={addDeviceSurface}
+          agentDesktops={unopenedAgentDesktops}
+          onOpenAgentDesktop={openAgentDesktopSurface}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
@@ -12032,6 +12139,8 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
             onAddDevice={addDeviceSurface}
+            agentDesktops={unopenedAgentDesktops}
+            onOpenAgentDesktop={openAgentDesktopSurface}
             browserAvailable={canOperatePreview && browserAvailable}
             terminalAvailable={activeProject !== null && canOperateTerminal}
             diffAvailable={isServerThread && isGitRepo}
