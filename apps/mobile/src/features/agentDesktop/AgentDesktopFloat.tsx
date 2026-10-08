@@ -10,6 +10,8 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { AgentDesktopWebView } from "./AgentDesktopWebView";
 
 const PLAYER_WIDTH = 184;
+/** An unanswered request this recent still floats open when the thread opens. */
+const RECENT_REQUEST_MS = 10 * 60_000;
 const PLAYER_ENTERING = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
 const PLAYER_EXITING = FadeOut.duration(120).reduceMotion(ReduceMotion.System);
 
@@ -30,13 +32,15 @@ export function AgentDesktopFloat(props: {
     seen.current = new Map(
       props.desktops.map((desktop) => [desktop.id, desktop.request?.sequence ?? 0]),
     );
-    // The first list is a baseline, so reopening a thread does not resurface old requests.
-    if (previous === null) return;
+    // The first list is a baseline, so reopening a thread does not resurface old
+    // requests, except one made moments ago, perhaps while the app was closed.
     const asked = props.desktops.findLast(
       (desktop) =>
         desktop.request !== undefined &&
         desktop.request.threadId === props.threadId &&
-        desktop.request.sequence > (previous.get(desktop.id) ?? 0),
+        (previous === null
+          ? Date.now() - Date.parse(desktop.request.requestedAt) < RECENT_REQUEST_MS
+          : desktop.request.sequence > (previous.get(desktop.id) ?? 0)),
     );
     if (asked !== undefined) setDesktopId(asked.id);
   }, [props.desktops, props.loaded, props.threadId]);

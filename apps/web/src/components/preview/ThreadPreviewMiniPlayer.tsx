@@ -344,8 +344,9 @@ function AgentDesktopMiniPlayer({
       onOpenInPanel={openInPanel}
     >
       {() => (
+        // Watch-only: the frame keeps hover, drag and resize; control happens in the panel.
         <div
-          className="pointer-events-auto absolute inset-0 overflow-hidden rounded-[inherit]"
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
           style={{ zIndex: PREVIEW_MINI_PLAYER_WEBVIEW_Z_INDEX }}
         >
           {desktop ? (

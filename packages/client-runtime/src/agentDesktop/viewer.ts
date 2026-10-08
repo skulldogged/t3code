@@ -122,8 +122,18 @@ export function createAgentDesktopViewer(options: AgentDesktopViewerOptions): Ag
     if (rfb === null) return;
     rfb.viewOnly = !inControl();
     rfb.focusOnClick = inControl();
-    if (inControl()) rfb.focus({ preventScroll: true });
-    else rfb.blur();
+    // Host apps leave keys alone in text boxes; without this, an app that sends
+    // stray typing to its own input (T3's composer) takes the desktop's keys.
+    const canvas = options.container.querySelector("canvas");
+    if (inControl()) {
+      canvas?.setAttribute("role", "textbox");
+      canvas?.setAttribute("aria-label", "Remote desktop");
+      rfb.focus({ preventScroll: true });
+    } else {
+      canvas?.removeAttribute("role");
+      canvas?.removeAttribute("aria-label");
+      rfb.blur();
+    }
   };
 
   // Pasting while in control types the text on the desktop's clipboard.

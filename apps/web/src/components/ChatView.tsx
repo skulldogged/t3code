@@ -708,6 +708,8 @@ const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPrevie
 const DevicePanel = lazy(() =>
   import("./device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
 );
+/** An unanswered desktop request this recent still floats open when the thread loads. */
+const RECENT_AGENT_DESKTOP_REQUEST_MS = 10 * 60_000;
 const AgentDesktopPanel = lazy(() =>
   import("./agentDesktop/AgentDesktopSurface").then((module) => ({
     default: module.AgentDesktopPanel,
@@ -5634,8 +5636,12 @@ export default function ChatView(props: ChatViewProps) {
       const key = `${activeThreadRef.environmentId}:${desktop.id}`;
       const seen = seenAgentDesktopRequests.current.get(key);
       seenAgentDesktopRequests.current.set(key, request.sequence);
-      // The first snapshot is a baseline, so a reload doesn't reopen old requests.
-      if (seen === undefined || seen >= request.sequence) continue;
+      // The first snapshot is a baseline, so a reload doesn't reopen old requests,
+      // except one the agent made moments ago, perhaps while this app was closed.
+      const recent =
+        seen === undefined &&
+        Date.now() - Date.parse(request.requestedAt) < RECENT_AGENT_DESKTOP_REQUEST_MS;
+      if (!recent && (seen === undefined || seen >= request.sequence)) continue;
       if (autoShowFloatingPreview && !shouldUsePlanSidebarSheet) {
         usePreviewMiniPlayerStore.getState().open(activeThreadRef, {
           kind: "agent-desktop",
