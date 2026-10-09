@@ -43,8 +43,13 @@ const main = Effect.gen(function* () {
     bin: packageJson.bin,
     files: packageJson.files,
     type: packageJson.type,
+    // Workspace packages are inlined into the bundle and cannot be installed from npm.
     dependencies: resolveCatalogDependencies(
-      packageJson.dependencies as Record<string, string>,
+      Object.fromEntries(
+        Object.entries(packageJson.dependencies as Record<string, string>).filter(
+          ([, spec]) => !spec.startsWith("workspace:"),
+        ),
+      ),
       workspace.catalog ?? {},
       "apps/server",
     ),
