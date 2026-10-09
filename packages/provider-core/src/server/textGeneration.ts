@@ -114,6 +114,10 @@ export interface ProviderTextGeneration {
   ) => Effect.Effect<SideReplyResult, TextGenerationError>;
 }
 
+/** The detail of the error a provider runtime returns when it cannot fork for side replies. */
+export const SIDE_REPLY_UNSUPPORTED =
+  "This provider runtime cannot fork conversations for side replies.";
+
 export interface SideReplyInput {
   /** The app thread whose conversation is forked; its live session's tools are reused. */
   threadId: ThreadId;

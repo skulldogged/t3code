@@ -23,10 +23,7 @@ export type {
   SideReplyResult,
 } from "@t3tools/provider-core/server/textGeneration";
 
-/** The detail of the error a provider runtime returns when it cannot fork for side replies. */
-export const SIDE_REPLY_UNSUPPORTED =
-  "This provider runtime cannot fork conversations for side replies.";
-
+export { SIDE_REPLY_UNSUPPORTED } from "@t3tools/provider-core/server/textGeneration";
 /**
  * TextGeneration - Service tag for commit and change request text generation.
  */

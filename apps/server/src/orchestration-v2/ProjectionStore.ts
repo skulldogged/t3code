@@ -12,7 +12,7 @@ import {
   threadErrorSummary,
   usageLimitRunPresentedAsLatest,
 } from "@t3tools/shared/orchestrationV2ThreadError";
-import { restoreDelegatedCompletionMetadata } from "./SubagentProjection.ts";
+import { restoreDelegatedCompletionMetadata } from "@t3tools/provider-core/server/subagentProjection";
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import type {
   OrchestrationV2AppThread,
