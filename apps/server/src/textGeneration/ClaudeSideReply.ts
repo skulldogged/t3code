@@ -27,6 +27,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ServerConfig from "../config.ts";
 import {
   claudeMcpQueryOverrides,
@@ -90,6 +91,7 @@ export const makeClaudeSideReply = Effect.fn("makeClaudeSideReply")(function* (i
   readonly environment: ProviderInstanceEnvironment | undefined;
 }) {
   const hostEnvironment = yield* HostProcessEnvironment;
+  const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const { attachmentsDir } = yield* ServerConfig.ServerConfig;
   const claudeEnvironment = yield* makeClaudeEnvironment(
     input.config,
@@ -108,7 +110,7 @@ export const makeClaudeSideReply = Effect.fn("makeClaudeSideReply")(function* (i
     // Same tools and MCP servers as the live query: they lead the prompt, so
     // any difference there would forfeit the cached conversation.
     const { mcpServers } = claudeMcpQueryOverrides({
-      threadId: request.threadId,
+      mcpSession: yield* mcpSessions.read(request.threadId),
       readOnlySandbox: queryPolicy.tools !== undefined,
     });
     // Pre-approved tools would skip the permission callback.

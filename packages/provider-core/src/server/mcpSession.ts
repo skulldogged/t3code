@@ -30,8 +30,10 @@ export interface McpProviderSessionConfig {
  * starts (a job runner that reports back when a build ends, for example) can
  * post to the thread or ask the user something on its behalf.
  */
-export function threadCommandEnvironment(threadId: ThreadId): Record<string, string> {
-  const session = readMcpProviderSession(threadId);
+export function threadCommandEnvironment(
+  threadId: ThreadId,
+  session: Pick<McpProviderSessionConfig, "endpoint" | "authorizationHeader"> | undefined,
+): Record<string, string> {
   return {
     T3_THREAD_ID: threadId,
     ...(session === undefined
@@ -55,22 +57,4 @@ export function withAgentDeviceEnvironment(
     ...rest,
     ...(shimDir ? { PATH: basePath ? `${shimDir}${separator}${basePath}` : shimDir } : {}),
   };
-}
-
-const sessionsByThread = new Map<ThreadId, McpProviderSessionConfig>();
-
-export function setMcpProviderSession(config: McpProviderSessionConfig): void {
-  sessionsByThread.set(config.threadId, config);
-}
-
-export function readMcpProviderSession(threadId: ThreadId): McpProviderSessionConfig | undefined {
-  return sessionsByThread.get(threadId);
-}
-
-export function clearMcpProviderSession(threadId: ThreadId): void {
-  sessionsByThread.delete(threadId);
-}
-
-function clearAllMcpProviderSessions(): void {
-  sessionsByThread.clear();
 }
