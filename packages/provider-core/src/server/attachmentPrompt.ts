@@ -10,8 +10,7 @@ import {
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 
-import { resolveAttachmentPath } from "../attachmentStore.ts";
-import { ProviderAdapterProtocolError } from "@t3tools/provider-core/server/ProviderAdapter";
+import { ProviderAdapterProtocolError } from "./ProviderAdapter.ts";
 
 class AttachmentPromptError extends Schema.TaggedError<AttachmentPromptError>()(
   "AttachmentPromptError",
@@ -177,7 +176,8 @@ export function isProviderNativeImageAttachment(attachment: ChatAttachment): boo
 export function providerMessageTextWithAttachmentPaths(input: {
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
-  readonly attachmentsDir: string;
+  /** Absolute path of a stored attachment, such as `ProviderHost.resolveAttachmentPath`. */
+  readonly resolveAttachmentPath: (attachment: ChatAttachment) => string | null;
 }): string {
   let text = input.text;
   const appendContext = (context: string | undefined) => {
@@ -189,10 +189,7 @@ export function providerMessageTextWithAttachmentPaths(input: {
   };
 
   for (const attachment of input.attachments) {
-    const path = resolveAttachmentPath({
-      attachmentsDir: input.attachmentsDir,
-      attachment,
-    });
+    const path = input.resolveAttachmentPath(attachment);
     if (path === null && attachment.type === "file") {
       throw new AttachmentPromptError({ reason: "invalid_attachment" });
     }

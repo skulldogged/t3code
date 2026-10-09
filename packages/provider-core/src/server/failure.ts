@@ -12,9 +12,10 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Cause from "effect/Cause";
+
+import type * as IdAllocator from "./IdAllocator.ts";
 import * as Schema from "effect/Schema";
 
-import type { IdAllocatorV2Shape } from "./IdAllocator.ts";
 /** Raised when portable history does not fit the target provider's context window. */
 export class ContextHandoffBudgetError extends Schema.TaggedError<ContextHandoffBudgetError>()(
   "ContextHandoffBudgetError",
@@ -174,7 +175,7 @@ export function makeProviderFailure(input: {
 }
 
 export function makeProviderFailureTurnItem(input: {
-  readonly idAllocator: IdAllocatorV2Shape;
+  readonly idAllocator: IdAllocator.IdAllocatorV2Shape;
   readonly driver: ProviderDriverKind;
   readonly threadId: ThreadId;
   readonly runId: RunId | null;
@@ -212,7 +213,7 @@ export function makeProviderFailureTurnItem(input: {
 }
 
 export function makeProviderRetryTurnItem(input: {
-  readonly idAllocator: IdAllocatorV2Shape;
+  readonly idAllocator: IdAllocator.IdAllocatorV2Shape;
   readonly driver: ProviderDriverKind;
   readonly threadId: ThreadId;
   readonly runId: RunId | null;
