@@ -1,3 +1,4 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as Stream from "effect/Stream";
 import {
   EventId,
@@ -148,7 +149,7 @@ function makeSummary(
   overrides: Partial<PullRequestSummary> = {},
 ): PullRequestSummary {
   return {
-    provider: "github",
+    provider: SourceControlProviderKind.make("github"),
     projectId: input.projectId,
     repository: input.repository,
     number: input.number,
@@ -1005,7 +1006,7 @@ describe("PullRequestSyncReactor", () => {
             Effect.gen(function* () {
               if (input.host === "github.com" && (yield* Clock.currentTimeMillis) < retryAt) {
                 const paused = new PullRequestProviderError({
-                  provider: "github",
+                  provider: SourceControlProviderKind.make("github"),
                   operation: "getChangeRequestSummary",
                   reason: "rate-limited",
                   detail: "paused",
@@ -1075,7 +1076,7 @@ describe("PullRequestSyncReactor", () => {
                 operation: "stack",
                 detail: "paused",
                 cause: new PullRequestProviderError({
-                  provider: "github",
+                  provider: SourceControlProviderKind.make("github"),
                   operation: "getChangeRequestStack",
                   reason: "rate-limited",
                   detail: "paused",
