@@ -22,7 +22,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Platform, type LayoutChangeEvent, useWindowDimensions, View } from "react-native";
+import { Platform, useWindowDimensions, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useDerivedValue,
@@ -65,6 +65,8 @@ import {
   NativeWorkspaceModeContext,
   NativeWorkspaceInspectorContext,
 } from "../../native/v5-workspace-context";
+
+import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
 
 interface AdaptiveWorkspaceContextValue {
   readonly layout: Layout;
@@ -239,20 +241,9 @@ function AdaptiveWorkspaceLayoutContent(
 ) {
   const projectGroupingMode = props.projectGroupingMode;
   const nativeWorkspace = use(NativeWorkspaceModeContext);
-  // Measure the workspace itself: iPad window resizing can leave global
-  // window dimensions out of sync with the space available to this view.
   const windowDimensions = useWindowDimensions();
-  const [workspaceSize, setWorkspaceSize] = useState<{ width: number; height: number } | null>(
-    null,
-  );
-  const { width, height } = workspaceSize ?? windowDimensions;
-  const measureWorkspace = useCallback((event: LayoutChangeEvent) => {
-    const { width, height } = event.nativeEvent.layout;
-    if (width <= 0 || height <= 0) return;
-    setWorkspaceSize((previous) =>
-      previous?.width === width && previous.height === height ? previous : { width, height },
-    );
-  }, []);
+  const nativeMetrics = useNativeLayoutMetrics();
+  const { width, height } = nativeMetrics ?? windowDimensions;
   const pathname = props.pathname;
   const navigation = useNavigation();
   const activeRoleOwner = useRef<symbol | null>(null);
@@ -269,7 +260,10 @@ function AdaptiveWorkspaceLayoutContent(
   const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
   const [focusedAuxiliaryPaneRole, setFocusedAuxiliaryPaneRole] =
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
-  const baseLayout = useMemo(() => deriveLayout({ width, height }), [height, width]);
+  const baseLayout = useMemo(
+    () => deriveLayout({ width, height, nativeMetrics }),
+    [height, width, nativeMetrics],
+  );
   const layout = baseLayout;
   // In split layouts the sidebar IS the thread list — it renders on every
   // route, including Home (which shows an empty-detail pane instead of the
@@ -282,7 +276,9 @@ function AdaptiveWorkspaceLayoutContent(
         viewportWidth: width,
         preferredWidth: fileInspectorPreferredWidth ?? undefined,
         reservedLeadingWidth:
-          shouldRenderPrimarySidebar && showPrimarySidebar ? (layout.listPaneWidth ?? 0) : 0,
+          shouldRenderPrimarySidebar && showPrimarySidebar
+            ? (layout.listPaneWidth ?? 0) + (layout.listPaneGap ?? 0)
+            : 0,
       }),
     [fileInspectorPreferredWidth, layout, showPrimarySidebar, shouldRenderPrimarySidebar, width],
   );
@@ -483,13 +479,21 @@ function AdaptiveWorkspaceLayoutContent(
   );
 
   const renderedSidebarWidth = useSharedValue(
-    panes.primarySidebarVisible ? (layout.listPaneWidth ?? 0) : 0,
+    panes.primarySidebarVisible ? (layout.listPaneWidth ?? 0) + (layout.listPaneGap ?? 0) : 0,
   );
   useEffect(() => {
     if (nativeWorkspace) return;
-    const targetWidth = panes.primarySidebarVisible ? (layout.listPaneWidth ?? 0) : 0;
+    const targetWidth = panes.primarySidebarVisible
+      ? (layout.listPaneWidth ?? 0) + (layout.listPaneGap ?? 0)
+      : 0;
     renderedSidebarWidth.value = withTiming(targetWidth, WORKSPACE_PANE_TIMING);
-  }, [nativeWorkspace, layout.listPaneWidth, panes.primarySidebarVisible, renderedSidebarWidth]);
+  }, [
+    nativeWorkspace,
+    layout.listPaneWidth,
+    layout.listPaneGap,
+    panes.primarySidebarVisible,
+    renderedSidebarWidth,
+  ]);
   const sidebarAnimatedStyle = useAnimatedStyle(() => ({
     opacity: Math.min(1, renderedSidebarWidth.value / 80),
     width: renderedSidebarWidth.value,
@@ -600,11 +604,7 @@ function AdaptiveWorkspaceLayoutContent(
   return (
     <HomeListOptionsProvider projectGroupingMode={projectGroupingMode}>
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
-        <View
-          testID="adaptive-workspace-layout"
-          className="flex-1 flex-row"
-          onLayout={measureWorkspace}
-        >
+        <View testID="adaptive-workspace-layout" className="flex-1 flex-row">
           {shouldRenderPrimarySidebar && layout.listPaneWidth !== null ? (
             <Animated.View
               className="self-stretch overflow-hidden"

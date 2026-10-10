@@ -276,6 +276,11 @@ const config: ExpoConfig = {
     infoPlist: {
       // Preserve the authorized callback when a signing tool randomizes the bundle ID.
       ClerkCallbackScheme: variant.iosBundleIdentifier,
+      UISupportedInterfaceOrientations: [
+        "UIInterfaceOrientationPortrait",
+        "UIInterfaceOrientationLandscapeLeft",
+        "UIInterfaceOrientationLandscapeRight",
+      ],
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
