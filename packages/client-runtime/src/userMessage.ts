@@ -62,13 +62,25 @@ interface UserMessagePresentationInput {
   readonly delegatedTasks?: ReadonlyArray<DelegatedTaskPresentation>;
 }
 
-/** Older scheduled messages stored their attribution in the prompt itself. */
-export function resolveUserMessagePresentation(message: UserMessagePresentationInput) {
+/**
+ * Text and sender label for a user-role message. Older scheduled messages
+ * stored their attribution in the prompt itself.
+ */
+export function resolveUserMessagePresentation(message: UserMessagePresentationInput): {
+  readonly text: string;
+  /** Who sent a user-role message the user did not type. */
+  readonly attribution: "automation" | "agent" | "t3code" | null;
+  readonly scheduledTaskId: ScheduledTaskId | undefined;
+} {
   if (message.role !== "user") {
-    return { text: message.text, isAutomation: false, scheduledTaskId: undefined };
+    return { text: message.text, attribution: null, scheduledTaskId: undefined };
   }
   if (message.scheduledTaskId !== undefined) {
-    return { text: message.text, isAutomation: true, scheduledTaskId: message.scheduledTaskId };
+    return {
+      text: message.text,
+      attribution: "automation",
+      scheduledTaskId: message.scheduledTaskId,
+    };
   }
   if (message.delegatedCompletion !== undefined) {
     return {
@@ -76,7 +88,7 @@ export function resolveUserMessagePresentation(message: UserMessagePresentationI
         taskIds: message.delegatedCompletion.taskIds,
         delegatedTasks: message.delegatedTasks ?? [],
       }),
-      isAutomation: false,
+      attribution: null,
       scheduledTaskId: undefined,
     };
   }
@@ -84,12 +96,23 @@ export function resolveUserMessagePresentation(message: UserMessagePresentationI
   const legacyTaskId = legacyPrefix
     ? LEGACY_AUTOMATION_MESSAGE_ID.exec(message.id ?? "")?.[1]
     : undefined;
-  const isAutomation =
-    legacyPrefix !== null && (legacyTaskId !== undefined || message.createdBy === "agent");
+  if (legacyPrefix !== null && (legacyTaskId !== undefined || message.createdBy === "agent")) {
+    return {
+      text: message.text.slice(legacyPrefix[0].length),
+      attribution: "automation",
+      scheduledTaskId: legacyTaskId === undefined ? undefined : ScheduledTaskId.make(legacyTaskId),
+    };
+  }
   return {
-    text: isAutomation ? message.text.slice(legacyPrefix[0].length) : message.text,
-    isAutomation,
-    scheduledTaskId: legacyTaskId === undefined ? undefined : ScheduledTaskId.make(legacyTaskId),
+    text: message.text,
+    // Restart continuations were sent as the agent before they became notices.
+    attribution:
+      message.createdBy !== "agent"
+        ? null
+        : message.creationSource === "server"
+          ? "t3code"
+          : "agent",
+    scheduledTaskId: undefined,
   };
 }
 
@@ -100,6 +123,6 @@ export function isInternalThreadMessage(message: UserMessagePresentationInput): 
     (message.delegatedCompletion !== undefined ||
       (message.createdBy === "agent" &&
         (message.creationSource === "server" || message.creationSource === "provider"))) &&
-    !resolveUserMessagePresentation(message).isAutomation
+    resolveUserMessagePresentation(message).attribution !== "automation"
   );
 }
