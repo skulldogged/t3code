@@ -189,6 +189,7 @@ jobs:
             runner: blacksmith-4vcpu-ubuntu-2404
             rust_target: x86_64-unknown-linux-gnu
             resource_key: linux-x64
+            cli_archive: true
             desktop_target: AppImage
           - label: Linux arm64
             platform: linux
@@ -196,18 +197,31 @@ jobs:
             runner: blacksmith-4vcpu-ubuntu-2404-arm
             rust_target: aarch64-unknown-linux-gnu
             resource_key: linux-arm64
+            cli_archive: true
           - label: macOS arm64
             platform: mac
             arch: arm64
             runner: macos-26
             rust_target: aarch64-apple-darwin
             resource_key: darwin-arm64
+            cli_archive: true
+          # Node's standalone executable crashes on Intel macOS; upstream
+          # ships the Electron desktop app for this architecture instead.
+          - label: macOS x64
+            platform: mac
+            arch: x64
+            runner: macos-26-intel
+            rust_target: x86_64-apple-darwin
+            resource_key: darwin-x64
+            cli_archive: false
+            desktop_target: dmg
           - label: Windows x64
             platform: win
             arch: x64
             runner: blacksmith-4vcpu-windows-2025
             rust_target: x86_64-pc-windows-msvc
             resource_key: win32-x64
+            cli_archive: true
             desktop_target: nsis
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.platform == 'win' && 60 || 45 }}
@@ -265,10 +279,12 @@ jobs:
           name: js-bundle
           path: apps
       - name: Build CLI single-executable
+        if: matrix.cli_archive
         env:
           VP_NODE_VERSION: "26.8.2"
         run: node apps/server/scripts/cli.ts build-exe --verbose
       - name: Package CLI archive
+        if: matrix.cli_archive
         shell: bash
         run: |
           set -euo pipefail
@@ -281,6 +297,7 @@ jobs:
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
             --output-dir release-cli
       - uses: actions/upload-artifact@v7
+        if: matrix.cli_archive
         with:
           name: cli-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-cli/*
@@ -369,7 +386,8 @@ jobs:
           set -euo pipefail
           mkdir -p release-publish
           find release -maxdepth 1 -type f \( \
-            -name '*.AppImage' -o -name '*.exe' -o -name '*.blockmap' -o -name '*.yml' \
+            -name '*.AppImage' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o \
+            -name '*.blockmap' -o -name '*.yml' \
           \) -exec cp {} release-publish/ \;
       - uses: actions/upload-artifact@v7
         if: matrix.desktop_target
